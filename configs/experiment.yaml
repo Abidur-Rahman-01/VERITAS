@@ -1,0 +1,53 @@
+seed: 42
+model:
+  backend: openai_compatible
+  base_url: http://127.0.0.1:8000/v1
+  name: local-policy
+  api_key_env: VERITAS_API_KEY
+  max_tokens: 2048
+  timeout_seconds: 180
+  temperature: 0.0
+critic:
+  backend: openai_compatible
+  base_url: http://127.0.0.1:8001/v1
+  name: local-critic
+  api_key_env: VERITAS_API_KEY
+  max_tokens: 512
+  timeout_seconds: 180
+  temperature: 0.0
+verifier:
+  backend: openai_compatible
+  base_url: http://127.0.0.1:8001/v1
+  name: local-critic
+  api_key_env: VERITAS_API_KEY
+  max_tokens: 768
+  timeout_seconds: 180
+  temperature: 0.0
+sandbox:
+  image: veritas-sandbox:local
+  platform: null
+  memory: 4g
+  cpus: 2.0
+  timeout_seconds: 60
+  max_output_chars: 16000
+run:
+  max_steps: 30
+  history_chars: 30000
+  verification_budget: 10.0
+  verification_cost: 0.02
+  false_alarm_cost: 0.1
+  # Fixed verifier-call credits are the hard budget unit. Tokens/latency are separate.
+  budget_unit: verifier_call_credit
+  policy: rcvov
+  threshold: 0.0
+  dynamic_lambda: 0.1
+  audit_all: false
+  # Used only before empirical fitting, never represented as measured estimates.
+  allow_uncalibrated: false
+impact:
+  read_op: 0.1
+  code_edit: 0.4
+  env_mutation: 0.75
+  db_write: 0.9
+  external_api: 1.0
+  final_answer: 0.6

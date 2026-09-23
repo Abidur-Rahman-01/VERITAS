@@ -1,0 +1,7 @@
+# Merge over experiment.yaml using --override configs/collection.yaml.
+# Audit every allowed action, but collect an ungated baseline trajectory.
+run:
+  policy: never
+  audit_all: true
+  allow_uncalibrated: true
+  verification_budget: 0.0

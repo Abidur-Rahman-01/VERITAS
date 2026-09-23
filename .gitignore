@@ -1,0 +1,16 @@
+.venv/
+.venv-rebench/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+data/
+runs/
+artifacts/
+dist/
+*.egg-info/
+.env
+.cache/
+logs/

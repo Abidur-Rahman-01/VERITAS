@@ -1,0 +1,12 @@
+model:
+  backend: ollama
+  base_url: http://127.0.0.1:11434
+  name: qwen2.5-coder:32b
+critic:
+  backend: ollama
+  base_url: http://127.0.0.1:11434
+  name: qwen2.5:7b
+verifier:
+  backend: ollama
+  base_url: http://127.0.0.1:11434
+  name: qwen2.5:7b
