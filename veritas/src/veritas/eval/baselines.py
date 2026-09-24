@@ -177,4 +177,8 @@ def default_schedulers() -> list[Scheduler]:
         BavarStyleScheduler(),
         RCVOVScheduler(include_recovery=False, name="rc_vov_no_recovery"),
         RCVOVScheduler(include_recovery=True),
+        NOVAVoVScheduler(),
     ]
+
+
+from veritas.nova.nova_scheduler import NOVAVoVScheduler  # noqa: E402

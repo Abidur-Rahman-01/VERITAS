@@ -7,7 +7,13 @@ import json
 from pathlib import Path
 
 from veritas.actions.permissions import PermissionPolicy
-from veritas.eval.baselines import BavarStyleScheduler, ErrorImpactScheduler, NeverScheduler, RCVOVScheduler
+from veritas.eval.baselines import (
+    BavarStyleScheduler,
+    ErrorImpactScheduler,
+    NeverScheduler,
+    NOVAVoVScheduler,
+    RCVOVScheduler,
+)
 from veritas.eval.gsm8k import load_gsm8k_dataset
 from veritas.learning.cso_harvester import CSOHarvester
 from veritas.recovery.replanner import ReflexionReplanner
@@ -31,7 +37,7 @@ def main() -> None:
     parser.add_argument("--dataset-path", type=Path, default=None, help="Path to GSM8K JSONL file")
     parser.add_argument("--limit", type=int, default=50, help="Number of problems to evaluate")
     parser.add_argument("--split", type=str, default="test", help="GSM8K dataset split")
-    parser.add_argument("--scheduler", choices=["rc_vov", "bavar", "error_x_impact", "never", "all"], default="all")
+    parser.add_argument("--scheduler", choices=["rc_vov", "bavar", "error_x_impact", "never", "nova_vov", "all"], default="all")
     parser.add_argument("--budget", type=float, default=0.24, help="Verification budget per task")
     parser.add_argument("--reflexion", action="store_true", default=True, help="Enable Reflexion replanning loop")
     parser.add_argument("--cso-output", type=Path, default=Path("research/results/cso_preferences.jsonl"))
@@ -53,32 +59,26 @@ def main() -> None:
     harvester = CSOHarvester()
 
     if args.scheduler == "rc_vov":
-        scheduler = RCVOVScheduler(include_recovery=True)
+        schedulers = [RCVOVScheduler(include_recovery=True)]
+    elif args.scheduler == "nova_vov":
+        schedulers = [NOVAVoVScheduler()]
     elif args.scheduler == "bavar":
-        scheduler = BavarStyleScheduler(threshold=0.25)
+        schedulers = [BavarStyleScheduler(threshold=0.25)]
     elif args.scheduler == "error_x_impact":
-        scheduler = ErrorImpactScheduler(threshold=0.25)
-    else:
-        scheduler = NeverScheduler()
-
-    problems = load_gsm8k_dataset(args.dataset_path, limit=args.limit, split=args.split)
-    print(f"Loaded {len(problems)} multi-step reasoning problems from GSM8K [{args.split}]")
-
-    if args.scheduler == "all":
+        schedulers = [ErrorImpactScheduler(threshold=0.25)]
+    elif args.scheduler == "all":
         schedulers = [
             NeverScheduler(),
             ErrorImpactScheduler(threshold=0.25),
             BavarStyleScheduler(threshold=0.25),
             RCVOVScheduler(include_recovery=True),
+            NOVAVoVScheduler(),
         ]
-    elif args.scheduler == "rc_vov":
-        schedulers = [RCVOVScheduler(include_recovery=True)]
-    elif args.scheduler == "bavar":
-        schedulers = [BavarStyleScheduler(threshold=0.25)]
-    elif args.scheduler == "error_x_impact":
-        schedulers = [ErrorImpactScheduler(threshold=0.25)]
     else:
         schedulers = [NeverScheduler()]
+
+    problems = load_gsm8k_dataset(args.dataset_path, limit=args.limit, split=args.split)
+    print(f"Loaded {len(problems)} multi-step reasoning problems from GSM8K [{args.split}]")
 
     all_results = []
 
@@ -101,9 +101,15 @@ def main() -> None:
                 raw_err = 1.5 if is_fault else -2.0
                 p_error = calibrator.calibrate(raw_err)
 
+                expr = str(contract.arguments.get("expression", ""))
+                target_val = float(contract.arguments.get("target", 0.0))
+
                 record = {
                     "action_id": contract.action_id,
-                    "action_class": "shell",
+                    "action_class": "math.calc",
+                    "tool": "math.calc",
+                    "intent": contract.intent,
+                    "action_text": f"{contract.tool}.{contract.operation}({expr}={target_val})",
                     "impact": impact,
                     "calibrated_error_probability": p_error,
                     "detection_rate_estimate": 1.0,
@@ -111,6 +117,11 @@ def main() -> None:
                     "residual_loss_after_recovery": 0.2,
                     "verification_cost": 0.03,
                     "hard_critical": is_fault,
+                    "expression": expr,
+                    "target": target_val,
+                    "step_index": step_idx,
+                    "total_steps": len(contracts),
+                    "arguments": contract.arguments,
                 }
 
                 decision = scheduler.select(record, remaining_budget=remaining_budget, total_budget=args.budget)

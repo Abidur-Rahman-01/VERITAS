@@ -16,8 +16,9 @@ from veritas.risk.recovery_stats import RecoveryStatsTable
 from veritas.risk.verifier_stats import VerifierStatsTable
 from veritas.risk.vov import BudgetController, VovInputs, compute_vov
 from veritas.sandbox.base import Sandbox
-from veritas.storage.events import JSONLEventStore
 from veritas.verification.action_falsifier import ActionFalsifier
+from veritas.nova.certificate import AsymmetricCertificateFalsifier
+from veritas.nova.entropy_gate import EpistemicEntropyGate
 
 
 @dataclass
@@ -27,6 +28,9 @@ class RuntimeConfig:
     verification_cost: float = 0.03
     false_positive_cost: float = 0.1
     checkpoint_mutations: bool = True
+    use_acf_certificates: bool = True
+    use_entropy_gating: bool = False
+    entropy_threshold: float = 0.5
 
 
 @dataclass
@@ -93,12 +97,30 @@ class VeritasRuntime:
                 hard_critical=hard_critical,
             )
 
+            # EEG check: if enabled and not hard_critical, low entropy skips verification
+            eeg_skip = False
+            if self.config.use_entropy_gating and not hard_critical:
+                gate_eeg = EpistemicEntropyGate(tau_entropy=self.config.entropy_threshold)
+                action_text = f"{action.tool}.{action.operation}({action.arguments})"
+                eeg_skip, _ = gate_eeg.should_skip_verification(action_text)
+
             verifier_verdict: str | None = None
-            if gate.selected:
+            if gate.selected and not eeg_skip:
                 state.verification_budget.spend(cost)
                 verification = self.falsifier.verify(action)
                 verifier_verdict = verification.verdict
-                if verification.verdict == "fail":
+
+                # ACF Asymmetric Falsification: objection must be proven by executable certificate
+                is_real_failure = verification.verdict == "fail"
+                if is_real_failure and self.config.use_acf_certificates:
+                    acf = AsymmetricCertificateFalsifier()
+                    acf_result = acf.check(action)
+                    if acf_result.certificate is not None:
+                        is_real_failure = acf_result.proven
+                        if not acf_result.proven:
+                            verifier_verdict = "pass"  # Unproven objection overruled
+
+                if is_real_failure:
                     event = self._event(
                         state,
                         action,

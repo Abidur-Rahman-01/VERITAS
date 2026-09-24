@@ -1,5 +1,6 @@
 policy,problems,total_steps,actions_verified,verification_rate,cost_spent,errors_caught,reflexion_recoveries
-never,100,306,0,0.0000,0.0,0,0
-error_x_impact,100,306,0,0.0000,0.0,0,0
-bavar_style,100,306,0,0.0000,0.0,0,0
-rc_vov,100,306,49,0.1601,1.47,49,49
+never,5,12,0,0.0000,0.0,0,0
+error_x_impact,5,12,0,0.0000,0.0,0,0
+bavar_style,5,12,0,0.0000,0.0,0,0
+rc_vov,5,12,1,0.0833,0.03,1,1
+nova_vov,5,12,1,0.0833,0.03,1,1

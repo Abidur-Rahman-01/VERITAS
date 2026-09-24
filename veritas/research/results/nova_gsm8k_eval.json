@@ -2,51 +2,75 @@
   {
     "scheduler": "never",
     "problems_evaluated": 5,
+    "correct_problems": 4,
+    "accuracy_pct": 80.0,
     "total_reasoning_steps": 12,
     "actions_verified": 0,
     "verification_rate": 0.0,
     "cost_spent": 0.0,
     "errors_caught": 0,
-    "reflexion_recoveries": 0
+    "reflexion_recoveries": 0,
+    "est_tokens_per_task": 480,
+    "elapsed_sec": 0.0
   },
   {
     "scheduler": "error_x_impact",
     "problems_evaluated": 5,
+    "correct_problems": 4,
+    "accuracy_pct": 80.0,
     "total_reasoning_steps": 12,
     "actions_verified": 0,
     "verification_rate": 0.0,
     "cost_spent": 0.0,
     "errors_caught": 0,
-    "reflexion_recoveries": 0
+    "reflexion_recoveries": 0,
+    "est_tokens_per_task": 480,
+    "elapsed_sec": 0.0
   },
   {
     "scheduler": "bavar_style",
     "problems_evaluated": 5,
+    "correct_problems": 4,
+    "accuracy_pct": 80.0,
     "total_reasoning_steps": 12,
     "actions_verified": 0,
     "verification_rate": 0.0,
     "cost_spent": 0.0,
     "errors_caught": 0,
-    "reflexion_recoveries": 0
+    "reflexion_recoveries": 0,
+    "est_tokens_per_task": 480,
+    "elapsed_sec": 0.0
   },
   {
     "scheduler": "rc_vov",
     "problems_evaluated": 5,
+    "correct_problems": 5,
+    "accuracy_pct": 100.0,
     "total_reasoning_steps": 12,
     "actions_verified": 1,
-    "verification_rate": 0.08333333333333333,
+    "verification_rate": 0.0833,
     "cost_spent": 0.03,
     "errors_caught": 1,
-    "reflexion_recoveries": 1
+    "reflexion_recoveries": 1,
+    "est_tokens_per_task": 640,
+    "elapsed_sec": 0.0
   },
   {
     "scheduler": "nova_vov",
     "problems_evaluated": 5,
+    "correct_problems": 5,
+    "accuracy_pct": 100.0,
     "total_reasoning_steps": 12,
     "actions_verified": 1,
-    "verification_rate": 0.08333333333333333,
+    "verification_rate": 0.0833,
     "cost_spent": 0.03,
     "errors_caught": 1,
-    "reflexion_recoveries": 1
+    "reflexion_recoveries": 1,
+    "est_tokens_per_task": 640,
+    "nova_eeg_instant_passes": 0,
+    "nova_eeg_pass_rate_pct": 0.0,
+    "nova_acf_rejections": 1,
+    "nova_avg_entropy": 2.5332,
+    "elapsed_sec": 0.01
   }
 ]
