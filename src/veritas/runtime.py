@@ -121,7 +121,10 @@ def run_task(
             record.budget_spent = float(controller.budget.spent)
             store.append(record)
             event_ids.append(record.event_id)
-            history.append({"blocked_proposal": redact(raw)[:8000], "diagnostic": str(e)[:2000]})
+            history.append({
+                "action": "invalid_proposal",
+                "error": f"Invalid proposal: {str(e)[:300]}. Return ONLY a JSON object with 'tool' and 'args'."
+            })
             replan_pending = True
             continue
         record.action = action
@@ -196,8 +199,11 @@ def run_task(
             else:
                 result = sandbox.execute(action)
                 record.executed = True
+                obs_content = result.get("output", "") if isinstance(result, dict) else str(result)
+                if isinstance(result, dict) and result.get("exit_code") not in (0, None):
+                    obs_content = f"Command failed (exit code {result['exit_code']}):\n{obs_content}"
                 record.observation = sanitize(
-                    json.dumps(result), action.proposal.tool, config.sandbox.max_output_chars
+                    obs_content, action.proposal.tool, config.sandbox.max_output_chars
                 )
                 # Nonzero exit only establishes operational failure. A failed test command may be
                 # an excellent diagnostic action; never call that a semantic error automatically.
@@ -365,7 +371,7 @@ def collect(
                     {
                         "instance_id": task.private["instance_id"],
                         "model_patch": patch,
-                        "model_name_or_path": config.model.name,
+                        "model_name_or_path": config.model.name.replace(":", "__"),
                     }
                 )
             summaries.append(summary)

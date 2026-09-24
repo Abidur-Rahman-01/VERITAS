@@ -251,8 +251,9 @@ def make_patch(baseline, workspace):
         for child in root.iterdir():
             if child.name != ".git":
                 shutil.rmtree(child) if child.is_dir() else child.unlink()
+        ignore = {".git", ".pytest_cache", "__pycache__", ".tox", ".coverage"}
         for child in Path(workspace).iterdir():
-            if child.name == ".git":
+            if child.name in ignore:
                 continue
             shutil.copytree(child, root / child.name) if child.is_dir() else shutil.copy2(
                 child, root / child.name

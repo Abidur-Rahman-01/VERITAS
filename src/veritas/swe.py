@@ -3,7 +3,11 @@ import json
 import shlex
 import subprocess
 import sys
+import types
 from pathlib import Path
+
+if "resource" not in sys.modules:
+    sys.modules["resource"] = types.ModuleType("resource")
 
 from .data import load_tasks
 from .io import read_jsonl, write_json, write_jsonl

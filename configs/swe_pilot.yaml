@@ -1,0 +1,6 @@
+run:
+  max_steps: 10
+  policy: never
+  audit_all: false
+  allow_uncalibrated: true
+  verification_budget: 0.0

@@ -1,0 +1,26 @@
+{
+    "total_instances": 3,
+    "submitted_instances": 1,
+    "completed_instances": 1,
+    "resolved_instances": 0,
+    "unresolved_instances": 1,
+    "empty_patch_instances": 0,
+    "error_instances": 0,
+    "completed_ids": [
+        "astropy__astropy-13075"
+    ],
+    "incomplete_ids": [
+        "astropy__astropy-13132",
+        "astropy__astropy-14253"
+    ],
+    "empty_patch_ids": [],
+    "submitted_ids": [
+        "astropy__astropy-13075"
+    ],
+    "resolved_ids": [],
+    "unresolved_ids": [
+        "astropy__astropy-13075"
+    ],
+    "error_ids": [],
+    "schema_version": 2
+}
