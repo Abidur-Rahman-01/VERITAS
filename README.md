@@ -113,3 +113,14 @@ docs/                    Run guide, sources, protocol and implementation limits
 The small fixtures inside `tests/` are software assertions only. They are never included
 in downloaded datasets, calibration artifacts, reported research results or task counts.
 # VERITAS
+
+## Local model comparison and interrupted-run diagnostics
+
+See [COMPARISON.md](docs/COMPARISON.md) for paired, resumable terminal comparisons.
+They discover installed models, retain failures, and export CSV/JSON/text.
+The initial comparison measures model baselines without an unused critic; RC-VoV
+policy evaluation follows once calibration evidence is adequate.
+
+    uv run veritas diagnose-run runs/calib-pilot-v1 --artifact artifacts/calibration.json
+    uv run veritas compare --output runs/math-model-pilot --sources gsm8k_train --limit 5 --execute
+    uv run veritas compare --output runs/math-model-pilot --report

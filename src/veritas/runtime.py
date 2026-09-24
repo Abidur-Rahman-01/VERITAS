@@ -40,6 +40,10 @@ def run_task(
     output = Path(output)
     output.mkdir(parents=True, exist_ok=True)
     run_id = run_id or uuid.uuid4().hex
+    if not config.run.score_critic and (
+        config.run.policy != "never" or config.run.audit_all or artifact
+    ):
+        raise ValueError("Disabling the critic requires never policy, no audit and no artifact")
     if not artifact and not config.run.allow_uncalibrated:
         raise ValueError(
             "Fitted artifact required. Use collection.yaml only for explicitly uncalibrated collection"
@@ -121,7 +125,8 @@ def run_task(
             replan_pending = True
             continue
         record.action = action
-        record.raw_logit, record.critic_usage = critic.score(context, action)
+        if config.run.score_critic:
+            record.raw_logit, record.critic_usage = critic.score(context, action)
         critic_tokens += record.critic_usage.total
         usage_complete &= record.critic_usage.measured
         record.impact = config.impact[action.action_class]
@@ -129,20 +134,20 @@ def run_task(
             calibrated = apply_artifact(record.model_dump(mode="json"), artifact)
             for key in ("p_error", "detection_rate", "false_positive_rate", "residual_loss"):
                 setattr(record, key, calibrated[key])
-        else:
+        elif config.run.score_critic:
             record.p_error = float(expit(record.raw_logit))
             # Explicit collection priors. They cannot be exported as an empirical artifact.
             record.detection_rate, record.false_positive_rate, record.residual_loss = 0.5, 0.1, 0.5
         risk = Risk(
-            record.p_error,
+            record.p_error if record.p_error is not None else 0.5,
             record.impact,
-            record.detection_rate,
-            record.false_positive_rate,
-            record.residual_loss,
+            record.detection_rate if record.detection_rate is not None else 0.5,
+            record.false_positive_rate if record.false_positive_rate is not None else 0.1,
+            record.residual_loss if record.residual_loss is not None else 0.5,
             record.verifier_cost,
             record.false_alarm_cost,
         )
-        record.delta = risk.delta
+        record.delta = risk.delta if config.run.score_critic else None
         selected = controller.decide(risk)
         record.decision = "verify" if selected else "skip"
         checkpoint = Checkpoint(sandbox.workspace, output / f"checkpoint-{step}")
@@ -239,6 +244,7 @@ def run_task(
         "policy": config.run.policy,
         "model": config.model.name,
         "calibrated": bool(artifact),
+        "critic_enabled": config.run.score_critic,
         "final_answer": final,
         "seed": config.seed,
         "recovery_mode": config.run.recovery_mode,
@@ -275,6 +281,7 @@ def collect(
     artifact=None,
     critic_dir=None,
     images=None,
+    selected_tasks=None,
 ):
     from .critic import TrainedCritic
     from .data import load_tasks
@@ -311,7 +318,12 @@ def collect(
     store = EventStore(output / "events.sqlite")
     summaries, predictions = [], []
     try:
-        for task, assignment in load_tasks(tasks_dir, split, source, limit):
+        task_pairs = (
+            selected_tasks
+            if selected_tasks is not None
+            else load_tasks(tasks_dir, split, source, limit)
+        )
+        for task, assignment in task_pairs:
             task_output = output / digest(task.task_id)[:20]
             workspace = task_output / "workspace"
             workspace.mkdir(parents=True, exist_ok=True)

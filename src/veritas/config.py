@@ -38,6 +38,7 @@ class RunConfig(StrictModel):
     dynamic_lambda: float = Field(default=0.1, ge=0)
     audit_all: bool = False
     allow_uncalibrated: bool = False
+    score_critic: bool = True
     recovery_mode: Literal["checkpoint", "restart"] = "checkpoint"
 
 

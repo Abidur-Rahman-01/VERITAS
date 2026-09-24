@@ -7,6 +7,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import httpx
+
 from .io import canonical
 
 
@@ -15,6 +17,28 @@ def parser():
         prog="veritas", description="Real-data, local-model VERITAS experiments"
     )
     commands = p.add_subparsers(dest="command", required=True)
+    comparison = commands.add_parser(
+        "compare", help="Plan/run/resume paired local-model comparisons"
+    )
+    comparison.add_argument("--config", default="configs/comparison.yaml")
+    comparison.add_argument("--output", required=True)
+    comparison.add_argument("--models", nargs="+")
+    comparison.add_argument("--sources", nargs="+")
+    size = comparison.add_mutually_exclusive_group()
+    size.add_argument("--limit", type=int)
+    size.add_argument("--all-tasks", action="store_true")
+    mode = comparison.add_mutually_exclusive_group()
+    mode.add_argument(
+        "--execute", action="store_true", help="Create plan and start local inference"
+    )
+    mode.add_argument("--resume", action="store_true", help="Run pending jobs in an existing plan")
+    mode.add_argument("--report", action="store_true", help="Show saved results; no inference")
+    comparison.add_argument("--retry-failed", action="store_true")
+    diagnose = commands.add_parser(
+        "diagnose-run", help="Audit partial runs and calibration without inference"
+    )
+    diagnose.add_argument("directory")
+    diagnose.add_argument("--artifact")
     doctor = commands.add_parser(
         "doctor", help="Validate installation/configuration without model inference"
     )
@@ -210,6 +234,26 @@ def doctor(config_path, check_models=False):
 
 
 def dispatch(a):
+    if a.command == "diagnose-run":
+        from .diagnostics import diagnose_run
+
+        return diagnose_run(a.directory, a.artifact)
+    if a.command == "compare":
+        from .comparison import create_plan, report_comparison, run_comparison
+
+        if a.retry_failed and not a.resume:
+            raise ValueError("--retry-failed requires --resume")
+        if (a.resume or a.report) and (a.models or a.sources or a.limit or a.all_tasks):
+            raise ValueError("Existing plans are frozen; use a new output for different selections")
+        if a.report:
+            report_comparison(a.output)
+        elif a.resume:
+            run_comparison(a.output, a.retry_failed)
+        else:
+            create_plan(a.config, a.output, a.limit, a.all_tasks, a.models, a.sources)
+            if a.execute:
+                run_comparison(a.output)
+        return None
     if a.command == "doctor":
         return doctor(a.config, a.check_models)
     if a.command == "data":
@@ -318,7 +362,15 @@ def dispatch(a):
         from .swe import build_images, evaluate_swe, image_map, pull_images
 
         if a.action == "image-map":
-            return image_map(a.tasks, a.output, a.split, a.source, a.limit, a.namespace, a.arch)
+            return image_map(
+                a.tasks,
+                a.output,
+                None if a.split == "all" else a.split,
+                a.source,
+                a.limit,
+                a.namespace,
+                a.arch,
+            )
         if a.action == "pull-images":
             return pull_images(a.mapping)
         if a.action == "build-images":
@@ -335,7 +387,14 @@ def main():
         result = dispatch(a)
         if result is not None:
             print(canonical(result).decode())
-    except (ValueError, RuntimeError, OSError, ImportError) as e:
+    except (
+        ValueError,
+        RuntimeError,
+        OSError,
+        ImportError,
+        httpx.HTTPError,
+        subprocess.SubprocessError,
+    ) as e:
         print(f"VERITAS: {e}", file=sys.stderr)
         if os.environ.get("VERITAS_DEBUG"):
             raise

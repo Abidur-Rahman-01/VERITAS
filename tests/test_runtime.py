@@ -144,3 +144,37 @@ def test_floor_blocks_before_critic(tmp_path):
     assert summary["critic_tokens"] == 0
     assert summary["policy_tokens"] == 15  # zero-token floor does not mean zero-token replan.
     store.close()
+
+
+def test_never_baseline_skips_critic_without_invented_scores(tmp_path):
+    cfg = Config()
+    cfg.run.allow_uncalibrated, cfg.run.policy = True, "never"
+    cfg.run.score_critic = False
+    sandbox = StubSandbox(tmp_path / "work")
+    store = EventStore(tmp_path / "events.db")
+    summary = run_task(
+        task(),
+        {"split": "dev"},
+        cfg,
+        StubPolicy([{"tool": "final_answer", "args": {"answer": "2"}}]),
+        None,
+        None,
+        sandbox,
+        store,
+        tmp_path / "run",
+    )
+    record = next(store.records())
+    assert summary["task_success"] is True
+    assert summary["total_online_tokens"] == 15
+    assert summary["critic_tokens"] == 0
+    assert record.raw_logit is None and record.p_error is None and record.delta is None
+    store.close()
+
+
+def test_critic_cannot_be_disabled_for_gating(tmp_path):
+    import pytest
+
+    cfg = Config()
+    cfg.run.score_critic = False
+    with pytest.raises(ValueError, match="Disabling the critic"):
+        run_task(task(), {"split": "dev"}, cfg, None, None, None, None, None, tmp_path / "run")
