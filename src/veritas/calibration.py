@@ -1,3 +1,4 @@
+import json
 import math
 from collections import defaultdict
 from pathlib import Path
@@ -6,7 +7,7 @@ import numpy as np
 from scipy.optimize import minimize_scalar
 from scipy.special import expit
 
-from .io import file_hash, read_records, write_json
+from .io import file_hash, read_records, write_json, write_jsonl
 
 
 def calibration_metrics(logits, labels, temperature=1.0, bins=15):
@@ -52,8 +53,12 @@ def wilson(success, total, z=1.96):
     return [max(0.0, center - width), min(1.0, center + width)]
 
 
-def fit_artifact(records_path, output, scope="semantic", min_class_samples=5):
-    records = list(read_records(records_path))
+def _fit_artifact(records, source_sha256, scope="semantic", min_class_samples=5):
+    if min_class_samples < 1:
+        raise ValueError("Minimum class samples must be positive")
+    ids = [r["event_id"] for r in records]
+    if len(ids) != len(set(ids)):
+        raise ValueError("Duplicate calibration event IDs")
     # A task may never straddle fitting/evaluation partitions, even for repeated runs.
     seen = defaultdict(set)
     roles = defaultdict(set)
@@ -97,6 +102,10 @@ def fit_artifact(records_path, output, scope="semantic", min_class_samples=5):
         raise ValueError(
             "Verifier statistics require complete successful audit coverage; collect audit_all traces"
         )
+    if any(not r.get("audit_only") or r.get("decision") != "skip" for r in probability + stat_rows):
+        raise ValueError(
+            "Calibration requires ungated audit_all collection to avoid selection bias"
+        )
     grouped = defaultdict(list)
     for row in stat_rows:
         grouped[row["action"]["action_class"]].append(row)
@@ -129,7 +138,7 @@ def fit_artifact(records_path, output, scope="semantic", min_class_samples=5):
             "No class has enough positive/negative labels AND measured restoration. Collect more natural traces"
         )
     artifact = {
-        "version": 1,
+        "version": 2,
         "method": "temperature",
         "temperature": temperature,
         "critic_id": next(iter(critic_ids)),
@@ -139,10 +148,9 @@ def fit_artifact(records_path, output, scope="semantic", min_class_samples=5):
         "before": calibration_metrics(z, y),
         "after": calibration_metrics(z, y, temperature),
         "fit_groups": sorted({r["group_id"] for r in probability + stat_rows}),
-        "source_sha256": file_hash(Path(records_path)),
+        "source_sha256": source_sha256,
         "minimum_per_class_outcome": min_class_samples,
     }
-    write_json(output, artifact)
     return artifact
 
 
@@ -164,3 +172,99 @@ def apply_artifact(row, artifact):
         "p_error": float(expit(row["raw_logit"] / artifact["temperature"])),
         **{k: stat[k] for k in ("detection_rate", "false_positive_rate", "residual_loss")},
     }
+
+
+def fit_artifact(records_path, output, scope="semantic", min_class_samples=5):
+    output = Path(output)
+    evidence = output.with_suffix(".evidence.jsonl")
+    if output.exists() or evidence.exists():
+        raise ValueError("Calibration output already exists; use a new artifact name")
+    records = list(read_records(records_path))
+    # Keep the full input so partition-leakage checks are reproducible too.
+    artifact = _fit_artifact(records, file_hash(Path(records_path)), scope, min_class_samples)
+    write_jsonl(evidence, records)
+    artifact["evidence_file"] = evidence.name
+    artifact["evidence_sha256"] = file_hash(evidence)
+    write_json(output, artifact)
+    return artifact
+
+
+def load_artifact(path):
+    path = Path(path)
+    artifact = json.loads(path.read_text())
+    if artifact.get("version") != 2:
+        raise ValueError("Legacy calibration has no verifiable evidence; refit with current code")
+    evidence = path.parent / artifact["evidence_file"]
+    if (
+        evidence.name != artifact["evidence_file"]
+        or file_hash(evidence) != artifact["evidence_sha256"]
+    ):
+        raise ValueError("Calibration evidence missing or changed")
+    expected = _fit_artifact(
+        list(read_records(evidence)),
+        artifact["source_sha256"],
+        artifact["label_scope"],
+        artifact["minimum_per_class_outcome"],
+    )
+
+    def equivalent(a, b):
+        if isinstance(a, dict):
+            return (
+                isinstance(b, dict)
+                and a.keys() == b.keys()
+                and all(equivalent(v, b[k]) for k, v in a.items())
+            )
+        if isinstance(a, float):
+            return isinstance(b, (int, float)) and math.isclose(a, b, rel_tol=1e-9, abs_tol=1e-12)
+        return a == b
+
+    if any(k not in artifact or not equivalent(v, artifact[k]) for k, v in expected.items()):
+        raise ValueError("Calibration differs from its evidence; do not edit empirical statistics")
+    return artifact
+
+
+def assess_calibration(records_path, artifact_path, output, split="val"):
+    """Evaluate held-out probability quality; calibration fit metrics are not validation."""
+    from sklearn.metrics import average_precision_score, roc_auc_score
+
+    artifact = load_artifact(artifact_path)
+    rows = [r for r in read_records(records_path) if r["split"] == split and not r.get("blocked")]
+    if any(r["group_id"] in artifact["fit_groups"] for r in rows):
+        raise ValueError("Calibration assessment overlaps fitting groups")
+    scored = [
+        r
+        for r in rows
+        if r.get("raw_logit") is not None
+        and r.get("error_label") is not None
+        and r.get("label_scope") == artifact["label_scope"]
+    ]
+    if not scored:
+        raise ValueError("No independently labeled held-out scores")
+    if any(
+        r.get("critic_id") != artifact["critic_id"]
+        or r.get("verifier_id") != artifact["verifier_id"]
+        for r in scored
+    ):
+        raise ValueError("Held-out critic/verifier identity differs from calibration")
+    z, y = [r["raw_logit"] for r in scored], [r["error_label"] for r in scored]
+    both = len(set(y)) == 2
+    result = {
+        "split": split,
+        "eligible_actions": len(rows),
+        "labeled_scored_actions": len(scored),
+        "label_and_score_coverage": len(scored) / len(rows),
+        "task_groups": len({r["group_id"] for r in scored}),
+        "distinct_logits": len(set(z)),
+        "error_rate": float(np.mean(y)),
+        "auroc": float(roc_auc_score(y, z)) if both else None,
+        "average_precision": float(average_precision_score(y, z)) if both else None,
+        "before": calibration_metrics(z, y),
+        "after": calibration_metrics(z, y, artifact["temperature"]),
+        "missing_classes": sorted(
+            {r["action"]["action_class"] for r in rows if r.get("action")}
+            - artifact["statistics"].keys()
+        ),
+        "warning": "Low ECE alone does not establish ranking quality; inspect AUROC, coverage and class counts.",
+    }
+    write_json(output, result)
+    return result

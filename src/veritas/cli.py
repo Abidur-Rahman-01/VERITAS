@@ -1,6 +1,5 @@
 import argparse
 import importlib.metadata
-import json
 import os
 import shutil
 import subprocess
@@ -84,7 +83,9 @@ def parser():
     )
     collect.add_argument("--tasks", default="data/prepared")
     collect.add_argument("--config", default="configs/experiment.yaml")
-    collect.add_argument("--override")
+    collect.add_argument(
+        "--override", action="append", help="Merge YAML override; may be repeated in order"
+    )
     collect.add_argument("--output", required=True)
     collect.add_argument("--split", choices=["dev", "calib", "val", "test", "backbone"])
     collect.add_argument("--source")
@@ -136,6 +137,13 @@ def parser():
     c.add_argument("--output", required=True)
     c.add_argument("--scope", default="semantic", choices=["semantic", "operational"])
     c.add_argument("--min-class-samples", type=int, default=5)
+    c = commands.add_parser(
+        "validate-calibration", help="Assess held-out critic quality without inference"
+    )
+    c.add_argument("records")
+    c.add_argument("--artifact", required=True)
+    c.add_argument("--output", required=True)
+    c.add_argument("--split", default="val", choices=["val", "test", "backbone"])
     for name in ["tune", "replay"]:
         c = commands.add_parser(name)
         c.add_argument("records")
@@ -144,6 +152,8 @@ def parser():
         c.add_argument("--budgets", nargs="+", type=float, default=[0.02, 0.04, 0.1, 0.2, 0.4])
         c.add_argument("--scope", default="semantic", choices=["semantic", "operational"])
         c.add_argument("--seed", type=int, default=42)
+        if name == "tune":
+            c.add_argument("--dynamic-lambda", type=float, default=0.0)
         if name == "replay":
             c.add_argument("--tuning", required=True)
             c.add_argument("--split", default="test", choices=["test", "backbone", "val"])
@@ -274,15 +284,23 @@ def dispatch(a):
         if a.budget is not None:
             config.run.verification_budget = a.budget
         if a.tuning:
-            from .io import file_hash
+            from .data import load_tasks
+            from .replay import load_tuning
 
-            tuning = json.loads(Path(a.tuning).read_text())
-            if not a.artifact or tuning["artifact_sha256"] != file_hash(Path(a.artifact)):
+            if not a.artifact:
                 raise ValueError("Online tuning requires its matching calibration artifact")
+            tuning = load_tuning(a.tuning, a.artifact)
+            if any(
+                t.group_id in tuning["fit_groups"]
+                for t, _ in load_tasks(a.tasks, a.split, a.source, a.limit)
+            ):
+                raise ValueError("Online evaluation overlaps validation tuning groups")
             key = f"{config.run.policy}:{config.run.verification_budget:g}"
             if key not in tuning["thresholds"]:
                 raise ValueError(f"No validation threshold for {key}")
             config.run.threshold = tuning["thresholds"][key]
+            config.run.dynamic_lambda = tuning["dynamic_lambda"]
+            config.seed = tuning["seed"]
         return collect(
             a.tasks,
             config,
@@ -340,11 +358,17 @@ def dispatch(a):
         from .calibration import fit_artifact
 
         return fit_artifact(a.records, a.output, a.scope, a.min_class_samples)
+    if a.command == "validate-calibration":
+        from .calibration import assess_calibration
+
+        return assess_calibration(a.records, a.artifact, a.output, a.split)
     if a.command in {"tune", "replay"}:
         from .replay import sweep, tune
 
         if a.command == "tune":
-            return tune(a.records, a.artifact, a.output, a.budgets, a.scope, a.seed)
+            return tune(
+                a.records, a.artifact, a.output, a.budgets, a.scope, a.seed, a.dynamic_lambda
+            )
         return sweep(a.records, a.artifact, a.tuning, a.output, a.budgets, a.split, a.scope, a.seed)
     if a.command == "report":
         from .report import frontier_report

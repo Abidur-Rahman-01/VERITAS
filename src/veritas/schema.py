@@ -22,6 +22,7 @@ class Proposal(StrictModel):
         "list_files",
         "read_file",
         "write_file",
+        "edit_file",
         "delete_file",
         "python",
         "run_tests",
@@ -93,6 +94,9 @@ class StepRecord(StrictModel):
     blocked: bool = False
     block_reason: str | None = None
     raw_logit: float | None = None
+    critic_error: str | None = None
+    critic_raw_output: str | None = None
+    fallback_reason: str | None = None
     p_error: float | None = Field(default=None, ge=0, le=1)
     impact: float = Field(default=0, ge=0, le=1)
     detection_rate: float | None = Field(default=None, ge=0, le=1)

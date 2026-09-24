@@ -124,3 +124,16 @@ policy evaluation follows once calibration evidence is adequate.
     uv run veritas diagnose-run runs/calib-pilot-v1 --artifact artifacts/calibration.json
     uv run veritas compare --output runs/math-model-pilot --sources gsm8k_train --limit 5 --execute
     uv run veritas compare --output runs/math-model-pilot --report
+
+## Performance upgrade and next local experiment
+
+See [PERFORMANCE_UPGRADE.md](docs/PERFORMANCE_UPGRADE.md) for the fixes, new paired
+policy comparison, calibration migration, and exact local commands. Start with:
+
+```sh
+uv run veritas compare --config configs/policy-baselines.yaml --output runs/baseline-v2
+uv run veritas compare --output runs/baseline-v2 --resume
+```
+
+Old calibration from changed prompts or manually edited rates must be recollected and
+refitted. No improvement in model accuracy is claimed without new measured runs.

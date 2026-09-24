@@ -28,16 +28,16 @@ sandbox:
   timeout_seconds: 60
   max_output_chars: 16000
 run:
-  max_steps: 8
+  max_steps: 30
   history_chars: 30000
-  verification_budget: 10.0
+  verification_budget: 0.2
   verification_cost: 0.02
   false_alarm_cost: 0.1
   # Fixed verifier-call credits are the hard budget unit. Tokens/latency are separate.
   budget_unit: verifier_call_credit
   policy: rcvov
   threshold: 0.0
-  dynamic_lambda: 0.1
+  dynamic_lambda: 0.0
   audit_all: false
   # Used only before empirical fitting, never represented as measured estimates.
   allow_uncalibrated: false

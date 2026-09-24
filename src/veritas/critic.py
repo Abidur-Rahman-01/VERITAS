@@ -2,7 +2,8 @@ import json
 import time
 from pathlib import Path
 
-from .io import canonical, digest, file_hash, read_records, write_json, write_jsonl
+from .io import canonical, file_hash, read_records, write_json, write_jsonl
+from .provenance import critic_identity
 from .schema import Usage
 
 
@@ -120,7 +121,7 @@ def score_records(records, critic_dir, output):
                     row["context"], ActionContract.model_validate(row["action"])
                 )
                 row["p_error"] = None
-                row["critic_id"] = digest(critic.metadata)
+                row["critic_id"] = critic_identity(None, critic)
             yield row
 
     write_jsonl(output, rows())

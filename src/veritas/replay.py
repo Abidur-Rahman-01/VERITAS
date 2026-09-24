@@ -4,7 +4,7 @@ from pathlib import Path
 
 import numpy as np
 
-from .calibration import apply_artifact
+from .calibration import apply_artifact, load_artifact
 from .controller import POLICIES, Controller, Risk
 from .io import digest, file_hash, read_records, write_json, write_jsonl
 
@@ -46,13 +46,13 @@ def eligible_records(path, artifact, split, scope="semantic"):
     return sorted(rows, key=lambda r: (r["run_id"], r["task_id"], r["step_id"])), blocked
 
 
-def evaluate(rows, policy, budget, threshold=0.0, dynamic_lambda=0.1, seed=42):
+def evaluate(rows, policy, budget, threshold=0.0, dynamic_lambda=0.0, seed=42):
     groups = defaultdict(list)
     for row in rows:
         groups[(row["run_id"], row["task_id"])].append(row)
     results = []
     for (run_id, task_id), steps in sorted(groups.items()):
-        stable_seed = int(digest([seed, run_id, task_id])[:16], 16)
+        stable_seed = int(digest([seed, task_id])[:16], 16)
         controller = Controller(policy, budget, threshold, dynamic_lambda, stable_seed)
         selected, caught, consequential, true_verified, false_rejections, missed, total_errors = (
             0,
@@ -63,7 +63,7 @@ def evaluate(rows, policy, budget, threshold=0.0, dynamic_lambda=0.1, seed=42):
             0,
             0,
         )
-        selected_ids, avoided_weight = [], 0.0
+        selected_ids, avoided_weight, false_alarm_loss = [], 0.0, 0.0
         for row in sorted(steps, key=lambda r: r["step_id"]):
             risk = Risk(**{key: row[key] for key in Risk.__dataclass_fields__})
             error = row["error_label"] == 1
@@ -78,6 +78,9 @@ def evaluate(rows, policy, budget, threshold=0.0, dynamic_lambda=0.1, seed=42):
                 consequential += detected and row["impact"] >= 0.5
                 avoided_weight += detected * row["impact"] * (1 - row["residual_loss"])
                 false_rejections += (not error) and row["verification"]["verdict"] == "FAIL"
+                false_alarm_loss += (
+                    (not error) and row["verification"]["verdict"] == "FAIL"
+                ) * row["false_alarm_cost"]
                 missed += error and not detected
             else:
                 missed += error
@@ -94,6 +97,9 @@ def evaluate(rows, policy, budget, threshold=0.0, dynamic_lambda=0.1, seed=42):
                 "false_rejections": false_rejections,
                 "missed_errors": missed,
                 "impact_weight_caught": avoided_weight,
+                "net_observed_value": avoided_weight
+                - float(controller.budget.spent)
+                - false_alarm_loss,
                 "spent": float(controller.budget.spent),
                 "budget": budget,
                 "budget_violation": controller.budget.spent > controller.budget.total,
@@ -111,6 +117,7 @@ def evaluate(rows, policy, budget, threshold=0.0, dynamic_lambda=0.1, seed=42):
             "false_rejections",
             "missed_errors",
             "impact_weight_caught",
+            "net_observed_value",
             "spent",
             "budget_violation",
         )
@@ -136,8 +143,8 @@ def evaluate(rows, policy, budget, threshold=0.0, dynamic_lambda=0.1, seed=42):
     return totals, results
 
 
-def tune(records, artifact_path, output, budgets, scope="semantic", seed=42):
-    artifact = json.loads(Path(artifact_path).read_text())
+def _tune(records, artifact_path, budgets, scope="semantic", seed=42, dynamic_lambda=0.0):
+    artifact = load_artifact(artifact_path)
     rows, _ = eligible_records(records, artifact, "val", scope)
     selections = {}
     for budget in budgets:
@@ -146,14 +153,33 @@ def tune(records, artifact_path, output, budgets, scope="semantic", seed=42):
                 candidates = [0.0]
             elif policy == "random":
                 candidates = [0.25, 0.5, 0.75, 1.0]
-            elif policy in {"rcvov", "bavar_style"}:
-                candidates = [-1.0, 0.0, 0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 50.0]
             else:
-                candidates = [0.0, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
-            scored = [evaluate(rows, policy, budget, threshold=t, seed=seed)[0] for t in candidates]
+                controller = Controller(policy, budget)
+                scores = [
+                    controller.score(Risk(**{key: row[key] for key in Risk.__dataclass_fields__}))
+                    for row in rows
+                ]
+                candidates = sorted(
+                    set(
+                        [
+                            float(np.nextafter(min(scores), -np.inf)),
+                            0.0,
+                            *map(
+                                float, np.quantile(scores, np.linspace(0, 1, min(21, len(scores))))
+                            ),
+                        ]
+                    )
+                )
+            scored = [
+                evaluate(
+                    rows, policy, budget, threshold=t, seed=seed, dynamic_lambda=dynamic_lambda
+                )[0]
+                for t in candidates
+            ]
             best = max(
                 scored,
                 key=lambda r: (
+                    r["net_observed_value"],
                     r["consequential_caught"],
                     r["errors_caught"],
                     -r["false_rejections"],
@@ -162,8 +188,12 @@ def tune(records, artifact_path, output, budgets, scope="semantic", seed=42):
             )
             selections[f"{policy}:{budget:g}"] = best["threshold"]
     result = {
-        "version": 1,
+        "version": 2,
         "seed": seed,
+        "dynamic_lambda": dynamic_lambda,
+        "budgets": budgets,
+        "objective": "net_observed_value_then_consequential_catches",
+        "threshold_search": "observed_score_quantiles_21",
         "split": "val",
         "label_scope": scope,
         "fit_groups": sorted({r["group_id"] for r in rows}),
@@ -171,8 +201,48 @@ def tune(records, artifact_path, output, budgets, scope="semantic", seed=42):
         "artifact_sha256": file_hash(Path(artifact_path)),
         "records_sha256": file_hash(Path(records)),
     }
+    return result
+
+
+def tune(records, artifact_path, output, budgets, scope="semantic", seed=42, dynamic_lambda=0.0):
+    output = Path(output)
+    evidence = output.with_suffix(".evidence.jsonl")
+    if output.exists() or evidence.exists():
+        raise ValueError("Tuning output already exists; use a new name")
+    result = _tune(records, artifact_path, budgets, scope, seed, dynamic_lambda)
+    write_jsonl(evidence, read_records(records))
+    result["evidence_file"] = evidence.name
+    result["evidence_sha256"] = file_hash(evidence)
     write_json(output, result)
     return result
+
+
+def load_tuning(path, artifact_path):
+    path = Path(path)
+    tuning = json.loads(path.read_text())
+    if tuning.get("version") != 2:
+        raise ValueError("Legacy tuning needs to be refitted with current code")
+    if tuning["artifact_sha256"] != file_hash(Path(artifact_path)):
+        raise ValueError("Tuning/calibration artifact mismatch")
+    evidence = path.parent / tuning["evidence_file"]
+    if evidence.name != tuning["evidence_file"] or file_hash(evidence) != tuning["evidence_sha256"]:
+        raise ValueError("Tuning evidence changed")
+    expected = _tune(
+        evidence,
+        artifact_path,
+        tuning["budgets"],
+        tuning["label_scope"],
+        tuning["seed"],
+        tuning["dynamic_lambda"],
+    )
+    expected.pop(
+        "records_sha256"
+    )  # Original input may have been Parquet. Evidence is canonical JSONL.
+    if any(tuning.get(k) != v for k, v in expected.items()):
+        raise ValueError(
+            "Thresholds differ from validation evidence; retune instead of editing hashes"
+        )
+    return tuning
 
 
 def paired_bootstrap(a, b, metric="consequential_caught", repetitions=1000, seed=42):
@@ -203,8 +273,8 @@ def paired_bootstrap(a, b, metric="consequential_caught", repetitions=1000, seed
 def sweep(
     records, artifact_path, tuning_path, output, budgets, split="test", scope="semantic", seed=42
 ):
-    artifact = json.loads(Path(artifact_path).read_text())
-    tuning = json.loads(Path(tuning_path).read_text())
+    artifact = load_artifact(artifact_path)
+    tuning = load_tuning(tuning_path, artifact_path)
     if tuning["artifact_sha256"] != file_hash(Path(artifact_path)):
         raise ValueError("Tuning/calibration artifact mismatch")
     rows, blocked = eligible_records(records, artifact, split, scope)
@@ -221,11 +291,26 @@ def sweep(
             key = f"{policy}:{budget:g}"
             if key not in tuning["thresholds"]:
                 raise ValueError(f"Budget/policy {key} was not tuned on validation data")
-            summary, tasks = evaluate(rows, policy, budget, tuning["thresholds"][key], seed=seed)
+            summary, tasks = evaluate(
+                rows,
+                policy,
+                budget,
+                tuning["thresholds"][key],
+                dynamic_lambda=tuning["dynamic_lambda"],
+                seed=seed,
+            )
             summaries.append(summary)
             detail.extend({**r, "policy": policy} for r in tasks)
             per_policy[policy] = tasks
-        for baseline in ("confidence", "risk", "error_impact", "bavar_style"):
+        for baseline in (
+            "never",
+            "always",
+            "random",
+            "confidence",
+            "risk",
+            "error_impact",
+            "bavar_style",
+        ):
             comparisons.append(
                 {
                     "budget": budget,

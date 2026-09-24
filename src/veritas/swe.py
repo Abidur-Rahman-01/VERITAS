@@ -3,14 +3,17 @@ import json
 import shlex
 import subprocess
 import sys
-import types
 from pathlib import Path
-
-if "resource" not in sys.modules:
-    sys.modules["resource"] = types.ModuleType("resource")
 
 from .data import load_tasks
 from .io import read_jsonl, write_json, write_jsonl
+
+
+def require_supported_host():
+    if sys.platform == "win32":
+        raise ValueError(
+            "Run the real SWE harness in Linux/WSL2; native Windows resource stubs are unsupported"
+        )
 
 
 def image_map(
@@ -23,6 +26,7 @@ def image_map(
     arch="x86_64",
 ):
     """Ask the installed official harness for image names; never guess its naming convention."""
+    require_supported_host()
     from swebench.harness.constants import MAP_REPO_VERSION_TO_SPECS
     from swebench.harness.test_spec.test_spec import TestSpec
 
@@ -90,6 +94,7 @@ def pull_images(mapping_path):
 
 
 def build_images(dataset, workers=2, arch="x86_64"):
+    require_supported_host()
     import docker
     from swebench.harness.docker_build import build_instance_images
     from swebench.harness.test_spec.test_spec import make_test_spec
@@ -144,5 +149,6 @@ def evaluation_command(dataset, predictions, run_id, workers=2, namespace="swebe
 def evaluate_swe(dataset, predictions, run_id, workers=2, execute=False, namespace="swebench"):
     argv = evaluation_command(dataset, predictions, run_id, workers, namespace)
     if execute:
+        require_supported_host()
         subprocess.run(argv, check=True)
     return {"command": shlex.join(argv), "executed": execute}

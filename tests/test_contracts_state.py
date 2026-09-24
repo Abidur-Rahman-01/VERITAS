@@ -1,4 +1,5 @@
 import io
+import os
 import tarfile
 
 import pytest
@@ -57,7 +58,9 @@ def test_symlink_rejected(tmp_path, monkeypatch):
         dummy.symlink_to("/etc/passwd")
     except OSError:
         dummy.write_text("dummy")
-        monkeypatch.setattr(type(dummy), "is_symlink", lambda self: self.name == "link" or os.path.islink(self))
+        monkeypatch.setattr(
+            type(dummy), "is_symlink", lambda self: self.name == "link" or os.path.islink(self)
+        )
     with pytest.raises(ValueError, match="Symlinks are not supported"):
         tree_hash(tmp_path)
 

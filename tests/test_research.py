@@ -124,3 +124,17 @@ def test_bootstrap_pairs_tasks(step):
     result = paired_bootstrap(a, b, repetitions=50)
     assert result["mean_difference_per_task"] == 0.5
     assert result["ci95"][0] >= 0
+
+
+def test_validation_objective_accounts_for_false_alarm_cost(step):
+    rows = [
+        step(
+            0,
+            impact=0.1,
+            false_alarm_cost=0.8,
+            verification={"verdict": "FAIL", "reason": "incorrect verifier"},
+        )
+    ]
+    result, _ = evaluate(rows, "always", 0.02)
+    assert result["false_rejections"] == 1
+    assert result["net_observed_value"] == pytest.approx(-0.82)

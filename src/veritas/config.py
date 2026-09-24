@@ -35,7 +35,7 @@ class RunConfig(StrictModel):
     budget_unit: str = "verifier_call_credit"
     policy: str = "rcvov"
     threshold: float = 0
-    dynamic_lambda: float = Field(default=0.1, ge=0)
+    dynamic_lambda: float = Field(default=0.0, ge=0)
     audit_all: bool = False
     allow_uncalibrated: bool = False
     score_critic: bool = True
@@ -72,8 +72,8 @@ def load_config(path, override=None):
         return a
 
     obj = yaml.safe_load(Path(path).read_text())
-    if override:
-        obj = merge(obj, yaml.safe_load(Path(override).read_text()))
+    for extra in [override] if isinstance(override, (str, Path)) else override or []:
+        obj = merge(obj, yaml.safe_load(Path(extra).read_text()))
     config = Config.model_validate(obj)
     if set(config.impact) != set(ActionClass) or any(
         not 0 <= v <= 1 for v in config.impact.values()

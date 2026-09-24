@@ -74,7 +74,10 @@ def online_report(summaries, output, swe_report=None):
         "tasks": len(rows),
         "scored_tasks": len(scored),
         "ungraded_tasks": len(rows) - len(scored),
-        "task_success_rate": sum(r["task_success"] for r in scored) / len(scored)
+        "task_success_rate": sum(r["task_success"] for r in scored) / len(rows)
+        if len(scored) == len(rows)
+        else None,
+        "scored_subset_success_rate": sum(r["task_success"] for r in scored) / len(scored)
         if scored
         else None,
         "total_online_tokens": sum(r["total_online_tokens"] for r in rows),
@@ -84,6 +87,37 @@ def online_report(summaries, output, swe_report=None):
     }
     write_json(output, report)
     return report
+
+
+def action_metrics(records):
+    """Unknown semantic labels never become zero errors or false alarms."""
+    rows = [r for r in records if not r.get("blocked") and r.get("action")]
+    labeled = [
+        r for r in rows if r.get("label_scope") == "semantic" and r.get("error_label") is not None
+    ]
+    rejected = [
+        r
+        for r in rows
+        if r.get("decision") == "verify" and (r.get("verification") or {}).get("verdict") == "FAIL"
+    ]
+    known_rejected = [r for r in rejected if r in labeled]
+    complete = len(known_rejected) == len(rejected)
+    return {
+        "eligible_actions": len(rows),
+        "semantic_labeled_actions": len(labeled),
+        "semantic_label_coverage": len(labeled) / len(rows) if rows else None,
+        "verifications": sum(r.get("decision") == "verify" for r in rows),
+        "verifier_errors": sum(
+            (r.get("verification") or {}).get("verdict") == "ERROR" for r in rows
+        ),
+        "critic_errors": sum(bool(r.get("critic_error")) for r in rows),
+        "fallback_actions": sum(bool(r.get("fallback_reason")) for r in rows),
+        "unlabeled_rejections": len(rejected) - len(known_rejected),
+        "errors_caught": sum(r["error_label"] == 1 for r in known_rejected) if complete else None,
+        "false_rejections": sum(r["error_label"] == 0 for r in known_rejected)
+        if complete
+        else None,
+    }
 
 
 def recovery_comparison(checkpoint_path, restart_path, output):

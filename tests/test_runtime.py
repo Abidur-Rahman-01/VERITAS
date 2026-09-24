@@ -124,7 +124,8 @@ def test_failed_verification_replans_and_charges(tmp_path):
     )
     records = list(store.records())
     assert not records[0].executed
-    assert records[0].restored_hash == initial
+    assert records[0].restored_hash is None  # Rejected before execution; no restoration occurred.
+    assert records[0].state_after == initial
     assert not (sandbox.workspace / "bad").exists()
     assert summary["verification_spent"] == 0.04
     assert summary["replan_tokens"] == 15

@@ -99,7 +99,9 @@ economic/semantic consequence of a bad action. For pre-execution verifier reject
 restoring an unchanged workspace gives particularly weak recovery evidence. The
 artifact explicitly records `recovery_scope=workspace_hash_only`. Report this limit;
 do not claim empirical external-side-effect recovery. Classes without sufficient
-evidence fail fitting/use rather than receiving made-up rates. The minimum count of
+evidence are omitted from fitting and rejected in replay. Online scored policies log an
+explicit verify-if-budget-allows fallback for such classes; exhausted-budget fallback
+stops the task. These fallbacks are reported separately and never receive made-up rates. The minimum count of
 five per outcome is an engineering guard, not a statistical-power guarantee.
 
 The supplied equation itself assigns little avoided loss to rho≈1 actions even when
@@ -124,6 +126,12 @@ false rejections and consequential catches at impact≥0.5. Precision follows th
 selection definition; detection recall is reported separately. Policies can differ in
 budget utilization even at identical caps; always inspect the spend column.
 
+Thresholds are fit on validation only using observed-score quantiles. The common tuning
+objective is measured avoided impact minus verification credits and declared false-alarm
+loss; task success is evaluated separately online. Default dynamic_lambda is zero.
+Nonzero RC-VoV pacing is an explicit ablation and is saved in tuning. Evidence sidecars
+allow calibration and tuning to be checked against their original labeled inputs.
+
 Paired bootstrap resamples task groups, keeping repeated runs clustered. Tests on other
 backbones require actual rollouts from another model. A `backbone` split name alone
 does not demonstrate transfer. Keep critic/verifier configurations fixed for transfer.
@@ -132,9 +140,10 @@ does not demonstrate transfer. Keep critic/verifier configurations fixed for tra
 
 All baselines share floor, sandbox, tools, action budget, observation sanitation and
 stopping rules. Compare identical task IDs with the same policy model and seed. Audit
-mode should be off for deployment comparisons. Critic overhead is included in total
-online tokens even for baselines that do not use the score, yielding a controlled
-gating comparison rather than an optimized-baseline deployment comparison.
+mode should be off for deployment comparisons. The comparison matrix skips critic
+inference for policies that do not use its score; scored policies include critic cost.
+This tests deployment efficiency against strong baselines. An optional controlled
+all-policies-with-critic ablation can be run explicitly with collect.
 
 SWE results remain null until the upstream harness grades predicted patches. Reaching
 `final_answer`, an exit code of zero or a PASS verifier is not a resolved SWE issue.

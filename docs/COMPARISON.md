@@ -1,10 +1,12 @@
-# Compare installed local models
+# Compare installed local models and verification policies
 
 This model-screening workflow uses real prepared tasks. It compares the same task
 IDs across all selected models, using the existing tool-agent interface and
 deterministic action floor. It runs without an optional verifier or critic overhead.
-It does not establish an RC-VoV advantage; calibrated policy comparisons remain a
-separate experiment after calibration and validation.
+The default configuration screens model baselines. The same runner now supports
+calibrated policy matrices; see [PERFORMANCE_UPGRADE.md](PERFORMANCE_UPGRADE.md)
+for the new configurations, evidence requirements and executable next steps.
+Model screening alone does not establish an RC-VoV advantage.
 
 Run from the repository root. On Windows, first copy/sync the updated source,
 configs and docs, then run:

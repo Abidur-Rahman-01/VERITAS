@@ -24,6 +24,11 @@ class WriteArgs(PathArgs):
     content: StrictStr = Field(max_length=1_000_000)
 
 
+class EditArgs(PathArgs):
+    old: StrictStr = Field(min_length=1, max_length=100_000)
+    new: StrictStr = Field(max_length=100_000)
+
+
 class PythonArgs(StrictModel):
     code: StrictStr = Field(max_length=100_000)
 
@@ -46,6 +51,7 @@ ARG_TYPES = {
     "list_files": ListArgs,
     "read_file": ReadArgs,
     "write_file": WriteArgs,
+    "edit_file": EditArgs,
     "delete_file": PathArgs,
     "python": PythonArgs,
     "run_tests": TestArgs,
@@ -87,7 +93,7 @@ def contract(proposal: Proposal):
     # classify every SQL operation conservatively as a reversible DB mutation.
     if tool in {"list_files", "read_file"}:
         cls, mutation, perms = ActionClass.READ, "none", ["workspace:read"]
-    elif tool == "write_file":
+    elif tool in {"write_file", "edit_file"}:
         cls, mutation, perms = ActionClass.EDIT, "local", ["workspace:write"]
     elif tool == "sql":
         cls, mutation, perms = ActionClass.DB, "database", ["workspace:database"]

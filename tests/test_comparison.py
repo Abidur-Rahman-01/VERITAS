@@ -22,7 +22,7 @@ from veritas.io import file_hash, write_json, write_jsonl
 from veritas.schema import Task
 
 
-def setup_plan(tmp_path, monkeypatch, limit=2):
+def setup_plan(tmp_path, monkeypatch, limit=2, policies=None):
     data = tmp_path / "data"
     tasks = [
         Task(
@@ -57,6 +57,7 @@ def setup_plan(tmp_path, monkeypatch, limit=2):
                 "tasks": str(data),
                 "base_config": str(base),
                 "limit": limit,
+                "policies": policies or ["never"],
             }
         )
     )
@@ -186,3 +187,104 @@ def test_swe_nonempty_patch_is_not_success_without_report(tmp_path, monkeypatch)
 def test_config_rejects_unknown_fields():
     with pytest.raises(ValueError):
         ComparisonConfig.model_validate({"made_up_setting": True})
+
+
+def test_policies_share_tasks_and_keep_distinct_attempts(tmp_path, monkeypatch):
+    output, plan = setup_plan(tmp_path, monkeypatch, policies=["never", "always"])
+    calls = []
+
+    def fake_collect(tasks_dir, config, destination, **kwargs):
+        task, _ = kwargs["selected_tasks"][0]
+        calls.append((config.model.name, config.run.policy, task.task_id))
+        assert config.run.score_critic is False
+        assert config.run.verification_budget == 0.2
+        assert kwargs["artifact"] is None
+        write_jsonl(
+            Path(destination) / "summaries.jsonl",
+            [
+                {
+                    "task_success": True,
+                    "total_online_tokens": 20,
+                    "audit_tokens": 0,
+                    "token_usage_complete": True,
+                }
+            ],
+        )
+
+    monkeypatch.setattr("veritas.runtime.collect", fake_collect)
+    rows = run_comparison(output)
+    assert plan["jobs"] == len(calls) == 8
+    assert len(rows) == 4
+    assert all(row["success_rate"] == 1 for row in rows)
+    for model in ["a", "b"]:
+        assert {task for m, p, task in calls if m == model and p == "always"} == {
+            task for m, p, task in calls if m == model and p == "never"
+        }
+    run_comparison(output)
+    assert len(calls) == 8
+
+
+def test_scored_comparison_refuses_missing_calibration(tmp_path, monkeypatch):
+    with pytest.raises(ValueError, match="need empirical calibration"):
+        setup_plan(tmp_path, monkeypatch, policies=["never", "rcvov"])
+
+
+def test_complete_scored_comparison_joins_tuning_and_uncertainty(tmp_path, monkeypatch, step):
+    from veritas.calibration import fit_artifact
+    from veritas.config import Config
+    from veritas.provenance import critic_identity, verifier_identity
+    from veritas.replay import tune
+
+    setup_plan(tmp_path, monkeypatch)
+    cfg = Config()
+    identifiers = {"critic_id": critic_identity(cfg), "verifier_id": verifier_identity(cfg)}
+    records = [
+        step(i, split="calib", calibration_role=role, **identifiers)
+        for role, offset in [("probability", 0), ("verifier_stats", 20)]
+        for i in range(offset, offset + 20)
+    ]
+    records += [step(i, split="val", **identifiers) for i in range(40, 50)]
+    records_path, artifact_path, tuning_path = (
+        tmp_path / "records.jsonl",
+        tmp_path / "calib.json",
+        tmp_path / "tune.json",
+    )
+    write_jsonl(records_path, records)
+    fit_artifact(records_path, artifact_path)
+    tune(records_path, artifact_path, tuning_path, [0.2])
+    spec_path = tmp_path / "comparison.yaml"
+    spec = yaml.safe_load(spec_path.read_text())
+    spec.update(
+        policies=["never", "always", "error_impact", "rcvov"],
+        calibration={"unit-fixture": {"artifact": str(artifact_path), "tuning": str(tuning_path)}},
+    )
+    spec_path.write_text(yaml.safe_dump(spec))
+    output = tmp_path / "scored-output"
+    create_plan(spec_path, output)
+
+    def fake_collect(tasks_dir, config, destination, **kwargs):
+        assert bool(kwargs["artifact"]) == (config.run.policy in {"rcvov", "error_impact"})
+        assert config.run.dynamic_lambda == 0
+        write_jsonl(
+            Path(destination) / "summaries.jsonl",
+            [
+                {
+                    "task_success": True,
+                    "total_online_tokens": 20,
+                    "audit_tokens": 0,
+                    "token_usage_complete": True,
+                }
+            ],
+        )
+
+    monkeypatch.setattr("veritas.runtime.collect", fake_collect)
+    rows = run_comparison(output)
+    assert len(rows) == 8
+    effects = json.loads((output / "policy_effects.json").read_text())
+    assert len(effects) == 6 and all(r["complete"] for r in effects)
+    assert all(r["success_delta"]["mean_difference_per_task"] == 0 for r in effects)
+    # A calibration change must invalidate a frozen plan even when its plan hash remains intact.
+    with artifact_path.open("a") as file:
+        file.write(" ")
+    with pytest.raises(ValueError, match="changed since planning"):
+        read_plan(output)

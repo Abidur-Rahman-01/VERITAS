@@ -70,7 +70,7 @@ class Budget:
 
 
 class Controller:
-    def __init__(self, policy, budget, threshold=0.0, dynamic_lambda=0.1, seed=42):
+    def __init__(self, policy, budget, threshold=0.0, dynamic_lambda=0.0, seed=42):
         if policy not in POLICIES:
             raise ValueError(f"Unknown policy: {policy}")
         if not math.isfinite(threshold) or not math.isfinite(dynamic_lambda) or dynamic_lambda < 0:

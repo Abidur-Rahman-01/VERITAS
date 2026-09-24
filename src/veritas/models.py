@@ -17,6 +17,7 @@ Available tools:
 - list_files: {"path": ".", "limit": 200}
 - read_file: {"path": "relative/path", "start_line": 1, "max_lines": 200}
 - write_file: {"path": "relative/path", "content": "complete new file contents"}
+- edit_file: {"path": "relative/path", "old": "exact existing text, unique in file", "new": "replacement text"}
 - delete_file: {"path": "relative/path"}
 - python: {"code": "Python code to execute inside sandbox"}
 - run_tests: {"argv": ["python", "-m", "pytest", "tests/test_file.py", "-q"]}
@@ -24,9 +25,9 @@ Available tools:
 - final_answer: {"answer": "final result; use a bare number for math problems"}
 
 Workflow rules:
-1. First explore: use list_files and read_file to locate and examine the relevant source files and existing implementations.
+1. For repository tasks, explore relevant files before editing. For arithmetic tasks, solve directly with reasoning or python; do not explore unrelated files.
 2. If an action returns an error, analyze the error output and try a different, informed approach. Never repeat failing code identically.
-3. Use write_file to create or modify repository files with complete, working implementations.
+3. Use edit_file for small edits after reading the file. Include enough context in old to match exactly once. Use write_file for new files or full rewrites.
 4. Verify changes by running tests or python verification.
 5. When finished, submit final_answer to complete the task."""
 
@@ -42,6 +43,28 @@ def parse_object(text):
     if not isinstance(value, dict):
         raise ValueError("Model must return a JSON object")
     return value
+
+
+class ModelOutputError(ValueError):
+    """Invalid output still consumed inference; preserve its measured cost."""
+
+    def __init__(self, message, usage, raw):
+        super().__init__(message)
+        self.usage, self.raw = usage, raw
+
+
+def parse_probability(text):
+    obj = parse_object(text)
+    value = obj.get("error_probability")
+    if isinstance(value, str):
+        value = value.strip()
+        value = float(value[:-1]) / 100 if value.endswith("%") else float(value)
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError("Critic must return a numeric error_probability")
+    if not math.isfinite(value) or not 0 <= value <= 1:
+        raise ValueError("Critic error_probability must be finite and in [0,1]")
+    # Endpoints are valid probabilities; clipping only makes their logits finite.
+    return min(max(float(value), 1e-6), 1 - 1e-6)
 
 
 class LocalModel:
@@ -77,8 +100,6 @@ class LocalModel:
             response.raise_for_status()
             data = response.json()
             choice = data["choices"][0]
-            if choice.get("finish_reason") == "length":
-                raise ValueError("Model output was truncated; increase max_tokens")
             content = choice["message"]["content"]
             usage_data = data.get("usage") or {}
             usage = Usage(
@@ -86,6 +107,11 @@ class LocalModel:
                 completion_tokens=usage_data.get("completion_tokens", 0),
                 measured="prompt_tokens" in usage_data and "completion_tokens" in usage_data,
             )
+            if choice.get("finish_reason") == "length":
+                usage.seconds = time.monotonic() - start
+                raise ModelOutputError(
+                    "Model output truncated; increase max_tokens", usage, content
+                )
         elif cfg.backend == "ollama":
             response = self.client.post(
                 cfg.base_url.rstrip("/") + "/api/chat",
@@ -99,14 +125,17 @@ class LocalModel:
             )
             response.raise_for_status()
             data = response.json()
-            if data.get("done_reason") == "length":
-                raise ValueError("Ollama output truncated; increase max_tokens")
             content = data["message"]["content"]
             usage = Usage(
                 prompt_tokens=data.get("prompt_eval_count", 0),
                 completion_tokens=data.get("eval_count", 0),
                 measured="prompt_eval_count" in data and "eval_count" in data,
             )
+            if data.get("done_reason") == "length":
+                usage.seconds = time.monotonic() - start
+                raise ModelOutputError(
+                    "Ollama output truncated; increase max_tokens", usage, content
+                )
         elif cfg.backend == "transformers":
             import torch
             from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -149,26 +178,10 @@ class LocalModel:
             "Estimate semantic error probability, not merely syntax validity. No ground truth is available.",
             json.dumps({"context": context, "action": action.model_dump(mode="json")}),
         )
-        obj = parse_object(text)
-        value = obj.get("error_probability")
-        if value is None:
-            for k in ("error_prob", "probability", "error_rate", "risk"):
-                if k in obj:
-                    value = obj[k]
-                    break
-        if isinstance(value, str):
-            value = value.strip().rstrip("%")
-            try:
-                value = float(value)
-                if "%" in text and value > 1:
-                    value /= 100.0
-            except ValueError:
-                pass
-        if isinstance(value, (int, float)) and 1 < value <= 100:
-            value = value / 100.0
-        if isinstance(value, bool) or not isinstance(value, (int, float)) or not 0 <= value <= 1:
-            value = 0.5
-        value = min(max(float(value), 1e-4), 1.0 - 1e-4)
+        try:
+            value = parse_probability(text)
+        except (ValueError, TypeError) as e:
+            raise ModelOutputError(str(e), usage, text) from e
         return math.log(value / (1 - value)), usage
 
     def verify(self, context, action, cost):
@@ -181,8 +194,13 @@ class LocalModel:
             'Return strictly JSON: {"verdict": "PASS" | "FAIL", "reason": "<concise specific evidence>"}.',
             json.dumps({"context": context, "action": action.model_dump(mode="json")}),
         )
-        obj = parse_object(text)
-        return Verification(verdict=obj["verdict"], reason=obj["reason"], usage=usage, cost=cost)
+        try:
+            obj = parse_object(text)
+            return Verification(
+                verdict=obj["verdict"], reason=obj["reason"], usage=usage, cost=cost
+            )
+        except (ValueError, KeyError, TypeError) as e:
+            raise ModelOutputError(str(e), usage, text) from e
 
 
 def proposal_from_text(text):

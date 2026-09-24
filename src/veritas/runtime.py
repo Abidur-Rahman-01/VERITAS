@@ -1,4 +1,5 @@
 import json
+import math
 import platform
 import shutil
 import time
@@ -7,14 +8,15 @@ from pathlib import Path
 
 from scipy.special import expit
 
-from .calibration import apply_artifact
+from .calibration import apply_artifact, load_artifact
 from .contracts import contract
 from .controller import Controller, Risk
 from .io import digest, write_json, write_jsonl
 from .labels import grade_answer
-from .models import proposal_from_text
+from .models import ModelOutputError, proposal_from_text
+from .provenance import critic_identity, implementation, verifier_identity
 from .sanitize import redact, sanitize
-from .schema import StepRecord, Verification
+from .schema import StepRecord, Usage, Verification
 from .state import Checkpoint, tree_hash
 
 
@@ -41,9 +43,13 @@ def run_task(
     output.mkdir(parents=True, exist_ok=True)
     run_id = run_id or uuid.uuid4().hex
     if not config.run.score_critic and (
-        config.run.policy != "never" or config.run.audit_all or artifact
+        config.run.policy not in {"never", "always", "random", "risk"}
+        or config.run.audit_all
+        or artifact
     ):
-        raise ValueError("Disabling the critic requires never policy, no audit and no artifact")
+        raise ValueError(
+            "Disabling the critic requires a score-independent policy, no audit and no artifact"
+        )
     if not artifact and not config.run.allow_uncalibrated:
         raise ValueError(
             "Fitted artifact required. Use collection.yaml only for explicitly uncalibrated collection"
@@ -55,7 +61,7 @@ def run_task(
         config.run.verification_budget,
         config.run.threshold,
         config.run.dynamic_lambda,
-        config.seed,
+        int(digest([config.seed, task.task_id])[:16], 16),
     )
     history, event_ids = [], []
     initial = (
@@ -63,12 +69,8 @@ def run_task(
         if config.run.recovery_mode == "restart"
         else None
     )
-    critic_id = (
-        digest(critic.metadata)
-        if hasattr(critic, "metadata")
-        else digest(config.critic.model_dump())
-    )
-    verifier_id = digest([config.verifier.model_dump(), config.probes])
+    critic_id = critic_identity(config, critic)
+    verifier_id = verifier_identity(config)
     if artifact and (
         artifact.get("critic_id") != critic_id or artifact.get("verifier_id") != verifier_id
     ):
@@ -88,7 +90,11 @@ def run_task(
         context = json.dumps(
             {"user_task": task.prompt, "recent_history": history}, ensure_ascii=False
         )
-        raw, usage = policy.propose(context)
+        proposal_error = None
+        try:
+            raw, usage = policy.propose(context)
+        except ModelOutputError as e:
+            raw, usage, proposal_error = e.raw, e.usage, str(e)
         policy_tokens += usage.total
         usage_complete &= usage.measured
         if replan_pending:
@@ -113,6 +119,8 @@ def run_task(
             false_alarm_cost=config.run.false_alarm_cost,
         )
         try:
+            if proposal_error:
+                raise ValueError(proposal_error)
             action = contract(proposal_from_text(raw))
         except (ValueError, SyntaxError, TypeError) as e:
             record.blocked, record.decision, record.block_reason = True, "blocked", str(e)
@@ -121,23 +129,38 @@ def run_task(
             record.budget_spent = float(controller.budget.spent)
             store.append(record)
             event_ids.append(record.event_id)
-            history.append({
-                "action": "invalid_proposal",
-                "error": f"Invalid proposal: {str(e)[:300]}. Return ONLY a JSON object with 'tool' and 'args'."
-            })
+            history.append(
+                {
+                    "action": "invalid_proposal",
+                    "error": f"Invalid proposal: {str(e)[:300]}. Return ONLY a JSON object with 'tool' and 'args'.",
+                }
+            )
             replan_pending = True
             continue
         record.action = action
         if config.run.score_critic:
-            record.raw_logit, record.critic_usage = critic.score(context, action)
+            try:
+                record.raw_logit, record.critic_usage = critic.score(context, action)
+                if record.raw_logit is None or not math.isfinite(record.raw_logit):
+                    raise ModelOutputError(
+                        "Critic returned a nonfinite score", record.critic_usage, ""
+                    )
+            except Exception as e:
+                record.raw_logit = None
+                record.critic_error = redact(f"{type(e).__name__}: {e}")
+                record.critic_usage = getattr(e, "usage", Usage(measured=False))
+                record.critic_raw_output = redact(getattr(e, "raw", ""))[:2000]
         critic_tokens += record.critic_usage.total
         usage_complete &= record.critic_usage.measured
         record.impact = config.impact[action.action_class]
-        if artifact:
-            calibrated = apply_artifact(record.model_dump(mode="json"), artifact)
-            for key in ("p_error", "detection_rate", "false_positive_rate", "residual_loss"):
-                setattr(record, key, calibrated[key])
-        elif config.run.score_critic:
+        if artifact and record.raw_logit is not None:
+            if action.action_class not in artifact["statistics"]:
+                record.fallback_reason = f"Missing calibrated class: {action.action_class}"
+            else:
+                calibrated = apply_artifact(record.model_dump(mode="json"), artifact)
+                for key in ("p_error", "detection_rate", "false_positive_rate", "residual_loss"):
+                    setattr(record, key, calibrated[key])
+        elif record.raw_logit is not None:
             record.p_error = float(expit(record.raw_logit))
             # Explicit collection priors. They cannot be exported as an empirical artifact.
             record.detection_rate, record.false_positive_rate, record.residual_loss = 0.5, 0.1, 0.5
@@ -150,11 +173,32 @@ def run_task(
             record.verifier_cost,
             record.false_alarm_cost,
         )
-        record.delta = risk.delta if config.run.score_critic else None
-        selected = controller.decide(risk)
+        record.delta = risk.delta if record.p_error is not None else None
+        if record.critic_error:
+            record.fallback_reason = "Critic failed; no risk probability available"
+        score_required = config.run.policy in {"confidence", "error_impact", "bavar_style", "rcvov"}
+        if score_required and record.fallback_reason:
+            # Explicit conservative fallback, charged to the SAME budget. Never invent risk.
+            selected = controller.budget.can_afford(record.verifier_cost)
+            if not selected:
+                record.blocked, record.decision = True, "blocked"
+                record.block_reason = record.fallback_reason + "; verification budget exhausted"
+                record.budget_spent = float(controller.budget.spent)
+                store.append(record)
+                event_ids.append(record.event_id)
+                # Nothing can resolve missing calibration within this task after budget exhaustion.
+                break
+        else:
+            selected = controller.decide(risk)
         record.decision = "verify" if selected else "skip"
-        checkpoint = Checkpoint(sandbox.workspace, output / f"checkpoint-{step}")
-        record.state_before = checkpoint.before
+        # Verification happens before execution on an isolated clone. Only audit collection
+        # needs a copied pre-state to measure restoration after a real action.
+        checkpoint = (
+            Checkpoint(sandbox.workspace, output / f"checkpoint-{step}")
+            if config.run.audit_all
+            else None
+        )
+        record.state_before = checkpoint.before if checkpoint else tree_hash(sandbox.workspace)
         rejected = False
         try:
             if selected:
@@ -167,9 +211,11 @@ def run_task(
                     )
                 except Exception as e:
                     record.verification = Verification(
-                        verdict="ERROR", reason=f"{type(e).__name__}: {e}", cost=risk.verifier_cost
+                        verdict="ERROR",
+                        reason=f"{type(e).__name__}: {e}",
+                        cost=risk.verifier_cost,
+                        usage=getattr(e, "usage", Usage(measured=False)),
                     )
-                    record.verification.usage.measured = False
                 record.verification.reason = redact(record.verification.reason)
                 if record.audit_only:
                     audit_tokens += record.verification.usage.total
@@ -189,7 +235,8 @@ def run_task(
                     )
             if rejected:
                 before_restore = time.monotonic()
-                record.restored_hash = checkpoint.restore()
+                if checkpoint:
+                    record.restored_hash = checkpoint.restore()
                 record.recovery_seconds = time.monotonic() - before_restore
                 record.observation = sanitize(record.verification.reason, "verifier")
                 if initial:
@@ -201,7 +248,9 @@ def run_task(
                 record.executed = True
                 obs_content = result.get("output", "") if isinstance(result, dict) else str(result)
                 if isinstance(result, dict) and result.get("exit_code") not in (0, None):
-                    obs_content = f"Command failed (exit code {result['exit_code']}):\n{obs_content}"
+                    obs_content = (
+                        f"Command failed (exit code {result['exit_code']}):\n{obs_content}"
+                    )
                 record.observation = sanitize(
                     obs_content, action.proposal.tool, config.sandbox.max_output_chars
                 )
@@ -238,7 +287,8 @@ def run_task(
             if final is not None:
                 break
         finally:
-            checkpoint.close()
+            if checkpoint:
+                checkpoint.close()
     if final is None and task.kind in {"gsm8k", "math"}:
         final_success = False
     summary = {
@@ -303,7 +353,7 @@ def collect(
         )
     output.mkdir(parents=True, exist_ok=True)
     run_id = uuid.uuid4().hex
-    artifact = json.loads(Path(artifact).read_text()) if artifact else None
+    artifact = load_artifact(artifact) if artifact else None
     image_map = json.loads(Path(images).read_text()) if images else {}
     write_json(
         output / "run.json",
@@ -315,6 +365,7 @@ def collect(
             "limit": limit,
             "artifact": artifact,
             "critic_dir": str(critic_dir) if critic_dir else None,
+            "implementation": implementation([p.name for p in Path(__file__).parent.glob("*.py")]),
             "tasks_manifest": digest(json.loads((Path(tasks_dir) / "manifest.json").read_text())),
         },
     )

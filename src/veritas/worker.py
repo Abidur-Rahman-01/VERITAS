@@ -1,5 +1,6 @@
 """Standard-library-only worker copied into a disposable container; never run on the host."""
 
+import ast
 import json
 import os
 import subprocess
@@ -13,6 +14,17 @@ def path(value):
     if root != target and root not in target.parents:
         raise ValueError("Path outside sandbox workspace")
     return target
+
+
+def replace_unique(text, old, new, filename):
+    if not old or text.count(old) != 1:
+        raise ValueError(
+            "edit_file old text must match exactly once; read the file and include unique context"
+        )
+    edited = text.replace(old, new, 1)
+    if filename.endswith(".py"):
+        ast.parse(edited)  # Check the resulting file, not an isolated indented snippet.
+    return edited
 
 
 def execute(proposal):
@@ -39,6 +51,13 @@ def execute(proposal):
     if tool == "delete_file":
         path(args["path"]).unlink()
         return "File deleted"
+    if tool == "edit_file":
+        target = path(args["path"])
+        edited = replace_unique(
+            target.read_text(encoding="utf-8"), args["old"], args["new"], args["path"]
+        )
+        target.write_text(edited, encoding="utf-8")
+        return "One exact replacement applied"
     if tool == "sql":
         import sqlite3
 
