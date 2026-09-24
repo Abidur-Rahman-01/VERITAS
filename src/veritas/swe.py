@@ -1,3 +1,4 @@
+import inspect
 import json
 import shlex
 import subprocess
@@ -18,7 +19,26 @@ def image_map(
     arch="x86_64",
 ):
     """Ask the installed official harness for image names; never guess its naming convention."""
-    from swebench.harness.test_spec.test_spec import make_test_spec
+    from swebench.harness.constants import MAP_REPO_VERSION_TO_SPECS
+    from swebench.harness.test_spec.test_spec import TestSpec
+
+    def key_for(row):
+        # Image names need only metadata. Full make_test_spec may fetch requirements
+        # from GitHub, which belongs to environment building, not image-map inspection.
+        return TestSpec(
+            instance_id=row["instance_id"],
+            repo=row["repo"],
+            version=row["version"],
+            repo_script_list=[],
+            eval_script_list=[],
+            env_script_list=[],
+            arch=arch,
+            FAIL_TO_PASS=[],
+            PASS_TO_PASS=[],
+            language="py",
+            docker_specs={},
+            namespace=namespace or None,
+        ).instance_image_key
 
     mapping, rows = {}, []
     for task, _ in load_tasks(tasks_dir, split, source, limit):
@@ -35,18 +55,16 @@ def image_map(
                         "SWE-rebench needs the pinned upstream fork. Run scripts/setup_rebench.sh, then use .venv-rebench/bin/veritas with --namespace ''"
                     ) from e
                 row = _clean_install_config(row)
-                known_image = make_test_spec(
-                    row, namespace=namespace or None, arch=arch
-                ).instance_image_key
+                known_image = key_for(row)
             mapping[row["instance_id"]] = known_image
         else:
             try:
-                spec = make_test_spec(row, namespace=namespace or None, arch=arch)
+                MAP_REPO_VERSION_TO_SPECS[row["repo"]][row["version"]]
             except KeyError as e:
                 raise ValueError(
                     f"Official harness has no environment recipe for {row['repo']} {row['version']}. This raw training item requires a repository-specific image; use a declared non-Verified swe_test research pool, swe_verified, or the SWE-rebench fork"
                 ) from e
-            mapping[row["instance_id"]] = spec.instance_image_key
+            mapping[row["instance_id"]] = key_for(row)
         rows.append(row)
     if not mapping:
         raise ValueError("No matching SWE tasks")
@@ -74,12 +92,18 @@ def build_images(dataset, workers=2, arch="x86_64"):
     from swebench.harness.utils import load_swebench_dataset
 
     rows = load_swebench_dataset(str(dataset))
-    specs = [make_test_spec(row, namespace=None, arch=arch) for row in rows]
+    kwargs = {"namespace": None}
+    if "arch" in inspect.signature(make_test_spec).parameters:
+        kwargs["arch"] = arch
+    specs = [make_test_spec(row, **kwargs) for row in rows]
+    for spec in specs:
+        spec.arch = arch
     client = docker.from_env()
     try:
-        successful, failed = build_instance_images(
-            client, specs, max_workers=workers, tag="latest", env_image_tag="latest"
-        )
+        build_kwargs = {"max_workers": workers, "tag": "latest"}
+        if "env_image_tag" in inspect.signature(build_instance_images).parameters:
+            build_kwargs["env_image_tag"] = "latest"
+        successful, failed = build_instance_images(client, specs, **build_kwargs)
         if failed:
             raise RuntimeError(
                 f"{len(failed)} environment builds failed; inspect logs/build_images"
