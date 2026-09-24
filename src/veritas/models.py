@@ -143,9 +143,26 @@ class LocalModel:
             "Estimate semantic error probability, not merely syntax validity. No ground truth is available.",
             json.dumps({"context": context, "action": action.model_dump(mode="json")}),
         )
-        value = parse_object(text).get("error_probability")
-        if isinstance(value, bool) or not isinstance(value, (int, float)) or not 0 < value < 1:
-            raise ValueError("Critic must return error_probability strictly in (0,1)")
+        obj = parse_object(text)
+        value = obj.get("error_probability")
+        if value is None:
+            for k in ("error_prob", "probability", "error_rate", "risk"):
+                if k in obj:
+                    value = obj[k]
+                    break
+        if isinstance(value, str):
+            value = value.strip().rstrip("%")
+            try:
+                value = float(value)
+                if "%" in text and value > 1:
+                    value /= 100.0
+            except ValueError:
+                pass
+        if isinstance(value, (int, float)) and 1 < value <= 100:
+            value = value / 100.0
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not 0 <= value <= 1:
+            value = 0.5
+        value = min(max(float(value), 1e-4), 1.0 - 1e-4)
         return math.log(value / (1 - value)), usage
 
     def verify(self, context, action, cost):

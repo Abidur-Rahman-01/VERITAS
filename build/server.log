@@ -1,0 +1,23 @@
+{"timestamp":"2026-09-24T12:50:51.452179Z","level":"INFO","fields":{"message":"watching","path":"f:\\Abidur 2110001\\VERITAS"},"target":"gfp::serve::tasks::file_watcher"}
+{"timestamp":"2026-09-24T12:50:51.453754Z","level":"INFO","fields":{"message":"nyanlib scheduler started","path":"f:\\Abidur 2110001\\VERITAS\\build\\models.nyanlib"},"target":"gfp::serve::tasks::nyanlib"}
+{"timestamp":"2026-09-24T12:50:51.453799Z","level":"INFO","fields":{"message":"nyanlib scheduler stage","stage":"WaitingForIndex"},"target":"gfp::serve::tasks::nyanlib"}
+{"timestamp":"2026-09-24T12:50:52.270228Z","level":"INFO","fields":{"message":"indexed files","count":33},"target":"gfp::factory::indexing::indexer"}
+{"timestamp":"2026-09-24T12:50:52.271747Z","level":"INFO","fields":{"message":"prepared completed-index PDK runtime specs","pdk_count":0,"dschematic_pdk_count":0,"elapsed_ms":1},"target":"gfp::serve::tasks::indexer_bridge"}
+{"timestamp":"2026-09-24T12:50:52.272285Z","level":"INFO","fields":{"message":"nyanlib scheduler stage","stage":"Dschematic"},"target":"gfp::serve::tasks::nyanlib"}
+{"timestamp":"2026-09-24T12:50:52.272310Z","level":"INFO","fields":{"message":"bulk dschematic pass complete","pdk_count":0,"elapsed_ms":0},"target":"gfp::serve::tasks::nyanlib"}
+{"timestamp":"2026-09-24T12:50:52.272327Z","level":"INFO","fields":{"message":"nyanlib scheduler stage","stage":"Finished"},"target":"gfp::serve::tasks::nyanlib"}
+{"timestamp":"2026-09-24T12:50:52.273384Z","level":"INFO","fields":{"message":"nyanlib generated","path":"f:\\Abidur 2110001\\VERITAS\\build\\models.nyanlib"},"target":"gfp::serve::tasks::nyanlib"}
+{"timestamp":"2026-09-24T12:50:52.288714Z","level":"INFO","fields":{"message":"apply_changes complete","n_changes":0},"target":"gfp::factory::indexing::incremental","span":{"n_events":1,"name":"apply_changes"},"spans":[{"n_events":1,"name":"apply_changes"}]}
+{"timestamp":"2026-09-24T12:50:52.290465Z","level":"DEBUG","fields":{"message":"enqueue_all received requests","n":0},"target":"gfp::factory::build"}
+{"timestamp":"2026-09-24T12:50:52.453092Z","level":"INFO","fields":{"message":"identity verification result","api_host":"https://api.gdsfactory.com/","phase":"verify_api_key","status":"invalid_key","http_status":401},"target":"gfp::identity::service"}
+{"timestamp":"2026-09-24T12:57:04.508253Z","level":"WARN","fields":{"message":"file watcher requested rescan; incremental index may be stale"},"target":"gfp::factory::indexing::incremental","span":{"n_events":1,"name":"apply_changes"},"spans":[{"n_events":1,"name":"apply_changes"}]}
+{"timestamp":"2026-09-24T12:57:04.508291Z","level":"INFO","fields":{"message":"apply_changes complete","n_changes":0},"target":"gfp::factory::indexing::incremental","span":{"n_events":1,"name":"apply_changes"},"spans":[{"n_events":1,"name":"apply_changes"}]}
+{"timestamp":"2026-09-24T12:57:04.548223Z","level":"DEBUG","fields":{"message":"enqueue_all received requests","n":0},"target":"gfp::factory::build"}
+{"timestamp":"2026-09-24T12:57:07.125576Z","level":"WARN","fields":{"message":"file watcher requested rescan; incremental index may be stale"},"target":"gfp::factory::indexing::incremental","span":{"n_events":1,"name":"apply_changes"},"spans":[{"n_events":1,"name":"apply_changes"}]}
+{"timestamp":"2026-09-24T12:57:07.125599Z","level":"INFO","fields":{"message":"apply_changes complete","n_changes":0},"target":"gfp::factory::indexing::incremental","span":{"n_events":1,"name":"apply_changes"},"spans":[{"n_events":1,"name":"apply_changes"}]}
+{"timestamp":"2026-09-24T12:57:07.127998Z","level":"DEBUG","fields":{"message":"enqueue_all received requests","n":0},"target":"gfp::factory::build"}
+{"timestamp":"2026-09-24T13:00:32.798299Z","level":"INFO","fields":{"message":"watcher changed","module":"tests.test_contracts_state"},"target":"gfp::serve::tasks::file_watcher"}
+{"timestamp":"2026-09-24T13:00:32.798329Z","level":"INFO","fields":{"message":"watcher changed","module":"tests.test_contracts_state"},"target":"gfp::serve::tasks::file_watcher"}
+{"timestamp":"2026-09-24T13:00:32.810088Z","level":"INFO","fields":{"message":"apply_changes complete","n_changes":0},"target":"gfp::factory::indexing::incremental","span":{"n_events":2,"name":"apply_changes"},"spans":[{"n_events":2,"name":"apply_changes"}]}
+{"timestamp":"2026-09-24T13:00:32.812621Z","level":"WARN","fields":{"message":"unresolved invalidation module","module":"tests.test_contracts_state"},"target":"gfp::factory::build"}
+{"timestamp":"2026-09-24T13:00:32.812651Z","level":"DEBUG","fields":{"message":"enqueue_all received requests","n":0},"target":"gfp::factory::build"}

@@ -1,25 +1,22 @@
 seed: 42
 model:
-  backend: openai_compatible
-  base_url: http://127.0.0.1:8000/v1
-  name: local-policy
-  api_key_env: VERITAS_API_KEY
+  backend: ollama
+  base_url: http://127.0.0.1:11434
+  name: qwen2.5-coder:7b
   max_tokens: 2048
   timeout_seconds: 180
   temperature: 0.0
 critic:
-  backend: openai_compatible
-  base_url: http://127.0.0.1:8001/v1
-  name: local-critic
-  api_key_env: VERITAS_API_KEY
+  backend: ollama
+  base_url: http://127.0.0.1:11434
+  name: qwen2.5-coder:7b
   max_tokens: 512
   timeout_seconds: 180
   temperature: 0.0
 verifier:
-  backend: openai_compatible
-  base_url: http://127.0.0.1:8001/v1
-  name: local-critic
-  api_key_env: VERITAS_API_KEY
+  backend: ollama
+  base_url: http://127.0.0.1:11434
+  name: qwen2.5-coder:7b
   max_tokens: 768
   timeout_seconds: 180
   temperature: 0.0
