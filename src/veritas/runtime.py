@@ -9,6 +9,7 @@ from pathlib import Path
 from scipy.special import expit
 
 from .calibration import apply_artifact, load_artifact
+from .context import compact_context
 from .contracts import contract
 from .controller import Controller, Risk
 from .io import digest, write_json, write_jsonl
@@ -42,22 +43,30 @@ def run_task(
     output = Path(output)
     output.mkdir(parents=True, exist_ok=True)
     run_id = run_id or uuid.uuid4().hex
+    graph_mode = config.run.policy == "graph"
+    if graph_mode and (config.run.score_critic or config.run.audit_all or artifact):
+        raise ValueError(
+            "Graph policy requires score_critic=false, audit_all=false and no artifact"
+        )
+    trained_groups = getattr(critic, "metadata", {}).get("fit_groups", [])
+    if config.run.score_critic and task.group_id in trained_groups:
+        raise ValueError("Evaluation task appears in critic training fit groups")
     if not config.run.score_critic and (
-        config.run.policy not in {"never", "always", "random", "risk"}
+        config.run.policy not in {"never", "always", "random", "risk", "graph"}
         or config.run.audit_all
         or artifact
     ):
         raise ValueError(
             "Disabling the critic requires a score-independent policy, no audit and no artifact"
         )
-    if not artifact and not config.run.allow_uncalibrated:
+    if not artifact and not config.run.allow_uncalibrated and not graph_mode:
         raise ValueError(
             "Fitted artifact required. Use collection.yaml only for explicitly uncalibrated collection"
         )
     if artifact and task.group_id in artifact["fit_groups"] and assignment["split"] != "calib":
         raise ValueError("Evaluation task appears in calibration fit groups")
     controller = Controller(
-        config.run.policy,
+        "never" if graph_mode else config.run.policy,
         config.run.verification_budget,
         config.run.threshold,
         config.run.dynamic_lambda,
@@ -82,14 +91,33 @@ def run_task(
     usage_complete = True
     replan_tokens, recovery_seconds = 0, 0.0
     replan_pending = False
+    replans, graph_checks, graph_cache_hits, graph_model_calls = 0, 0, 0, 0
+    graph_seconds = 0.0
+    fallback_answer = None
+    final_selection = "actor_answer"
+    termination = "max_steps"
     start = time.monotonic()
     for step in range(config.run.max_steps):
+        if config.run.max_online_tokens is not None and (
+            policy_tokens + critic_tokens + verifier_tokens >= config.run.max_online_tokens
+        ):
+            termination = "online_token_stop"
+            break
         # Retain the task itself in full. Trim history, never the leading goal.
-        while history and len(json.dumps(history)) > config.run.history_chars:
-            history.pop(0)
-        context = json.dumps(
-            {"user_task": task.prompt, "recent_history": history}, ensure_ascii=False
-        )
+        if config.run.compact_history:
+            context = compact_context(
+                task,
+                history,
+                config.run.history_chars,
+                config.run.observation_chars,
+                config.run.max_steps - step,
+            )
+        else:
+            while history and len(json.dumps(history)) > config.run.history_chars:
+                history.pop(0)
+            context = json.dumps(
+                {"user_task": task.prompt, "recent_history": history}, ensure_ascii=False
+            )
         proposal_error = None
         try:
             raw, usage = policy.propose(context)
@@ -122,6 +150,8 @@ def run_task(
             if proposal_error:
                 raise ValueError(proposal_error)
             action = contract(proposal_from_text(raw))
+            if fallback_answer is not None and action.proposal.tool != "final_answer":
+                raise ValueError("Final review permits only a revised final_answer")
         except (ValueError, SyntaxError, TypeError) as e:
             record.blocked, record.decision, record.block_reason = True, "blocked", str(e)
             record.error_label, record.label_scope = 1, "operational"
@@ -136,6 +166,10 @@ def run_task(
                 }
             )
             replan_pending = True
+            if config.run.max_replans is not None and replans >= config.run.max_replans:
+                termination = "replan_limit"
+                break
+            replans += 1
             continue
         record.action = action
         if config.run.score_critic:
@@ -200,10 +234,47 @@ def run_task(
         )
         record.state_before = checkpoint.before if checkpoint else tree_hash(sandbox.workspace)
         rejected = False
+        stop_after_step = False
         try:
-            if selected:
+            if selected and not graph_mode:
                 controller.reserve(risk)
-            if selected or config.run.audit_all:
+            if graph_mode:
+                record.verification, record.graph_trace = verifier.verify_graph(
+                    context,
+                    action,
+                    risk.verifier_cost,
+                    sandbox.workspace,
+                    record.state_before,
+                    controller.budget,
+                    allow_review=(
+                        step + 1 < config.run.max_steps
+                        and (config.run.max_replans is None or replans < config.run.max_replans)
+                        and (
+                            config.run.max_online_tokens is None
+                            or policy_tokens + critic_tokens + verifier_tokens
+                            < config.run.max_online_tokens
+                        )
+                    ),
+                )
+                record.decision = "verify" if record.graph_trace["checks"] else "skip"
+                graph_checks += len(record.graph_trace["checks"])
+                graph_cache_hits += record.graph_trace["cache_hits"]
+                graph_model_calls += record.graph_trace["semantic_calls"]
+                graph_seconds += record.graph_trace["seconds"]
+                verifier_tokens += record.verification.usage.total
+                usage_complete &= record.verification.usage.measured
+                rejected = record.verification.verdict == "FAIL"
+                can_replan = config.run.max_replans is None or replans < config.run.max_replans
+                if record.verification.verdict == "REVIEW" and can_replan:
+                    # An opinion permits a single final-only revision; never a proven rejection.
+                    record.revision_requested = True
+                    fallback_answer = action.proposal.args["answer"]
+                    rejected = True
+                if record.verification.verdict == "ERROR":
+                    record.fallback_reason = (
+                        "Graph evidence unavailable; execute under action contract"
+                    )
+            elif selected or config.run.audit_all:
                 record.audit_only = not selected
                 try:
                     record.verification = verifier.verify(
@@ -238,11 +309,24 @@ def run_task(
                 if checkpoint:
                     record.restored_hash = checkpoint.restore()
                 record.recovery_seconds = time.monotonic() - before_restore
-                record.observation = sanitize(record.verification.reason, "verifier")
+                feedback = record.verification.reason
+                if graph_mode:
+                    feedback = feedback[:400]
+                    if record.revision_requested:
+                        feedback = (
+                            "Advisory review (not proof): "
+                            + feedback
+                            + " Return final_answer only; retain your answer if the critique is wrong."
+                        )
+                record.observation = sanitize(feedback, "verifier")
                 if initial:
                     initial.restore()
                     history.clear()
                 replan_pending = True
+                if config.run.max_replans is not None and replans >= config.run.max_replans:
+                    termination, stop_after_step = "replan_limit", True
+                else:
+                    replans += 1
             else:
                 result = sandbox.execute(action)
                 record.executed = True
@@ -285,10 +369,16 @@ def run_task(
                 }
             )
             if final is not None:
+                termination = "final_answer"
+                break
+            if stop_after_step:
                 break
         finally:
             if checkpoint:
                 checkpoint.close()
+    if final is None and fallback_answer is not None:
+        final, final_success = fallback_answer, grade_answer(task, fallback_answer)
+        final_selection = "reviewed_original_fallback"
     if final is None and task.kind in {"gsm8k", "math"}:
         final_success = False
     summary = {
@@ -319,6 +409,13 @@ def run_task(
         "verification_budget": float(controller.budget.total),
         "budget_violation": False,
         "seconds": time.monotonic() - start,
+        "termination_reason": termination,
+        "final_selection": final_selection,
+        "replans": replans,
+        "graph_checks": graph_checks,
+        "graph_cache_hits": graph_cache_hits,
+        "graph_model_calls": graph_model_calls,
+        "graph_seconds": graph_seconds,
         "python": platform.python_version(),
     }
     write_json(output / "summary.json", summary)
@@ -341,6 +438,7 @@ def collect(
 ):
     from .critic import TrainedCritic
     from .data import load_tasks
+    from .graph_verifier import GraphVerifier
     from .models import LocalModel
     from .sandbox import DockerSandbox, initialize_swe_workspace, make_patch
     from .store import EventStore
@@ -399,7 +497,11 @@ def collect(
                     sandbox_config.image, workspace, task.base_commit, sandbox_config.platform
                 )
                 shutil.copytree(workspace, task_output / "baseline")
-            verifier = Verifier(verifier_model, sandbox_config, config.probes)
+            verifier = (
+                GraphVerifier(verifier_model, sandbox_config, config.probes, config.graph)
+                if config.run.policy == "graph"
+                else Verifier(verifier_model, sandbox_config, config.probes)
+            )
             summary = run_task(
                 task,
                 assignment,

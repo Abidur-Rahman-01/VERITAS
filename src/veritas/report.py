@@ -91,7 +91,8 @@ def online_report(summaries, output, swe_report=None):
 
 def action_metrics(records):
     """Unknown semantic labels never become zero errors or false alarms."""
-    rows = [r for r in records if not r.get("blocked") and r.get("action")]
+    all_rows = list(records)
+    rows = [r for r in all_rows if not r.get("blocked") and r.get("action")]
     labeled = [
         r for r in rows if r.get("label_scope") == "semantic" and r.get("error_label") is not None
     ]
@@ -110,8 +111,12 @@ def action_metrics(records):
         "verifier_errors": sum(
             (r.get("verification") or {}).get("verdict") == "ERROR" for r in rows
         ),
-        "critic_errors": sum(bool(r.get("critic_error")) for r in rows),
-        "fallback_actions": sum(bool(r.get("fallback_reason")) for r in rows),
+        "critic_errors": sum(bool(r.get("critic_error")) for r in all_rows),
+        "fallback_actions": sum(bool(r.get("fallback_reason")) for r in all_rows),
+        "advisory_reviews": sum(bool(r.get("revision_requested")) for r in all_rows),
+        "deterministic_rejections": sum(
+            (r.get("verification") or {}).get("basis") == "deterministic" for r in rejected
+        ),
         "unlabeled_rejections": len(rejected) - len(known_rejected),
         "errors_caught": sum(r["error_label"] == 1 for r in known_rejected) if complete else None,
         "false_rejections": sum(r["error_label"] == 0 for r in known_rejected)

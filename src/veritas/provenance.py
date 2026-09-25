@@ -27,8 +27,10 @@ def verifier_identity(config):
             "settings": config.verifier.model_dump(mode="json"),
             "probes": config.probes,
             "sandbox": config.sandbox.model_dump(mode="json"),
+            "graph": config.graph.model_dump(mode="json") if config.run.policy == "graph" else None,
             "implementation": implementation(
                 ["models.py", "verifier.py", "sandbox.py", "worker.py"]
+                + (["graph.py", "graph_verifier.py"] if config.run.policy == "graph" else [])
             ),
         }
     )

@@ -68,10 +68,12 @@ class Usage(StrictModel):
 
 
 class Verification(StrictModel):
-    verdict: Literal["PASS", "FAIL", "ERROR"]
+    verdict: Literal["PASS", "FAIL", "ERROR", "REVIEW"]
     reason: str
     usage: Usage = Field(default_factory=Usage)
-    cost: float = Field(default=0.02, gt=0)
+    cost: float = Field(default=0.02, ge=0)
+    basis: Literal["unspecified", "deterministic", "model_opinion"] = "unspecified"
+    certificate: dict[str, Any] | None = None
 
 
 class StepRecord(StrictModel):
@@ -121,6 +123,8 @@ class StepRecord(StrictModel):
     policy_usage: Usage = Field(default_factory=Usage)
     critic_usage: Usage = Field(default_factory=Usage)
     budget_spent: float = Field(default=0, ge=0)
+    graph_trace: dict[str, Any] | None = None
+    revision_requested: bool = False
 
     @model_validator(mode="after")
     def label_provenance(self):

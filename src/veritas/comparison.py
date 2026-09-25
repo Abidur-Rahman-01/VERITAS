@@ -16,7 +16,7 @@ from pydantic import Field
 
 from .calibration import load_artifact, wilson
 from .config import Config, ModelConfig, load_config
-from .controller import POLICIES
+from .controller import ONLINE_POLICIES
 from .data import load_tasks
 from .io import digest, file_hash, read_jsonl, write_json, write_jsonl
 from .provenance import critic_identity, verifier_identity
@@ -121,7 +121,7 @@ def create_plan(config_path, output, limit=None, all_tasks=False, models=None, s
     if (
         not spec.policies
         or len(set(spec.policies)) != len(spec.policies)
-        or set(spec.policies) - set(POLICIES)
+        or set(spec.policies) - set(ONLINE_POLICIES)
     ):
         raise ValueError("Policies must be a unique nonempty selection of supported policies")
     inventory, excluded = discover_models(spec.server, spec.models)
@@ -183,6 +183,8 @@ def create_plan(config_path, output, limit=None, all_tasks=False, models=None, s
                 evidence = Path(path).parent / data["evidence_file"]
                 calibration_hashes[str(evidence)] = file_hash(evidence)
             for policy in spec.policies:
+                if policy == "graph":
+                    continue
                 if f"{policy}:{spec.verification_budget:g}" not in tuning["thresholds"]:
                     raise ValueError(
                         f"Budget/policy {policy}:{spec.verification_budget:g} was not tuned"
@@ -202,6 +204,10 @@ def create_plan(config_path, output, limit=None, all_tasks=False, models=None, s
         trained = SimpleNamespace(
             metadata=json.loads((Path(spec.critic_dir) / "metadata.json").read_text())
         )
+        if set(spec.policies) & SCORED_POLICIES and any(
+            t.group_id in trained.metadata.get("fit_groups", []) for t, _ in chosen
+        ):
+            raise ValueError("Comparison tasks overlap critic training groups")
     for source, options in spec.calibration.items():
         if source not in source_configs:
             continue
@@ -217,7 +223,12 @@ def create_plan(config_path, output, limit=None, all_tasks=False, models=None, s
     seen_aux = set()
     for source_config in source_configs.values():
         config = Config.model_validate(source_config)
-        roles = [config.verifier] if set(spec.policies) - {"never"} else []
+        uses_verifier = bool(set(spec.policies) - {"never", "graph"}) or (
+            "graph" in spec.policies
+            and config.graph.semantic_final_review
+            and config.graph.max_semantic_calls > 0
+        )
+        roles = [config.verifier] if uses_verifier else []
         if set(spec.policies) & SCORED_POLICIES and not spec.critic_dir:
             roles.append(config.critic)
         for model_config in roles:
@@ -416,6 +427,7 @@ def run_comparison(output, retry_failed=False):
                                 "name": model["name"],
                                 "max_tokens": config.model.max_tokens,
                                 "temperature": config.model.temperature,
+                                "prompt_style": config.model.prompt_style,
                                 "timeout_seconds": config.model.timeout_seconds,
                             }
                         )
@@ -426,7 +438,7 @@ def run_comparison(output, retry_failed=False):
                         config.run.verification_budget = spec.verification_budget
                         config.run.dynamic_lambda = 0.0
                         calibration = spec.calibration.get(task.source)
-                        if calibration:
+                        if calibration and policy != "graph":
                             tuning = plan["tuning"][task.source]
                             config.run.threshold = tuning["thresholds"][
                                 f"{policy}:{spec.verification_budget:g}"
@@ -561,6 +573,14 @@ def comparison_rows(output, plan):
                         "known_tokens": tokens,
                         "token_usage_complete": measured,
                         "tokens_per_task": tokens / selected if measured else None,
+                        "tokens_per_success": tokens / successes
+                        if measured and successes
+                        else None,
+                        "graph_model_calls": sum(s.get("graph_model_calls", 0) for s in summaries),
+                        "graph_cache_hits": sum(s.get("graph_cache_hits", 0) for s in summaries),
+                        "advisory_reviews": sum(
+                            (r.get("actions") or {}).get("advisory_reviews", 0) for r in results
+                        ),
                         "seconds_per_task": sum(
                             r["wall_seconds_including_grading"] for r in results
                         )
@@ -621,6 +641,7 @@ def render_table(rows):
         "Correct",
         "Score %",
         "Tokens/task",
+        "Tokens/solve",
         "Sec/task",
         "Err/Block/Pend",
         "False rej.",
@@ -638,6 +659,9 @@ def render_table(rows):
                 str(r["successes"]),
                 f"{100 * r['success_rate']:.1f}" if r["success_rate"] is not None else "N/A",
                 f"{r['tokens_per_task']:.0f}" if r["tokens_per_task"] is not None else "N/A",
+                f"{r['tokens_per_success']:.0f}"
+                if r.get("tokens_per_success") is not None
+                else "N/A",
                 f"{r['seconds_per_task']:.1f}" if r["seconds_per_task"] is not None else "N/A",
                 f"{r['errors']}/{r['blocked']}/{r['pending']}",
                 str(r["false_rejections"]) if r.get("false_rejections") is not None else "N/A",
@@ -661,7 +685,8 @@ def policy_effects(output, plan):
 
     effects = []
     policies = plan["spec"].get("policies", ["never"])
-    if "rcvov" not in policies:
+    primary = "graph" if "graph" in policies else "rcvov"
+    if primary not in policies:
         return effects
     for model in plan["models"]:
         for source in plan["sources"]:
@@ -692,15 +717,16 @@ def policy_effects(output, plan):
                         )
                 groups[policy] = results
             for baseline in policies:
-                if baseline == "rcvov":
+                if baseline == primary:
                     continue
-                left, right = groups["rcvov"], groups[baseline]
+                left, right = groups[primary], groups[baseline]
                 complete = source["selected"] > 0 and len(left) == len(right) == source["selected"]
                 effects.append(
                     {
                         "model": model["name"],
                         "dataset": source["source"],
                         "baseline": baseline,
+                        "policy": primary,
                         "complete": complete,
                         "selected": source["selected"],
                         "success_delta": paired_bootstrap(
@@ -713,7 +739,7 @@ def policy_effects(output, plan):
                         )
                         if complete and all(r["measured"] for r in left + right)
                         else None,
-                        "note": "RC-VoV minus baseline, per task. Small pilots are descriptive; CIs do not correct multiple comparisons or systematic grading bias.",
+                        "note": f"{primary} minus baseline, per task. Small pilots are descriptive; CIs do not correct multiple comparisons or systematic grading bias.",
                     }
                 )
     return effects

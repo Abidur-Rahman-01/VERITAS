@@ -1,0 +1,10 @@
+model:
+  max_tokens: 2048
+  timeout_seconds: 300
+sandbox:
+  timeout_seconds: 180
+run:
+  max_steps: 30
+  history_chars: 12000
+  observation_chars: 2400
+  max_online_tokens: 60000

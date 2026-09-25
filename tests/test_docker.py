@@ -47,3 +47,28 @@ def test_real_docker_files_python_sql_and_restore(tmp_path):
     checkpoint.restore()
     assert list(sandbox.workspace.iterdir()) == []
     checkpoint.close()
+
+
+def test_real_graph_differential_probe_has_no_workspace_side_effects(tmp_path):
+    from veritas.config import GraphConfig
+    from veritas.controller import Budget
+    from veritas.graph_verifier import GraphVerifier
+    from veritas.state import tree_hash
+
+    sandbox = DockerSandbox(tmp_path / "work", SandboxConfig())
+    sandbox.preflight()
+    (sandbox.workspace / "a.py").write_text("value = 1\n")
+    (sandbox.workspace / "test_a.py").write_text(
+        "from a import value\ndef test_value():\n    assert value == 1\n"
+    )
+    before = tree_hash(sandbox.workspace)
+    candidate = contract(Proposal(tool="edit_file", args={"path": "a.py", "old": "1", "new": "2"}))
+    engine = GraphVerifier(
+        None, SandboxConfig(), [["python", "-m", "pytest", "test_a.py", "-q"]], GraphConfig()
+    )
+    result, trace = engine.verify_graph(
+        "software fixture", candidate, 0.02, sandbox.workspace, before, Budget(0)
+    )
+    assert result.verdict == "FAIL" and result.certificate["check"] == "configured_test_regression"
+    assert tree_hash(sandbox.workspace) == before
+    assert trace["semantic_calls"] == 0

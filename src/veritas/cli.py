@@ -229,7 +229,18 @@ def doctor(config_path, check_models=False):
         import httpx
 
         servers = {}
-        for model in [cfg.model, cfg.critic, cfg.verifier]:
+        active_models = [cfg.model]
+        if cfg.run.score_critic:
+            active_models.append(cfg.critic)
+        if cfg.run.audit_all or (
+            cfg.run.policy != "never"
+            and (
+                cfg.run.policy != "graph"
+                or (cfg.graph.semantic_final_review and cfg.graph.max_semantic_calls)
+            )
+        ):
+            active_models.append(cfg.verifier)
+        for model in active_models:
             if model.backend == "transformers":
                 servers[model.name] = (
                     "local path exists" if Path(model.name).exists() else "missing local model path"

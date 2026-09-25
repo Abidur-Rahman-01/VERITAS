@@ -1,0 +1,37 @@
+# Graph policy: no critic, deterministic checks first, at most one final LLM review.
+seed: 42
+model:
+  backend: ollama
+  base_url: http://127.0.0.1:11434
+  name: qwen2.5-coder:7b
+  max_tokens: 1024
+  temperature: 0
+  prompt_style: compact
+verifier:
+  backend: ollama
+  base_url: http://127.0.0.1:11434
+  name: qwen2.5-coder:7b
+  max_tokens: 256
+  temperature: 0
+  prompt_style: compact
+run:
+  policy: graph
+  score_critic: false
+  allow_uncalibrated: true
+  audit_all: false
+  compact_history: true
+  history_chars: 8000
+  observation_chars: 1600
+  max_steps: 12
+  max_replans: 1
+  # Stop BEFORE the next actor call when measured usage reaches this value.
+  # This is not a hard tokenizer-level cap; the last iteration can exceed it.
+  max_online_tokens: 16000
+  verification_budget: 0.04
+  verification_cost: 0.02
+graph:
+  semantic_final_review: true
+  max_semantic_calls: 1
+  max_probes: 1
+  cache_entries: 32
+probes: []  # Configure only relevant public development tests, never hidden gold tests.

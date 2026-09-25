@@ -13,6 +13,8 @@ POLICIES = (
     "bavar_style",
     "rcvov",
 )
+# Graph verification needs live workspace evidence; it is not a replay threshold.
+ONLINE_POLICIES = (*POLICIES, "graph")
 
 
 @dataclass(frozen=True)

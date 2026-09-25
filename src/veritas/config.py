@@ -15,6 +15,7 @@ class ModelConfig(StrictModel):
     max_tokens: int = Field(default=2048, gt=0)
     timeout_seconds: float = Field(default=180, gt=0)
     temperature: float = Field(default=0, ge=0, le=2)
+    prompt_style: Literal["standard", "compact"] = "standard"
 
 
 class SandboxConfig(StrictModel):
@@ -40,6 +41,19 @@ class RunConfig(StrictModel):
     allow_uncalibrated: bool = False
     score_critic: bool = True
     recovery_mode: Literal["checkpoint", "restart"] = "checkpoint"
+    compact_history: bool = False
+    observation_chars: int = Field(default=2000, ge=200)
+    max_replans: int | None = Field(default=None, ge=0)
+    max_online_tokens: int | None = Field(default=None, gt=0)
+
+
+class GraphConfig(StrictModel):
+    # One optional final review, never an LLM critic on every tool action.
+    semantic_final_review: bool = True
+    max_semantic_calls: int = Field(default=1, ge=0)
+    max_probes: int = Field(default=1, ge=0)
+    cache_entries: int = Field(default=128, ge=0)
+    max_file_bytes: int = Field(default=1_000_000, gt=0)
 
 
 class Config(StrictModel):
@@ -49,6 +63,7 @@ class Config(StrictModel):
     verifier: ModelConfig = Field(default_factory=ModelConfig)
     sandbox: SandboxConfig = Field(default_factory=SandboxConfig)
     run: RunConfig = Field(default_factory=RunConfig)
+    graph: GraphConfig = Field(default_factory=GraphConfig)
     probes: list[list[str]] = Field(default_factory=list)
     impact: dict[ActionClass, float] = Field(
         default_factory=lambda: {

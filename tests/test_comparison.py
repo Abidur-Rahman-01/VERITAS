@@ -229,6 +229,90 @@ def test_scored_comparison_refuses_missing_calibration(tmp_path, monkeypatch):
         setup_plan(tmp_path, monkeypatch, policies=["never", "rcvov"])
 
 
+def test_graph_matrix_real_runtime_with_mock_transport_and_sandbox(tmp_path, monkeypatch):
+    """Exercise plan -> real collect/runtime/HTTP parsing/ledger -> paired reports, without inference."""
+    from veritas.comparison import job_key
+    from veritas.store import EventStore
+
+    output, plan = setup_plan(tmp_path, monkeypatch, limit=1, policies=["never", "always", "graph"])
+    requests = []
+
+    def response(request):
+        payload = json.loads(request.content)
+        system, context = [m["content"] for m in payload["messages"]]
+        requests.append(system)
+        if "verification engine" in system:
+            text = {"verdict": "PASS", "reason": "fixture review"}
+        else:
+            assert "expert autonomous" in system and "Assess the proposed action" not in system
+            history = json.loads(context)["recent_history"]
+            text = (
+                {"tool": "final_answer", "args": {"answer": "2"}}
+                if history
+                else {"tool": "write_file", "args": {"path": "a.py", "content": "x = 1\n"}}
+            )
+        if request.url.path == "/api/chat":
+            return httpx.Response(
+                200,
+                json={
+                    "message": {"content": json.dumps(text)},
+                    "prompt_eval_count": 10,
+                    "eval_count": 5,
+                },
+            )
+        return httpx.Response(
+            200,
+            json={
+                "choices": [{"message": {"content": json.dumps(text)}, "finish_reason": "stop"}],
+                "usage": {"prompt_tokens": 10, "completion_tokens": 5},
+            },
+        )
+
+    class FixtureSandbox:
+        def __init__(self, workspace, config):
+            self.workspace = Path(workspace)
+            self.workspace.mkdir(parents=True, exist_ok=True)
+
+        def preflight(self):
+            return "software-fixture-only"
+
+        def execute(self, action):
+            if action.proposal.tool == "write_file":
+                (self.workspace / "a.py").write_text(action.proposal.args["content"])
+            return {"exit_code": 0, "output": "fixture completed"}
+
+    client = httpx.Client
+    monkeypatch.setattr(
+        "veritas.models.httpx.Client",
+        lambda **kw: client(**{**kw, "transport": httpx.MockTransport(response)}),
+    )
+    monkeypatch.setattr("veritas.sandbox.DockerSandbox", FixtureSandbox)
+    rows = run_comparison(output)
+    assert len(rows) == 6 and all(row["complete"] for row in rows)
+    for model in ["a", "b"]:
+        by_policy = {row["policy"]: row for row in rows if row["model"] == model}
+        assert by_policy["never"]["tokens_per_task"] == 30
+        assert by_policy["always"]["tokens_per_task"] == 60
+        assert by_policy["graph"]["tokens_per_task"] == 45
+        assert by_policy["graph"]["graph_model_calls"] == 1
+        task_id = plan["sources"][0]["task_ids"][0]
+        result = json.loads(
+            (output / "jobs" / job_key(model, task_id, "graph") / "result.json").read_text()
+        )
+        assert result["summary"]["critic_tokens"] == 0
+    effects = json.loads((output / "policy_effects.json").read_text())
+    assert len(effects) == 4 and all(e["policy"] == "graph" for e in effects)
+    assert all(e["complete"] for e in effects)
+    for database in output.glob("jobs/**/events.sqlite"):
+        store = EventStore(database)
+        assert len(list(store.records())) == 2  # Also validates the persisted hash chain/schema.
+        store.close()
+    assert "Tokens/solve" in (output / "comparison.txt").read_text()
+    count = len(requests)
+    run_comparison(output)
+    assert len(requests) == count  # Resume reuses finished results, never extra inference.
+
+
 def test_complete_scored_comparison_joins_tuning_and_uncertainty(tmp_path, monkeypatch, step):
     from veritas.calibration import fit_artifact
     from veritas.config import Config
