@@ -1,0 +1,14 @@
+policy_32b:
+  provider: "ollama"
+  model: "qwen2.5-coder:32b"
+  parameters: "32.5B"
+  context_window: 32768
+  quantization: "Q4_K_M"
+  temperature: 0.0
+  top_p: 1.0
+  seed: 42
+  vram_footprint_gb: 19.5
+  target_gpu: "NVIDIA GeForce RTX 5080 (16GB VRAM) + Host RAM Offload"
+  timeout_seconds: 180.0
+  role: "primary_workhorse_policy"
+  fallback_model: "qwen2.5-coder:14b"

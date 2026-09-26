@@ -1,0 +1,9 @@
+model,family,scale,vram_gb,problems_tested,reasoning_accuracy_percent,avg_step_latency_ms,contract_structuring_latency_ms,valid_contract,tool_proposed,operation_proposed,calibrated_risk_prior,status
+llama3.2:1b,Llama 3.2,1B,1.3,10,30.0,3283.9,2372.8,True,audit,queryset,0.2,success
+qwen2.5:1.5b,Qwen 2.5,1.5B,1.0,10,50.0,2804.9,2230.5,True,audit_django_cache,invalidate_queryset_cache,0.01,success
+gemma2:2b,Gemma 2,2B,1.6,10,50.0,5101.1,2284.7,True,django-orm-cache-analyzer,analyze,0.1,success
+llama3.2:3b,Llama 3.2,3B,2.0,10,60.0,3552.2,2339.5,True,dbshell,queryset_cache_invalidate,0.05,success
+qwen2.5-coder:7b,Qwen 2.5 Coder,7B,4.7,10,80.0,4458.8,2367.4,True,Django ORM,list_queryset_cache,0.01,success
+mistral:7b,Mistral,7B,4.1,10,40.0,4296.7,2413.2,True,Django Debug Toolbar,enable,0.01,success
+llama3.1:8b,Llama 3.1,8B,4.7,10,70.0,4082.4,2409.1,True,shell,echo,0.8,success
+qwen2.5-coder:14b,Qwen 2.5 Coder,14B,9.0,10,90.0,6008.7,2801.9,True,Django ORM,QuerySet,0.01,success

@@ -1,0 +1,37 @@
+dual_model_32b:
+  sentinel:
+    model: "llama3.2:3b"
+    provider: "local_ollama"
+    role: "low_latency_sanitization_and_calibration"
+    latency_sla_ms: 100
+    vram_footprint_gb: 2.0
+    responsibilities:
+      - "air_gap_observation_sanitization"
+      - "indirect_prompt_injection_detection"
+      - "confidence_error_calibration"
+      - "speculative_pre_verification"
+
+  workhorse_policy:
+    model: "qwen2.5-coder:32b"
+    provider: "ollama"
+    parameters: "32.5B"
+    endpoint: "http://localhost:11434"
+    role: "deep_reasoning_and_complex_synthesis"
+    vram_footprint_gb: 19.5
+    temperature: 0.0
+    top_p: 1.0
+    context_window: 32768
+    timeout_seconds: 180.0
+    fallback_model: "qwen2.5-coder:14b"
+    responsibilities:
+      - "long_horizon_multi_step_reasoning"
+      - "complex_code_synthesis_and_patching"
+      - "reflexion_replanning"
+      - "cso_counterfactual_branch_exploration"
+
+hardware_allocation:
+  gpu: "NVIDIA GeForce RTX 5080 (16GB VRAM)"
+  total_vram_gb: 16.0
+  allocated_vram_gb: 16.0
+  host_ram_offload_gb: 5.5 # Offloaded layers to 128GB Host RAM
+  free_headroom_gb: 0.0

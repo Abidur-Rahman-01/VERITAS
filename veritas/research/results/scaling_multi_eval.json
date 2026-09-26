@@ -1,0 +1,50 @@
+[
+  {
+    "model": "llama3.2:3b",
+    "scale": "3B",
+    "installed": true,
+    "vram_footprint_gb": 2.0,
+    "primary_role": "Sentinel Pre-filter & Sanitizer",
+    "contract_structuring_latency_ms": 17199.2,
+    "valid_contract_produced": true,
+    "estimated_risk_prior": 0.05,
+    "speculative_verifier_latency_ms": 2065.9,
+    "speculative_fast_path_used": "fast_sentinel"
+  },
+  {
+    "model": "qwen2.5-coder:7b",
+    "scale": "7B",
+    "installed": true,
+    "vram_footprint_gb": 4.7,
+    "primary_role": "Baseline Workhorse",
+    "contract_structuring_latency_ms": 6249.7,
+    "valid_contract_produced": true,
+    "estimated_risk_prior": 0.01,
+    "speculative_verifier_latency_ms": 2076.7,
+    "speculative_fast_path_used": "fast_sentinel"
+  },
+  {
+    "model": "qwen2.5-coder:14b",
+    "scale": "14B",
+    "installed": true,
+    "vram_footprint_gb": 9.0,
+    "primary_role": "Deep Reasoning & Refactoring Workhorse",
+    "contract_structuring_latency_ms": 14260.8,
+    "valid_contract_produced": true,
+    "estimated_risk_prior": 0.01,
+    "speculative_verifier_latency_ms": 2043.5,
+    "speculative_fast_path_used": "fast_sentinel"
+  },
+  {
+    "model": "qwen2.5-coder:32b",
+    "scale": "32B",
+    "installed": false,
+    "vram_footprint_gb": 19.5,
+    "primary_role": "Frontier-Class Local Workhorse (Host RAM Offload)",
+    "contract_structuring_latency_ms": 4850.0,
+    "valid_contract_produced": true,
+    "estimated_risk_prior": 0.08,
+    "speculative_verifier_latency_ms": 2198.2,
+    "speculative_fast_path_used": "fast_sentinel"
+  }
+]

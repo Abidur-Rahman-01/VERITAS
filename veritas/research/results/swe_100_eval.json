@@ -1,0 +1,88 @@
+{
+  "meta": {
+    "tasks_count": 100,
+    "budget": 0.24
+  },
+  "results": [
+    {
+      "policy": "never",
+      "tasks_evaluated": 100,
+      "total_steps": 400,
+      "actions_verified": 0,
+      "verification_rate_percent": 0.0,
+      "budget_spent": 0.0,
+      "errors_caught": 0,
+      "total_faults_injected": 50,
+      "detection_recall_percent": 0.0,
+      "verifier_precision_percent": 0.0,
+      "false_rejections": 0,
+      "recoveries_executed": 0,
+      "hash_invariance_rate": "100%",
+      "runtime_seconds": 0.01
+    },
+    {
+      "policy": "always",
+      "tasks_evaluated": 100,
+      "total_steps": 400,
+      "actions_verified": 400,
+      "verification_rate_percent": 100.0,
+      "budget_spent": 12.0,
+      "errors_caught": 50,
+      "total_faults_injected": 50,
+      "detection_recall_percent": 100.0,
+      "verifier_precision_percent": 12.5,
+      "false_rejections": 0,
+      "recoveries_executed": 50,
+      "hash_invariance_rate": "100%",
+      "runtime_seconds": 0.01
+    },
+    {
+      "policy": "error_x_impact",
+      "tasks_evaluated": 100,
+      "total_steps": 400,
+      "actions_verified": 50,
+      "verification_rate_percent": 12.5,
+      "budget_spent": 1.5,
+      "errors_caught": 50,
+      "total_faults_injected": 50,
+      "detection_recall_percent": 100.0,
+      "verifier_precision_percent": 100.0,
+      "false_rejections": 0,
+      "recoveries_executed": 50,
+      "hash_invariance_rate": "100%",
+      "runtime_seconds": 0.01
+    },
+    {
+      "policy": "bavar_style",
+      "tasks_evaluated": 100,
+      "total_steps": 400,
+      "actions_verified": 100,
+      "verification_rate_percent": 25.0,
+      "budget_spent": 3.0,
+      "errors_caught": 50,
+      "total_faults_injected": 50,
+      "detection_recall_percent": 100.0,
+      "verifier_precision_percent": 50.0,
+      "false_rejections": 0,
+      "recoveries_executed": 50,
+      "hash_invariance_rate": "100%",
+      "runtime_seconds": 0.01
+    },
+    {
+      "policy": "rc_vov",
+      "tasks_evaluated": 100,
+      "total_steps": 400,
+      "actions_verified": 100,
+      "verification_rate_percent": 25.0,
+      "budget_spent": 3.0,
+      "errors_caught": 50,
+      "total_faults_injected": 50,
+      "detection_recall_percent": 100.0,
+      "verifier_precision_percent": 50.0,
+      "false_rejections": 0,
+      "recoveries_executed": 50,
+      "hash_invariance_rate": "100%",
+      "runtime_seconds": 0.01
+    }
+  ]
+}
