@@ -52,3 +52,34 @@ def compact_context(task, history, limit, observation_chars, steps_remaining):
         },
         ensure_ascii=False,
     )
+
+
+def phase_context(task, history, *, phase, cue, boundary, history_chars,
+                  observation_chars, compact, steps_remaining, input_chars):
+    """Keep experimental notices out of the trimmable, untrusted history.
+
+    input_chars bounds rendered characters, not tokenizer-specific tokens. Refuse an
+    oversized immutable task instead of silently truncating the intervention or goal.
+    """
+    entries = [compact_entry(x, observation_chars) for x in history] if compact else list(history)
+    value = {
+        "user_task": task.prompt,
+        "phase": phase,
+        "workflow": "This task has a draft phase and a revision phase. Submit final_answer to "
+                    "close the current phase. Both phases allow edits and tests.",
+        "steps_remaining": steps_remaining,
+        "recent_history": entries,
+    }
+    if cue:
+        value["initial_session_notice"] = cue
+    if boundary is not None:
+        value["boundary_message"] = boundary
+    while entries and len(json.dumps(entries, ensure_ascii=False)) > history_chars:
+        entries.pop(0)
+    while True:
+        rendered = json.dumps(value, ensure_ascii=False)
+        if len(rendered) <= input_chars:
+            return rendered
+        if not entries:
+            raise ValueError("Immutable task/treatment exceeds configured input character cap")
+        entries.pop(0)

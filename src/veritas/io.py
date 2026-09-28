@@ -51,11 +51,28 @@ def write_jsonl(path, rows: Iterable[dict]):
 
 
 def write_json(path, value):
+    write_text(path, canonical(value).decode() + "\n")
+
+
+def write_text(path, value):
+    """Durably replace a complete UTF-8 artifact; interrupted writes stay unreferenced."""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".partial")
-    tmp.write_bytes(canonical(value) + b"\n")
-    tmp.replace(path)
+    fd, temporary = tempfile.mkstemp(dir=path.parent, prefix=".partial-")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="") as handle:
+            handle.write(value)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+        directory = os.open(path.parent, os.O_RDONLY)
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
 
 
 def read_records(path):

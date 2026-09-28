@@ -1,8 +1,8 @@
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Literal
 
 import yaml
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from .schema import ActionClass, StrictModel
 
@@ -56,6 +56,26 @@ class GraphConfig(StrictModel):
     max_file_bytes: int = Field(default=1_000_000, gt=0)
 
 
+class OpportunityConfig(StrictModel):
+    mode: Literal["disabled", "shadow"] = "disabled"
+    import_root: str = "."
+    target_identity: str | None = None
+    caller_identity: str | None = None
+    final_fallback: bool = True
+
+    @model_validator(mode="after")
+    def identities(self):
+        root = PurePosixPath(self.import_root)
+        if root.is_absolute() or ".." in root.parts or "\\" in self.import_root or ":" in self.import_root:
+            raise ValueError("Opportunity import root must remain inside the workspace")
+        if self.mode == "shadow" and (
+            not self.target_identity or not self.caller_identity
+            or self.target_identity == self.caller_identity
+        ):
+            raise ValueError("Shadow opportunities require distinct target and caller identities")
+        return self
+
+
 class Config(StrictModel):
     seed: int = 42
     model: ModelConfig = Field(default_factory=ModelConfig)
@@ -64,6 +84,7 @@ class Config(StrictModel):
     sandbox: SandboxConfig = Field(default_factory=SandboxConfig)
     run: RunConfig = Field(default_factory=RunConfig)
     graph: GraphConfig = Field(default_factory=GraphConfig)
+    opportunities: OpportunityConfig = Field(default_factory=OpportunityConfig)
     probes: list[list[str]] = Field(default_factory=list)
     impact: dict[ActionClass, float] = Field(
         default_factory=lambda: {

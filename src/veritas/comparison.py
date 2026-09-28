@@ -18,6 +18,7 @@ from .calibration import load_artifact, wilson
 from .config import Config, ModelConfig, load_config
 from .controller import ONLINE_POLICIES
 from .data import load_tasks
+from .eligibility import eligible_models, verify_original_tasks
 from .io import digest, file_hash, read_jsonl, write_json, write_jsonl
 from .provenance import critic_identity, verifier_identity
 from .replay import load_tuning
@@ -46,6 +47,9 @@ class ComparisonConfig(StrictModel):
         default_factory=lambda: ModelConfig(backend="ollama", base_url="http://127.0.0.1:11434")
     )
     models: list[str] = Field(default_factory=list)
+    max_parameters_b: float | None = Field(default=None, gt=0, le=14)
+    original_dataset_registry: str | None = None
+    raw_tasks: str = "data/raw"
     sources: list[str] = Field(default_factory=list)
     split: str | None = None
     limit: int | None = Field(default=5, gt=0)
@@ -56,6 +60,7 @@ class ComparisonConfig(StrictModel):
     calibration: dict[str, CalibrationOptions] = Field(default_factory=dict)
     critic_dir: str | None = None
     overrides: dict[str, str] = Field(default_factory=dict)
+    runtime_overrides: dict[str, dict] = Field(default_factory=dict)
 
 
 def discover_models(server, names=None):
@@ -84,10 +89,12 @@ def discover_models(server, names=None):
         selected, excluded = [], []
         for name in sorted(names or inventory):
             capabilities = None
+            details = {}
             if server.backend == "ollama":
                 response = client.post(base + "/api/show", json={"model": name})
                 response.raise_for_status()
-                capabilities = response.json().get("capabilities")
+                details = response.json()
+                capabilities = details.get("capabilities")
             if capabilities is not None and "completion" not in capabilities:
                 excluded.append({"name": name, "reason": "No completion capability"})
                 continue
@@ -96,6 +103,9 @@ def discover_models(server, names=None):
                     "name": name,
                     "digest": inventory[name].get("digest"),
                     "capabilities": capabilities,
+                    "parameter_count": details.get("model_info", {}).get("general.parameter_count"),
+                    "parameter_size": inventory[name].get("details", {}).get("parameter_size"),
+                    "quantization": inventory[name].get("details", {}).get("quantization_level"),
                 }
             )
     if not selected:
@@ -125,6 +135,8 @@ def create_plan(config_path, output, limit=None, all_tasks=False, models=None, s
     ):
         raise ValueError("Policies must be a unique nonempty selection of supported policies")
     inventory, excluded = discover_models(spec.server, spec.models)
+    inventory, size_excluded = eligible_models(spec.server, inventory, spec.max_parameters_b)
+    excluded.extend(size_excluded)
     base = load_config(spec.base_config)
     base.run.policy = "never"
     base.run.audit_all = False
@@ -157,6 +169,10 @@ def create_plan(config_path, output, limit=None, all_tasks=False, models=None, s
         )
     if not chosen:
         raise ValueError("No tasks selected")
+    original_evidence = (
+        verify_original_tasks(chosen, source_manifest, spec.original_dataset_registry, spec.raw_tasks)
+        if spec.original_dataset_registry else {}
+    )
     calibrations, calibration_hashes = {}, {}
     for source in requested:
         options = spec.calibration.get(source)
@@ -189,6 +205,8 @@ def create_plan(config_path, output, limit=None, all_tasks=False, models=None, s
                     raise ValueError(
                         f"Budget/policy {policy}:{spec.verification_budget:g} was not tuned"
                     )
+    if spec.critic_dir and spec.max_parameters_b is not None and set(spec.policies) & SCORED_POLICIES:
+        raise ValueError("A local trained critic has no Ollama size evidence; use a capped Ollama critic")
     if spec.critic_dir:
         spec.critic_dir = str(Path(spec.critic_dir).resolve())
         for path in Path(spec.critic_dir).rglob("*"):
@@ -198,6 +216,19 @@ def create_plan(config_path, output, limit=None, all_tasks=False, models=None, s
         source: load_config(spec.base_config, spec.overrides.get(source)).model_dump(mode="json")
         for source in requested
     }
+    for source, values in source_configs.items():
+        for section, patch in spec.runtime_overrides.items():
+            if section not in {"model", "critic", "verifier", "run", "graph", "sandbox"}:
+                raise ValueError(f"Unsupported runtime override section: {section}")
+            controlled = {
+                "model": {"backend", "base_url", "name", "api_key_env"},
+                "run": {"policy", "verification_budget", "audit_all", "score_critic",
+                        "allow_uncalibrated", "threshold", "dynamic_lambda"},
+            }
+            if set(patch) & controlled.get(section, set()):
+                raise ValueError(f"{section} override changes comparison-controlled fields")
+            values[section].update(patch)
+        source_configs[source] = Config.model_validate(values).model_dump(mode="json")
     trained = None
     if spec.critic_dir:
         # Planning reads metadata/hashes only, including for a large LoRA critic.
@@ -237,6 +268,9 @@ def create_plan(config_path, output, limit=None, all_tasks=False, models=None, s
                 continue
             seen_aux.add(identity)
             installed, _ = discover_models(model_config, [model_config.name])
+            eligible, rejected = eligible_models(model_config, installed, spec.max_parameters_b)
+            if rejected or len(eligible) != len(installed):
+                raise ValueError("Configured critic/verifier exceeds the model eligibility restriction")
             auxiliary_models.append(
                 {"config": model_config.model_dump(mode="json"), "models": installed}
             )
@@ -272,6 +306,7 @@ def create_plan(config_path, output, limit=None, all_tasks=False, models=None, s
         "models": inventory,
         "auxiliary_models": auxiliary_models,
         "excluded_models": excluded,
+        "original_task_evidence": original_evidence,
         "sources": source_rows,
         "tasks_manifest_sha256": file_hash(task_dir / "manifest.json"),
         "image_map_hashes": {
@@ -381,6 +416,9 @@ def run_comparison(output, retry_failed=False):
     plan = read_plan(output)
     spec = ComparisonConfig.model_validate(plan["spec"])
     current, _ = discover_models(spec.server, [m["name"] for m in plan["models"]])
+    current, rejected = eligible_models(spec.server, current, spec.max_parameters_b)
+    if rejected:
+        raise ValueError("Frozen model selection is no longer eligible")
     if {(m["name"], m["digest"]) for m in current} != {
         (m["name"], m["digest"]) for m in plan["models"]
     }:
@@ -388,7 +426,8 @@ def run_comparison(output, retry_failed=False):
     for auxiliary in plan.get("auxiliary_models", []):
         config = ModelConfig.model_validate(auxiliary["config"])
         installed, _ = discover_models(config, [config.name])
-        if installed != auxiliary["models"]:
+        _, rejected = eligible_models(config, installed, spec.max_parameters_b)
+        if rejected or installed != auxiliary["models"]:
             raise ValueError("Critic/verifier model metadata changed; create a new plan")
     tasks = {t.task_id: (t, a) for t, a in load_tasks(output / "tasks")}
     for name, expected in plan.get("implementation_hashes", {}).items():
@@ -477,7 +516,7 @@ def run_comparison(output, retry_failed=False):
                                 if not options.images or not Path(options.images).is_file():
                                     result["status"] = "blocked"
                                     raise ValueError(
-                                        "SWE image map missing; see docs/COMPARISON.md"
+                                        "SWE image map missing; see docs/ARCHITECTURE.md"
                                     )
                                 mapping = json.loads(Path(options.images).read_text())
                                 if task.private["instance_id"] not in mapping:
@@ -571,6 +610,10 @@ def comparison_rows(output, plan):
                         "pending": selected - len(results),
                         "complete": complete,
                         "known_tokens": tokens,
+                        **{
+                            f"known_{role}_tokens": sum(s.get(f"{role}_tokens", 0) for s in summaries)
+                            for role in ("policy", "critic", "verifier", "audit")
+                        },
                         "token_usage_complete": measured,
                         "tokens_per_task": tokens / selected if measured else None,
                         "tokens_per_success": tokens / successes
@@ -755,6 +798,9 @@ def report_comparison(output):
         writer = csv.DictWriter(f, fieldnames=list(rows[0]))
         writer.writeheader()
         writer.writerows(rows)
+    from .plots import plot_comparison
+
+    plot_comparison(rows, output / "plots")
     table = render_table(rows)
     (output / "comparison.txt").write_text(table + "\n", encoding="utf-8")
     print(table, flush=True)

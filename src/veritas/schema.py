@@ -80,6 +80,13 @@ class StepRecord(StrictModel):
     # Runtime fills fields incrementally; EventStore validates the completed record atomically.
     model_config = ConfigDict(extra="forbid", validate_assignment=False, allow_inf_nan=False)
     schema_version: int = 1
+    # Unknown on legacy traces; treatment assignment lives in the private study ledger.
+    trial_id: str | None = None
+    attempt_id: str | None = None
+    phase: Literal["draft", "revision"] | None = None
+    actor_request_id: int | None = None
+    prompt_hash: str | None = None
+    prompt_redacted: bool = False
     event_id: str
     task_id: str
     group_id: str
@@ -128,6 +135,13 @@ class StepRecord(StrictModel):
 
     @model_validator(mode="after")
     def label_provenance(self):
+        if self.schema_version not in (1, 2):
+            raise ValueError("Unsupported step schema version")
+        links = (self.trial_id, self.attempt_id, self.phase)
+        if any(x is not None for x in links) and (
+            self.schema_version != 2 or any(x is None for x in links)
+        ):
+            raise ValueError("Awareness steps require version 2 and complete trial/attempt/phase linkage")
         if self.error_label is not None and (
             not self.label_source or self.label_scope == "unknown"
         ):

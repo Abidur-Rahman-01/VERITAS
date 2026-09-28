@@ -94,8 +94,12 @@ class LocalModel:
     def close(self):
         self.client.close()
 
-    def complete(self, system, user):
+    def complete(self, system, user, *, max_tokens=None, timeout_seconds=None):
         cfg = self.config
+        cap = min(cfg.max_tokens, max_tokens) if max_tokens is not None else cfg.max_tokens
+        if cap < 1:
+            raise ValueError("A model call requires positive remaining output tokens")
+        deadline = min(cfg.timeout_seconds, timeout_seconds) if timeout_seconds else cfg.timeout_seconds
         messages = [{"role": "system", "content": system}, {"role": "user", "content": user}]
         start = time.monotonic()
         if cfg.backend == "openai_compatible":
@@ -110,8 +114,9 @@ class LocalModel:
                     "model": cfg.name,
                     "messages": messages,
                     "temperature": cfg.temperature,
-                    "max_tokens": cfg.max_tokens,
+                    "max_tokens": cap,
                 },
+                timeout=deadline,
             )
             response.raise_for_status()
             data = response.json()
@@ -136,8 +141,9 @@ class LocalModel:
                     "messages": messages,
                     "stream": False,
                     "format": "json",
-                    "options": {"temperature": cfg.temperature, "num_predict": cfg.max_tokens},
+                    "options": {"temperature": cfg.temperature, "num_predict": cap},
                 },
+                timeout=deadline,
             )
             response.raise_for_status()
             data = response.json()
@@ -170,7 +176,8 @@ class LocalModel:
             with torch.inference_mode():
                 generated = model.generate(
                     inputs,
-                    max_new_tokens=cfg.max_tokens,
+                    max_new_tokens=cap,
+                    **({"max_time": deadline} if timeout_seconds is not None else {}),
                     do_sample=cfg.temperature > 0,
                     **({"temperature": cfg.temperature} if cfg.temperature else {}),
                 )

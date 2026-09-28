@@ -16,6 +16,103 @@ def parser():
         prog="veritas", description="Real-data, local-model VERITAS experiments"
     )
     commands = p.add_subparsers(dest="command", required=True)
+    from .awareness_cli import add_parser
+
+    add_parser(commands)
+    scope = commands.add_parser(
+        "dependency-scope", help="Create public-only development interface/caller review queue"
+    )
+    scope.add_argument("--tasks", default="data/prepared")
+    scope.add_argument("--source")
+    scope.add_argument("--output", required=True)
+    dependencies = commands.add_parser(
+        "dependencies", help="Extract conservative Python dependency candidates without execution"
+    )
+    dependencies.add_argument("--root", required=True)
+    dependencies.add_argument("--output", required=True)
+    dependencies.add_argument("--max-file-bytes", type=int, default=1_000_000)
+    dependencies.add_argument("--max-files", type=int, default=10_000)
+    cohort = commands.add_parser(
+        "dependency-cohort", help="Prepare independent reviews or freeze a reviewed pilot cohort"
+    ).add_subparsers(dest="action", required=True)
+    verify = cohort.add_parser("verify")
+    verify.add_argument("directory")
+    for action in ("prepare", "finalize"):
+        command = cohort.add_parser(action)
+        command.add_argument("--scope", required=True)
+        command.add_argument("--output", required=True)
+        if action == "finalize":
+            command.add_argument("--tasks", default="data/prepared")
+            command.add_argument("--reviews", required=True)
+            command.add_argument("--protocol", required=True)
+            command.add_argument("--config", required=True)
+    pilot = commands.add_parser(
+        "dependency-pilot", help="Plan/run/resume/report the four-arm dependency pilot"
+    )
+    pilot.add_argument("--config", required=True)
+    pilot.add_argument("--output", required=True)
+    mode = pilot.add_mutually_exclusive_group()
+    mode.add_argument("--execute", action="store_true")
+    mode.add_argument("--resume", action="store_true")
+    mode.add_argument("--report", action="store_true")
+    pilot.add_argument("--retry-failed", action="store_true")
+    analysis = commands.add_parser(
+        "dependency-analyze", help="Estimate cluster-aware four-arm effects from a dependency pilot"
+    )
+    analysis.add_argument("--output", required=True, help="Existing dependency-pilot directory")
+    analysis.add_argument("--seed", type=int, default=42)
+    benefit = commands.add_parser(
+        "dependency-fit", help="Fit leakage-aware benefit models from an active dependency pilot"
+    )
+    benefit.add_argument("--output", required=True, help="Existing dependency-pilot directory")
+    benefit.add_argument("--seed", type=int, default=42)
+    benefit.add_argument("--validation-fraction", type=float, default=0.25)
+    benefit.add_argument("--regularization", type=float, default=1.0)
+    allocation = commands.add_parser(
+        "dependency-allocate", help="Run a propensity-recording adaptive dependency allocator"
+    )
+    allocation.add_argument("--output", required=True)
+    allocation_mode = allocation.add_mutually_exclusive_group(required=True)
+    allocation_mode.add_argument("--init", action="store_true")
+    allocation_mode.add_argument("--next", action="store_true")
+    allocation_mode.add_argument("--record", action="store_true")
+    allocation_mode.add_argument("--report", action="store_true")
+    allocation.add_argument("--candidates")
+    allocation.add_argument("--budget", type=float)
+    allocation.add_argument("--cost", type=float, default=1.0)
+    allocation.add_argument("--exploration", type=float, default=0.2)
+    allocation.add_argument("--graph-weight", type=float, default=0.5)
+    allocation.add_argument("--seed", type=int, default=42)
+    allocation.add_argument("--candidate-id")
+    allocation.add_argument("--arm", choices=("00", "10", "01", "11"))
+    allocation.add_argument("--success", type=int, choices=(0, 1))
+    allocation.add_argument("--selection-probability", type=float)
+    evaluation = commands.add_parser(
+        "dependency-evaluate", help="Freeze confirmation evaluation or summarize its complete ledger"
+    )
+    evaluation.add_argument("--output", required=True)
+    evaluation_mode = evaluation.add_mutually_exclusive_group(required=True)
+    evaluation_mode.add_argument("--freeze", action="store_true")
+    evaluation_mode.add_argument("--report", action="store_true")
+    evaluation.add_argument("--cohort")
+    evaluation.add_argument("--methods")
+    evaluation.add_argument("--results")
+    evaluation.add_argument("--seed", type=int, default=42)
+    release = commands.add_parser(
+        "dependency-release", help="Create or verify a checksummed research source manifest"
+    )
+    release.add_argument("--root", required=True)
+    release.add_argument("--output")
+    release.add_argument("--verify", metavar="MANIFEST")
+    release.add_argument("files", nargs="*")
+    suite = commands.add_parser("suite", help="Run a resumable model/benchmark/parameter matrix")
+    suite.add_argument("--config", default="configs/suite.yaml")
+    suite.add_argument("--output", required=True)
+    mode = suite.add_mutually_exclusive_group()
+    mode.add_argument("--execute", action="store_true")
+    mode.add_argument("--resume", action="store_true")
+    mode.add_argument("--report", action="store_true")
+    suite.add_argument("--retry-failed", action="store_true")
     comparison = commands.add_parser(
         "compare", help="Plan/run/resume paired local-model comparisons"
     )
@@ -255,6 +352,100 @@ def doctor(config_path, check_models=False):
 
 
 def dispatch(a):
+    if a.command == "awareness":
+        from .awareness_cli import dispatch as dispatch_awareness
+
+        return dispatch_awareness(a)
+    if a.command == "dependencies":
+        from .dependencies import write_dependencies
+
+        return write_dependencies(a.root, a.output, a.max_file_bytes, a.max_files)
+    if a.command == "dependency-cohort":
+        from .dependency_cohort import finalize_cohort, prepare_reviews, verify_cohort
+
+        if a.action == "verify":
+            return verify_cohort(a.directory)
+        if a.action == "prepare":
+            return prepare_reviews(a.scope, a.output)
+        return finalize_cohort(
+            a.scope, a.tasks, a.reviews, a.protocol, a.config, a.output
+        )
+    if a.command == "dependency-scope":
+        from .dependency_scope import create_scope
+
+        return create_scope(a.tasks, a.output, a.source)
+    if a.command == "dependency-pilot":
+        from .dependency_pilot import create_pilot, report_pilot, run_pilot
+
+        if a.retry_failed and not a.resume:
+            raise ValueError("--retry-failed requires --resume")
+        if a.report:
+            return report_pilot(a.output)
+        if not a.resume:
+            create_pilot(a.config, a.output)
+        if a.execute or a.resume:
+            return run_pilot(a.output, a.retry_failed)
+        return None
+    if a.command == "dependency-analyze":
+        from .dependency_analysis import analyze_pilot
+
+        return analyze_pilot(a.output, a.seed)
+    if a.command == "dependency-fit":
+        from .dependency_models import fit_benefit_models
+
+        return fit_benefit_models(
+            a.output, a.seed, a.validation_fraction, a.regularization
+        )
+    if a.command == "dependency-allocate":
+        from .dependency_allocation import (
+            allocation_report,
+            create_allocation,
+            record_result,
+            select_next,
+        )
+
+        if a.init:
+            if not a.candidates or a.budget is None:
+                raise ValueError("--init requires --candidates and --budget")
+            return create_allocation(
+                a.candidates, a.output, a.budget, a.cost,
+                a.exploration, a.graph_weight, a.seed,
+            )
+        if a.next:
+            return select_next(a.output)
+        if a.record:
+            if a.candidate_id is None or a.arm is None or a.success is None or a.selection_probability is None:
+                raise ValueError("--record requires --candidate-id, --arm, --success and --selection-probability")
+            return record_result(a.output, a.candidate_id, a.arm, a.success, a.selection_probability)
+        return allocation_report(a.output)
+    if a.command == "dependency-evaluate":
+        from .dependency_evaluation import freeze_evaluation, report_evaluation
+
+        if a.freeze:
+            if not a.cohort or not a.methods:
+                raise ValueError("--freeze requires --cohort and --methods")
+            return freeze_evaluation(a.cohort, a.methods, a.output, a.seed)
+        return report_evaluation(a.output, a.results)
+    if a.command == "dependency-release":
+        from .dependency_release import create_release_manifest, verify_release_manifest
+
+        if a.verify:
+            return verify_release_manifest(a.verify, a.root)
+        if not a.output or not a.files:
+            raise ValueError("Manifest creation requires --output and at least one file")
+        return create_release_manifest(a.root, a.files, a.output)
+    if a.command == "suite":
+        from .suite import create_suite, report_suite, run_suite
+
+        if a.retry_failed and not a.resume:
+            raise ValueError("--retry-failed requires --resume")
+        if a.report:
+            return report_suite(a.output)
+        if not a.resume:
+            create_suite(a.config, a.output)
+        if a.execute or a.resume:
+            return run_suite(a.output, a.retry_failed)
+        return None
     if a.command == "diagnose-run":
         from .diagnostics import diagnose_run
 

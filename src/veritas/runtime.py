@@ -4,6 +4,7 @@ import platform
 import shutil
 import time
 import uuid
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from scipy.special import expit
@@ -19,6 +20,141 @@ from .provenance import critic_identity, implementation, verifier_identity
 from .sanitize import redact, sanitize
 from .schema import StepRecord, Usage, Verification
 from .state import Checkpoint, tree_hash
+
+
+@dataclass
+class AgentSession:
+    """Continuation state for the two awareness phases; never includes treatment A."""
+    history: list = field(default_factory=list)
+    step: int = 0
+
+
+def run_phase(task, session, model, sandbox, store, output, *, trial_id, actor_name,
+              phase, limits, protocol, cue="", boundary=None, on_step=None):
+    """Baseline execution with equal phase caps; reuse contracts, sandbox and event writer.
+
+    The legacy action-gate runner below keeps its existing policy semantics. This
+    phase seam deliberately has no critic, controller, grader or review assignment.
+    """
+    from .awareness_store import StudyBudgetExceeded
+    from .context import phase_context
+    from .models import POLICY_COMPACT_SYSTEM, POLICY_SYSTEM
+
+    if phase not in {"draft", "revision"} or (phase == "draft" and boundary is not None):
+        raise ValueError("Invalid phase or premature boundary feedback")
+    start = time.monotonic()
+    tokens, steps, tool_seconds, status = 0, 0, 0.0, "step_limit"
+    error = None
+    request_ids, usage_complete = [], True
+    system = POLICY_COMPACT_SYSTEM if protocol.compact else POLICY_SYSTEM
+    for phase_step in range(limits.steps):
+        remaining = limits.seconds - (time.monotonic() - start)
+        if remaining <= 0 or tokens >= limits.completion_tokens:
+            status = "time_limit" if remaining <= 0 else "token_limit"
+            break
+        context = phase_context(task, session.history, phase=phase, cue=cue, boundary=boundary,
+            history_chars=protocol.history_chars, observation_chars=protocol.observation_chars,
+            compact=protocol.compact, steps_remaining=limits.steps-phase_step,
+            input_chars=protocol.input_chars)
+        remaining = limits.seconds - (time.monotonic() - start)
+        if remaining <= 0:
+            status = "time_limit"
+            break
+        record = StepRecord(schema_version=2, trial_id=trial_id, attempt_id="attempt-001",
+            phase=phase, event_id=digest([trial_id, session.step]), task_id=task.task_id,
+            group_id=task.group_id, source=task.source, run_id=trial_id, model=actor_name,
+            step_id=session.step, split=protocol.partition, context=redact(context), decision="skip",
+            prompt_hash=digest({"system": system, "user": context}),
+            prompt_redacted=redact(context) != context or redact(system) != system)
+        session.step += 1
+        steps += 1
+        fatal = False
+        try:
+            raw, usage = model.complete(system, context,
+                max_tokens=limits.completion_tokens-tokens, timeout_seconds=remaining)
+            record.policy_usage = usage
+            tokens += usage.completion_tokens
+        except StudyBudgetExceeded:
+            raise
+        except ModelOutputError as exc:
+            record.policy_usage = exc.usage
+            tokens += exc.usage.completion_tokens
+            raw = exc.raw
+            record.blocked, record.decision, record.block_reason = True, "blocked", redact(str(exc))
+        except Exception as exc:
+            record.policy_usage = getattr(exc, "usage", Usage(measured=False))
+            tokens += record.policy_usage.completion_tokens
+            error = redact(f"{type(exc).__name__}: {exc}")
+            record.blocked, record.decision, record.block_reason = True, "blocked", error
+            raw, fatal, status = "", True, "model_error"
+        record.actor_request_id = getattr(model, "last_call_id", None)
+        if record.actor_request_id is not None:
+            request_ids.append(record.actor_request_id)
+        usage_complete = usage_complete and record.policy_usage.measured
+        if not record.blocked:
+            try:
+                record.action = contract(proposal_from_text(raw))
+            except (ValueError, TypeError, KeyError, SyntaxError) as exc:
+                record.blocked, record.decision = True, "blocked"
+                record.block_reason = redact(str(exc))[:1000]
+                record.error_label, record.label_scope = 1, "operational"
+                record.label_source = "deterministic_action_contract"
+        if record.blocked:
+            record.observation = sanitize(record.block_reason, "invalid_proposal", 1000)
+        elif not record.policy_usage.measured:
+            # Without measured completion usage the remaining phase budget is unknown.
+            fatal, status, error = True, "unknown_usage", "Actor usage unavailable; phase stopped"
+        elif time.monotonic() - start >= limits.seconds:
+            status = "time_limit"
+        else:
+            record.state_before = tree_hash(sandbox.workspace)
+            before_tool = time.monotonic()
+            checkpoint = Checkpoint(sandbox.workspace, Path(output) / f"step-{record.step_id}-checkpoint")
+            try:
+                tool_remaining = limits.seconds - (time.monotonic() - start)
+                if tool_remaining < 1:
+                    status = "time_limit"
+                elif hasattr(sandbox, "config"):
+                    sandbox.config.timeout_seconds = max(1, min(
+                        protocol.sandbox.timeout_seconds,
+                        int(tool_remaining)))
+                if status != "time_limit":
+                    result = sandbox.execute(record.action)
+                    record.executed = True
+                    record.observation = sanitize(str(result.get("output", "")),
+                        record.action.proposal.tool, protocol.observation_chars)
+                    if result.get("exit_code") not in (0, None):
+                        record.error_label, record.label_scope = 1, "operational"
+                        record.label_source = "sandbox_nonzero_exit"
+                        record.observation["exit_code"] = result["exit_code"]
+                    record.state_after = tree_hash(sandbox.workspace)
+                    if record.action.proposal.tool == "final_answer":
+                        status = "submitted"
+            except Exception as exc:
+                record.restored_hash = checkpoint.restore()
+                record.executed = False
+                error = redact(f"{type(exc).__name__}: {exc}")
+                record.observation = sanitize(error, "sandbox_error")
+                fatal, status = True, "sandbox_error"
+            finally:
+                checkpoint.close()
+                tool_seconds += time.monotonic() - before_tool
+        store.append(record)
+        session.history.append({"action": record.action.proposal.model_dump(mode="json")
+                                if record.action else "invalid_proposal",
+                                "observation": record.observation})
+        if on_step is not None and record.executed:
+            on_step(record, session)
+        if fatal or status in {"submitted", "time_limit"}:
+            break
+        if record.blocked and not record.policy_usage.measured:
+            status, error = "unknown_usage", "Malformed response with unknown usage"
+            break
+    return {"phase": phase, "termination": status, "steps": steps,
+            "completion_tokens": tokens if usage_complete else None,
+            "known_completion_tokens": tokens, "usage_complete": usage_complete,
+            "actor_request_ids": request_ids, "seconds": time.monotonic()-start,
+            "tool_seconds": tool_seconds, "error": error}
 
 
 def build_context(task, history, limit):
@@ -97,6 +233,19 @@ def run_task(
     final_selection = "actor_answer"
     termination = "max_steps"
     start = time.monotonic()
+    observer = None
+    if config.opportunities.mode == "shadow":
+        from .opportunities import WorkspaceObserver
+
+        if task.kind != "swe":
+            raise ValueError("Interface/caller opportunity observation requires a SWE task")
+        import_root = sandbox.workspace / config.opportunities.import_root
+        if not import_root.resolve().is_relative_to(sandbox.workspace.resolve()):
+            raise ValueError("Opportunity import root escapes the workspace")
+        observer = WorkspaceObserver(
+            import_root, config.opportunities.target_identity,
+            config.opportunities.caller_identity, config.opportunities.final_fallback,
+        )
     for step in range(config.run.max_steps):
         if config.run.max_online_tokens is not None and (
             policy_tokens + critic_tokens + verifier_tokens >= config.run.max_online_tokens
@@ -172,6 +321,8 @@ def run_task(
             replans += 1
             continue
         record.action = action
+        if observer and action.proposal.tool == "final_answer":
+            observer.observe(step, before_final=True)
         if config.run.score_critic:
             try:
                 record.raw_logit, record.critic_usage = critic.score(context, action)
@@ -234,6 +385,7 @@ def run_task(
         )
         record.state_before = checkpoint.before if checkpoint else tree_hash(sandbox.workspace)
         rejected = False
+        successful_edit = False
         stop_after_step = False
         try:
             if selected and not graph_mode:
@@ -330,6 +482,10 @@ def run_task(
             else:
                 result = sandbox.execute(action)
                 record.executed = True
+                successful_edit = (
+                    action.mutation_type != "none" and isinstance(result, dict)
+                    and result.get("exit_code") == 0
+                )
                 obs_content = result.get("output", "") if isinstance(result, dict) else str(result)
                 if isinstance(result, dict) and result.get("exit_code") not in (0, None):
                     obs_content = (
@@ -358,6 +514,8 @@ def run_task(
                         grade_answer(task, action.proposal.args["answer"]),
                     )
             record.state_after = tree_hash(sandbox.workspace)
+            if observer and action.proposal.tool != "final_answer":
+                observer.observe(step, successful_edit=successful_edit)
             record.budget_spent = float(controller.budget.spent)
             recovery_seconds += record.recovery_seconds
             store.append(record)
@@ -419,6 +577,11 @@ def run_task(
         "python": platform.python_version(),
     }
     write_json(output / "summary.json", summary)
+    if observer:
+        opportunities = observer.finish(termination)
+        write_json(output / "opportunities.json", opportunities)
+        summary["opportunity_observation"] = opportunities
+        write_json(output / "summary.json", summary)
     if initial:
         initial.close()
     return summary
