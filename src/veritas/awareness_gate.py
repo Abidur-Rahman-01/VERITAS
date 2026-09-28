@@ -109,7 +109,8 @@ def calibrate_gate(model_path, root, confirmation, output, alpha=0.05, delta=0.0
         raise ValueError("Gate fit/calibration/confirmation repositories overlap")
     # Check the actual intervention and actors, not just friendly model names.
     for key in ("actors", "reviewer", "draft", "revision", "review", "grader", "compact",
-                "disclosure_probability", "assignment_probability", "input_chars"):
+                "disclosure_probability", "assignment_probability", "input_chars",
+                "control", "neutral_control_text"):
         if spec.model_dump()[key] != target_spec.model_dump()[key]:
             raise ValueError(f"Calibration and confirmation protocols differ in {key}")
     if any(r["runtime_status"] not in {"completed", "failed", "interrupted", "budget_stopped"}

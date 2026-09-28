@@ -2,9 +2,14 @@ from pathlib import Path, PurePosixPath
 from typing import Literal
 
 import yaml
-from pydantic import Field, model_validator
+from pydantic import Field, StrictInt, model_validator
 
 from .schema import ActionClass, StrictModel
+
+
+class ServerAttestation(StrictModel):
+    public_key_hex: str = Field(pattern=r"^[0-9a-fA-F]{64}$")
+    revision: str = Field(min_length=1)
 
 
 class ModelConfig(StrictModel):
@@ -16,6 +21,16 @@ class ModelConfig(StrictModel):
     timeout_seconds: float = Field(default=180, gt=0)
     temperature: float = Field(default=0, ge=0, le=2)
     prompt_style: Literal["standard", "compact"] = "standard"
+    sampling_seed: StrictInt | None = Field(default=None, ge=0, le=2**63 - 1)
+    attestation: ServerAttestation | None = None
+
+    @model_validator(mode="after")
+    def supported_provenance(self):
+        if self.backend == "transformers" and (
+            self.sampling_seed is not None or self.attestation is not None
+        ):
+            raise ValueError("Sampling seeds/server attestations require an HTTP backend")
+        return self
 
 
 class SandboxConfig(StrictModel):

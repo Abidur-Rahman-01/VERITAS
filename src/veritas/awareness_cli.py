@@ -12,11 +12,16 @@ def add_parser(commands):
     plan = sub.add_parser("plan", help="Freeze protocol, tasks, assignments and code hashes")
     plan.add_argument("--config", required=True)
     plan.add_argument("--output", required=True)
-    for name in ("run", "resume", "grade", "audit", "report", "verify", "check-cue"):
+    qualify = sub.add_parser("qualify", help="Inspect model/image/grader prerequisites without inference")
+    qualify.add_argument("--config", required=True)
+    qualify.add_argument("--output", required=True)
+    for name in ("run", "resume", "grade", "audit", "measure", "report", "verify", "check-cue"):
         command = sub.add_parser(name)
         command.add_argument("--study", required=True)
         if name in {"run", "resume"}:
             command.add_argument("--max-trials", type=int)
+        if name == "grade":
+            command.add_argument("--phase", choices=("draft", "final"), default="final")
     power = sub.add_parser("power")
     power.add_argument("--study", required=True)
     power.add_argument("--repositories", nargs="+", type=int, default=[10, 20, 40, 80])
@@ -42,8 +47,9 @@ def add_parser(commands):
 def dispatch(args):
     from .awareness import create_splits, create_study, read_study
     from .awareness_analysis import check_manipulation, report_study
-    from .awareness_power import pilot_power
     from .awareness_gate import calibrate_gate, fit_gate, report_gate
+    from .awareness_measurements import measure_study
+    from .awareness_power import pilot_power
     from .awareness_runtime import audit_study, grade_study, run_study
     from .awareness_store import StudyStore
 
@@ -52,14 +58,20 @@ def dispatch(args):
         return create_splits(args.tasks, args.source, args.output, args.seed)
     if action == "plan":
         return create_study(args.config, args.output)
+    if action == "qualify":
+        from .awareness_qualification import qualify_protocol
+
+        return qualify_protocol(args.config, args.output)
     if action in {"run", "resume"}:
         if args.max_trials is not None and args.max_trials < 1:
             raise ValueError("--max-trials must be positive")
         return run_study(args.study, max_trials=args.max_trials)
     if action == "grade":
-        return grade_study(args.study)
+        return grade_study(args.study, phase=args.phase)
     if action == "audit":
         return audit_study(args.study)
+    if action == "measure":
+        return measure_study(args.study)
     if action == "report":
         return report_study(args.study)
     if action == "power":

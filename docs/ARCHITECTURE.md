@@ -511,15 +511,18 @@ coordinator entry points accept explicit study paths and injectable IO services 
 | `awareness_store.py` | SQLite transitions, attempt history, immutable artifacts, request reservations | `StudyStore.claim()`, `append_event()`, `finish()`, `verify()` |
 | `awareness_grading.py` | Pinned package fingerprint, opaque predictions, raw SWE report evidence | `harness_fingerprint()`, `grade_patch()`, `parse_grade()`; coordinator: `grade_study(root)` |
 | `awareness_analysis.py` | Completeness, means, paired contrasts, intervals, costs, cue comprehension | `study_rows(root)`, `factorial_summary(rows)`, `report_study(root)`, `check_manipulation(root)` |
+| `awareness_measurements.py` | Versioned draft/revision patch measurements and optional post-run elicitation | `measure_study(root)` and frozen feature extractors |
+| `awareness_costs.py` | Token and elapsed-time summaries by trial, phase and role | Cost summaries; no inferred dollar/compute costs without provider accounting |
+| `awareness_qualification.py`, `model_provenance.py` | Preflight declared model, image, grader and implementation identities | `qualify_protocol(config, output)`; preflight is not scientific validation |
 | `awareness_power.py` | Graded binary-outcome cluster simulation with MDE/missingness scenarios | `pilot_power(root, ...)` |
 | `awareness_gate.py` | Development scorer, reserved calibration, locked confirmation and transfer | `fit_gate()`, `calibrate_gate()`, `report_gate()` |
 | `awareness_cli.py` | CLI arguments and dispatch | `veritas awareness ...` |
 
-Extract an `AgentSession` / `run_phase()` seam from `runtime.run_task()` for reuse by the new
-runner. The session holds history, global step index, workspace identity, counters and phase
-state. Keep `run_task()` as the existing single-phase wrapper so current workflows keep their
-behavior. Both phases use the same action contracts, executor, prompt renderer and event writer.
-Do not call `collect()` twice: it creates a new workspace and loses continuation state.
+`runtime.py` now provides the `AgentSession` / `run_phase()` seam used by the study runner. The
+session holds history, global step index, counters and phase state. `run_task()` remains the
+existing single-phase wrapper. Both phases share action contracts, executor, prompt renderer and
+event writer. Do not call `collect()` twice: it creates a new workspace and loses continuation
+state.
 
 Keep treatment authority in the coordinator. The draft runner receives the cue text and phase
 limits, **not `A` or the arm ID**. The revision runner receives only the rendered boundary
@@ -752,7 +755,9 @@ can operate on frozen patches without changing actor behavior. An adaptive revie
 policy at the draft boundary is a separate online extension: offline reviews alone cannot
 measure final repair success under a changed feedback policy.
 
-## 9. Block diagram: runtime that exists today
+## 9. Runtime architectures
+
+### 9.1 Existing action-verification workflow
 
 ```mermaid
 flowchart LR
@@ -777,9 +782,35 @@ flowchart LR
   GRADE --> SWEGRADE[comparison.grade_swe and SWE harness]
 ```
 
-The existing runtime implements action-level verification and policy comparison. It does **not**
-yet assign `D`, separate the factorial arms, or report the research contrasts. A run from
-`veritas collect` is not automatically evidence for the paper.
+The existing `collect` workflow implements action-level verification and policy comparison. It
+remains separate from the factorial study; a `collect` run is not evidence for the paper.
+
+### 9.2 Awareness study workflow
+
+```mermaid
+flowchart TD
+  PLAN[Freeze protocol, split and blocked assignments] --> RUN[Sequential coordinator]
+  RUN --> INIT[Fresh base workspace and actor session]
+  INIT --> DRAFT[Draft phase with D cue or control]
+  DRAFT --> SNAP[Freeze draft, prompt and public review packet]
+  SNAP --> BRANCH{Assigned A}
+  BRANCH -->|A=1| REVIEW[One bounded patch review]
+  BRANCH -->|A=0| NEUTRAL[Fixed neutral continuation]
+  REVIEW --> CONT[Same revision allowance]
+  NEUTRAL --> CONT
+  CONT --> FINAL[Freeze final patch and end actor session]
+  FINAL --> GRADE[Independent pinned SWE grading]
+  SNAP -. deferred, sampled .-> AUDIT[Shadow audit after actor batch]
+  PLAN -.-> LEDGER[Study ledger and immutable artifacts]
+  FINAL --> LEDGER
+  GRADE --> LEDGER
+  AUDIT --> LEDGER
+  LEDGER --> REPORT[Factorial analysis and gate transfer]
+```
+
+The study runner assigns `D` and `A` before execution. `A` is not passed into the draft
+phase; only its boundary message reaches revision. Shadow audits run after actor trials finish
+and have no delivery path to an actor.
 
 ## 10. Current project condition
 
@@ -814,8 +845,9 @@ Prompt copies, request hashes, base identities, patches, outcomes, and grading e
 recorded separately from the actor workspace. Interrupted actor attempts use the last committed
 patch snapshot and are never silently rerun. Grade retries retain each prior attempt.
 
-Focused tests cover the treatment and data invariants using local doubles, with no Docker or
-model dependencies. **Those tests have not been run in this implementation change.** Runtime,
+The focused `tests/test_awareness_*.py` suite covers treatment, persistence, measurement,
+grading, analysis and gate invariants using local doubles, with no Docker or model dependencies.
+**Those tests have not been run in this implementation change.** Runtime,
 model, image, grader, and performance qualification still need execution. No implicit-cue
 experiment, multi-family replication, powered confirmation, or scientific result is claimed.
 
@@ -827,16 +859,21 @@ without a separately validated extractor or elicitation protocol. Power is pilot
 Fixed repository cohorts yield descriptive gate evidence; population certification additionally
 requires an explicitly declared independent-repository sampling design.
 
-## 11. Where to change what
+## 11. Implementation map and remaining work
+
+The core awareness architecture is present in the working tree. The map below identifies the
+implemented ownership boundaries; it is not a list of modules still to create. Remaining work
+is execution qualification, empirical study design, and any fixes revealed by the unrun focused
+tests and runtime smoke trials.
 
 Implement the five awareness/review modules described in section 8.3. Integrate through a small
 session seam in the existing runtime. Keep the dependency pilot as a separate workflow.
 
 | Goal | Change location | Engineering instruction |
 |---|---|---|
-| Define protocol and arms | New `awareness.py`; proposed `configs/awareness-pilot.yaml` | Validate exact task IDs, four arms, cue/control, phase/reviewer budgets, model identities, audit fraction, retries, endpoint and analysis rules. |
+| Define protocol and arms | `awareness.py`; `configs/awareness-pilot.example.yaml` | Protocol validation, exact task IDs, four arms, cue/control, phase/reviewer budgets, model identities, audit fraction, retries, endpoint and analysis rules. |
 | Plan and randomize runs | `awareness.plan_study()` | Randomly permute four arms onto fresh slots in each task/model/repetition block; save assignments and schedule before inference. |
-| Continue draft into revision | Extract `AgentSession` / `run_phase()` from `runtime.run_task()` | Preserve history/workspace within a trial, use global step IDs, return structured phase termination; preserve existing single-phase behavior. |
+| Continue draft into revision | `runtime.AgentSession` / `run_phase()` | Preserve history/workspace within a trial, use global step IDs, return structured phase termination; preserve existing single-phase behavior. |
 | Insert cue/control | Shared renderer in `context.py`, called by the active loop | Handle compact and ordinary prompts together; keep cue, phase and boundary message outside history trimming. `build_context()` is currently unused. |
 | Control actual feedback | New `awareness_runtime.py` and `patch_review.py` | One review boundary, equal revision allowance, PASS/FAIL/error rendering, no pre-boundary `A` access and no reviewer action rejection. |
 | Collect hidden audits | Deferred `patch_review.py` jobs over frozen draft packets | Select with a frozen seed; run after actor batch completion. Leave existing `audit_all` off in awareness runs. |
@@ -846,7 +883,13 @@ session seam in the existing runtime. Keep the dependency pilot as a separate wo
 | Estimate effects | New `awareness_analysis.py` | Validate complete assignment ledger; compute paired contrasts, repository-aware uncertainty, missingness bounds and measured costs. |
 | Evaluate gate transfer | Small Stage 6 adapter beside `awareness_analysis.py` | Fit a score on development, freeze candidate thresholds, calibrate on reserved repositories and evaluate admission risk/coverage on confirmation. Do not retrofit temperature scaling into a claimed CRC implementation. |
 | Add command-line workflow | `cli.parser()` and `cli.dispatch()` | Add plan/run/resume/grade/report; pilot is a protocol/split choice. Existing `collect`/`compare` remain existing workflows. |
-| Add tests | New focused tests under `tests/test_awareness_*.py` | Use fake model/verifier/sandbox objects. Test invariants without API calls or Docker where possible. |
+| Focused tests | `tests/test_awareness_*.py` | Tests use fake model/verifier/sandbox objects. Execute and resolve failures before model inference. |
+
+Still outstanding before confirmation: run the focused suite; qualify selected provider endpoints,
+container images and the pinned grader; run a bounded local smoke study; complete the independently
+graded pilot and freeze its power-derived sample size; finalize audited task/repository splits;
+then preregister and execute confirmation. None of these steps is represented by code presence
+alone.
 
 ### Prompt insertion detail
 
@@ -992,6 +1035,8 @@ repository root and inspect `veritas <command> --help` for required paths/option
 | Inspect current artifacts | `veritas report ...`, `veritas diagnose-run ...` | Summaries/diagnostics of existing runs. No causal awareness analysis. |
 | Fit existing critic/controller calibration | `veritas critic ...`, `veritas calibrate ...`, `veritas validate-calibration ...`, `veritas tune ...`, `veritas replay ...` | Supports current error/risk policy workflow; this is not the new factorial analysis. |
 | Run factorial study | `veritas awareness plan/run/resume/grade/report` | Code present, execution unvalidated. `run` executes actor trials; `grade` processes frozen outputs with the pinned harness. |
+| Qualify local prerequisites | `veritas awareness qualify` | Records declared model, image, grader and code provenance; does not call actor inference or certify compatibility by execution. |
+| Extract process measures | `veritas awareness measure` | Computes versioned patch/test/language measures and optional elicitation joins after actor runs. |
 | Freeze repository pools | `veritas awareness split` | Saves four disjoint pools; planner also checks repository and task aliases. |
 | Inspect integrity / deferred audits | `veritas awareness verify/audit` | `verify` checks frozen files and ledger projections; `audit` calls the reviewer only after actor execution ends. |
 | Develop wording / plan power | `veritas awareness check-cue/power` | Separate comprehension sessions; graded-pilot binary cluster simulation with missingness/MDE scenarios. |
@@ -1010,8 +1055,8 @@ paper-specific config with frozen task IDs, actor models, verifier, arms, and ou
 
 ## 14. Tests required before model runs
 
-Add a focused `tests/test_awareness_runtime.py` and `tests/test_awareness_plan.py`. Use stub
-models and a fake verifier. At minimum test:
+The focused awareness tests are present and use local doubles. Before model runs, execute them
+and address failures. At minimum they should cover:
 
 - Every selected task/model block receives all four arms and assignment is reproducible from the
   frozen seed.

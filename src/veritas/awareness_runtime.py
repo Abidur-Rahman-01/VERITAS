@@ -1,6 +1,5 @@
 """Sequential execution, deferred audit and source-compatible independent SWE grading."""
 
-import ast
 import json
 import re
 import shutil
@@ -8,8 +7,9 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-from .awareness import Assignment, DisclosurePolicy, read_study
+from .awareness import Assignment, initial_notice, read_study
 from .awareness_grading import GradeRecord, grade_patch, parse_grade  # noqa: F401
+from .awareness_measurements import changed_paths, extract_tests
 from .awareness_store import (
     ACTIVE_STATES,
     MeteredModel,
@@ -41,34 +41,10 @@ def trial_directory(root, trial_id):
     return Path(root) / "trials" / trial_id / "attempt-001"
 
 
-def _test_functions(path):
-    if not path.is_file() or path.is_symlink() or path.stat().st_size > 1000000:
-        return {}
-    try:
-        tree = ast.parse(path.read_text())
-    except (SyntaxError, UnicodeError):
-        return {}
-    return {node.name: ast.dump(node, include_attributes=False) for node in ast.walk(tree)
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and
-            node.name.startswith("test_")}
-
-
 def behavioral_metrics(patch, history, baseline=None, workspace=None):
     lines = patch.splitlines()
-    paths = sorted({line[6:] for line in lines if line.startswith("+++ b/") or
-                    line.startswith("--- a/")})
-    tests_added, tests_modified = None, None
-    if baseline is not None and workspace is not None:
-        tests_added, tests_modified = 0, 0
-        for path in paths:
-            if not path.endswith(".py") or not (Path(path).name.startswith("test_") or
-                                                 "tests" in Path(path).parts):
-                continue
-            if Path(path).is_absolute() or ".." in Path(path).parts:
-                continue
-            before, after = _test_functions(Path(baseline) / path), _test_functions(Path(workspace) / path)
-            tests_added += len(after.keys()-before.keys())
-            tests_modified += sum(after[k] != before[k] for k in before.keys() & after.keys())
+    paths = changed_paths(patch)
+    tests = extract_tests(patch, baseline, workspace)
     tests_run, language = 0, []
     for item in history:
         action = item.get("action")
@@ -81,16 +57,16 @@ def behavioral_metrics(patch, history, baseline=None, workspace=None):
     words = re.findall(r"\b[a-z]+\b", prose.lower())
     hedges = sum(w in {"perhaps", "maybe", "possibly", "likely", "uncertain", "probably"}
                  for w in words)
-    return {"extractor_version": 2, "extractor_hash": file_hash(Path(__file__)),
+    return {"extractor_version": 3, "extractor_hash": file_hash(Path(__file__)),
             "patch_hash": digest(patch), "history_hash": digest(history),
             "added_lines": sum(line.startswith("+") and not line.startswith("+++") for line in lines),
             "deleted_lines": sum(line.startswith("-") and not line.startswith("---") for line in lines),
-            "files_changed": len(paths), "test_functions_added": tests_added,
-            "test_functions_modified": tests_modified, "test_commands": tests_run,
+            "files_changed": len(paths), **tests, "test_commands": tests_run,
             "hedge_words": hedges, "eligible_words": len(words),
             "hedging_rate": hedges / len(words) if words else None,
             "defensive_test_count": None, "self_reported_confidence": None,
-            "limitations": "Python AST counts; intent unclassified. Language is final-answer prose only."}
+            "limitations": "Python AST extraction; intent/confidence joined from optional deferred "
+                           "measurements. Language is final-answer prose only."}
 
 
 def run_trial(root, spec, task, job, db, services=None):
@@ -158,8 +134,7 @@ def run_trial(root, spec, task, job, db, services=None):
         actor = next(a for a in spec.actors if a.id == job.actor_id)
         actor_model = services.model_factory(actor.model)
         models.append(actor_model)
-        cue = DisclosurePolicy(probability=job.disclosed_probability).render() \
-            if job.disclosure_assigned else ""
+        cue = initial_notice(spec, job)
         event_store = EventStore(directory / "events.sqlite")
         args = dict(task=task, session=session, sandbox=sandbox, store=event_store, output=directory,
                     trial_id=job.trial_id, actor_name=actor.id, protocol=spec, cue=cue,
@@ -348,7 +323,9 @@ def audit_study(root, services=None):
     return {"audits": count}
 
 
-def grade_study(root, grader=grade_patch):
+def grade_study(root, grader=grade_patch, phase="final"):
+    if phase not in {"draft", "final"}:
+        raise ValueError("Grading phase must be draft or final")
     plan, spec, tasks, jobs = read_study(root, check_code=True)
     count = 0
     with coordinator_lock(root), StudyStore(root) as db:
@@ -360,21 +337,24 @@ def grade_study(root, grader=grade_patch):
             raise ValueError("Freeze gate calibration before opening confirmation grades")
         outcomes = {r["trial_id"]: json.loads(r["outcome"]) for r in db.rows() if r["outcome"]}
         for job in jobs:
+            if phase == "draft" and not job.draft_grade_selected:
+                continue
             outcome = outcomes.get(job.trial_id)
-            if not outcome or not outcome["final_patch_hash"]:
+            if not outcome or not outcome[f"{phase}_patch_hash"]:
                 continue
             directory = trial_directory(root, job.trial_id)
-            patch = (directory / "final.patch").read_text()
-            if digest(patch) != outcome["final_patch_hash"]:
-                raise ValueError("Final patch changed after submission")
+            patch = (directory / f"{phase}.patch").read_text()
+            if digest(patch) != outcome[f"{phase}_patch_hash"]:
+                raise ValueError(f"{phase.title()} patch changed after submission")
             for attempt in range(1, spec.grader.max_attempts + 1):
-                key = f"grade/{job.trial_id}/{attempt}"
+                namespace = "grade" if phase == "final" else "draft_grade"
+                key = f"{namespace}/{job.trial_id}/{attempt}"
                 previous = db.artifact(key)
                 if previous is not None:
                     if previous["resolved"] is not None:
                         break
                     continue
-                identity = digest([plan["study_id"], job.trial_id, digest(patch),
+                identity = digest([plan["study_id"], job.trial_id, phase, digest(patch),
                                    spec.grader.model_dump(), attempt])[:24]
                 dest = directory / "grading" / identity
                 if dest.exists():
@@ -402,4 +382,4 @@ def grade_study(root, grader=grade_patch):
                 count += 1
                 if result["resolved"] is not None:
                     break
-    return {"grading_attempts": count}
+    return {"grading_attempts": count, "phase": phase}

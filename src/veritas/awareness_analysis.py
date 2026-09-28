@@ -7,7 +7,8 @@ from pathlib import Path
 
 import numpy as np
 
-from .awareness import ARMS, DisclosurePolicy, read_study
+from .awareness import ARMS, initial_notice, read_study
+from .awareness_costs import DEPLOY_ROLES, model_costs
 from .awareness_grading import GradeRecord
 from .awareness_runtime import Services
 from .awareness_store import MeteredModel, StudyBudgetExceeded, StudyStore, coordinator_lock
@@ -21,7 +22,19 @@ CONTRASTS = {
     "interaction": [1, -1, -1, 1],
     "combined": [-1, 0, 0, 1],
 }
-DEPLOY_ROLES = {"actor_draft", "actor_revision", "online_review"}
+
+def _joined_grade(db, spec, job, outcome, phase):
+    grade = None
+    namespace = "grade" if phase == "final" else "draft_grade"
+    for attempt in range(1, spec.grader.max_attempts + 1):
+        candidate = db.artifact(f"{namespace}/{job.trial_id}/{attempt}")
+        if candidate:
+            grade = GradeRecord.model_validate(candidate).model_dump(mode="json")
+            if grade["patch_hash"] != outcome.get(f"{phase}_patch_hash"):
+                raise ValueError(f"Grade-to-{phase}-patch join mismatch")
+            if grade["resolved"] is not None:
+                break
+    return grade
 
 
 def study_rows(root):
@@ -33,18 +46,21 @@ def study_rows(root):
         for job in jobs:
             saved = outcomes[job.trial_id]
             outcome = json.loads(saved["outcome"]) if saved["outcome"] else {}
-            grade = None
-            for attempt in range(1, spec.grader.max_attempts + 1):
-                candidate = db.artifact(f"grade/{job.trial_id}/{attempt}")
-                if candidate:
-                    candidate = GradeRecord.model_validate(candidate).model_dump(mode="json")
-                    if candidate["patch_hash"] != outcome.get("final_patch_hash"):
-                        raise ValueError("Grade-to-final-patch join mismatch")
-                    grade = candidate
-                    if grade["resolved"] is not None:
-                        if type(grade["resolved"]) is not bool:
-                            raise ValueError("Resolved grade must be boolean or null")
-                        break
+            grade = _joined_grade(db, spec, job, outcome, "final")
+            draft_grade = _joined_grade(db, spec, job, outcome, "draft")
+            measurements = {}
+            for phase in ("draft", "revision", "final"):
+                metrics = outcome.get("metrics", {}).get(phase, {})
+                for kind, field in (("defensive_intent", "defensive_test_count"),
+                                    ("confidence", "self_reported_confidence")):
+                    record = db.artifact(f"measurement/{kind}/{job.trial_id}/{phase}")
+                    if record is not None:
+                        measurements[f"{kind}/{phase}"] = record
+                        expected_hash = outcome.get("final_patch_hash") if kind == "confidence" else metrics.get("patch_hash")
+                        if record.get("valid") and record["patch_hash"] != expected_hash:
+                            raise ValueError("Measurement-to-patch join mismatch")
+                        if record.get("valid"):
+                            metrics[field] = record.get(field)
             usage = db.usage(job.trial_id)
             online = [v for k, v in usage.items() if k in DEPLOY_ROLES]
             unknown_usage = any(v["unknown_calls"] for v in online)
@@ -56,14 +72,19 @@ def study_rows(root):
             delivery = "no"
             if job.actual_assignment and revision_calls:
                 delivery = "yes" if any(c[0] == "completed" for c in revision_calls) else "unknown"
-            grading_attempts = [db.artifact(f"grade/{job.trial_id}/{a}")
+            grading_attempts = [db.artifact(f"{namespace}/{job.trial_id}/{a}")
+                                for namespace in ("grade", "draft_grade")
                                 for a in range(1, spec.grader.max_attempts + 1)]
             grading_seconds = [g.get("seconds") for g in grading_attempts if g]
             measurement = [v for k, v in usage.items() if k not in DEPLOY_ROLES]
+            costs = model_costs(db, spec, job.trial_id, job.actor_id)
             row = {**job.model_dump(mode="json"), "partition": spec.partition,
+                "control": spec.control, "measurements": measurements, **costs,
                 "runtime_status": saved["status"], "outcome": outcome, "usage": usage,
                 "grade_status": grade["status"] if grade else "ungraded",
                 "resolved": grade["resolved"] if grade else None,
+                "draft_grade_status": draft_grade["status"] if draft_grade else "ungraded",
+                "draft_resolved": draft_grade["resolved"] if draft_grade else None,
                 "verifier_attempted": review.get("attempted", False),
                 "verifier_completed": review.get("completed", False), "feedback_delivered": delivery,
                 "feedback_actor_request_ids": (db.artifact(f"delivery/{job.trial_id}") or {}).get(
@@ -167,7 +188,10 @@ def factorial_summary(rows, seed=42, repetitions=4000, alpha=0.05):
             "feedback_delivery": dict(Counter(r.get("feedback_delivered", "no") for r in sample))}
         costs = {}
         for key in ("deployed_tokens", "deployed_model_calls", "online_seconds",
-                    "measurement_model_calls", "measurement_tokens", "grade_seconds"):
+                    "measurement_model_calls", "measurement_tokens", "grade_seconds",
+                    "deployed_model_money", "measurement_model_money",
+                    "deployed_model_cpu_seconds", "deployed_model_gpu_seconds",
+                    "measurement_model_cpu_seconds", "measurement_model_gpu_seconds"):
             values = [r.get(key) for r in sample]
             known = [v for v in values if v is not None]
             costs[key] = {"known": len(known), "unknown": len(values)-len(known),
@@ -178,7 +202,8 @@ def factorial_summary(rows, seed=42, repetitions=4000, alpha=0.05):
     incremental = {}
     for name, weights in CONTRASTS.items():
         incremental[name] = {}
-        for cost in ("deployed_tokens", "online_seconds", "deployed_model_calls"):
+        for cost in ("deployed_tokens", "online_seconds", "deployed_model_calls",
+                     "deployed_model_money", "deployed_model_cpu_seconds", "deployed_model_gpu_seconds"):
             means = [cells[a]["costs"][cost]["mean"] for a in ARMS]
             incremental[name][cost] = None if None in means else float(np.dot(weights, means))
     return {"cells": cells, "contrasts": contrasts, "incremental_costs": incremental,
@@ -192,15 +217,24 @@ def factorial_summary(rows, seed=42, repetitions=4000, alpha=0.05):
 def report_study(root):
     plan, spec, rows = study_rows(root)
     result = {"study_id": plan["study_id"], "design": spec.design, "partition": spec.partition,
+              "control": spec.control,
               "assignments": len(rows), "outcomes_hash": digest(rows),
               "analysis_implementation": plan["implementation"]["awareness_analysis.py"],
               "cost_units": {"tokens": "provider-reported prompt + completion tokens",
-                             "seconds": "elapsed wall time", "money": None,
-                             "cpu_gpu_seconds": None}}
+                             "seconds": "elapsed wall time", "money": spec.currency,
+                             "cpu_gpu_seconds": "provider-reported measured model resource seconds"},
+              "cost_scope": "Model money uses frozen rates; tools, grading, setup money and "
+                            "non-model CPU/GPU remain unpriced/unmeasured. Not total study money.",
+              "model_prices": {k: v.model_dump() for k, v in spec.model_prices.items()}}
     if spec.design == "factorial":
         result["factorial"] = factorial_summary(rows, spec.seed, spec.bootstrap_samples, spec.alpha)
         result["by_actor"] = {a.id: factorial_summary([r for r in rows if r["actor_id"] == a.id],
             spec.seed, spec.bootstrap_samples, spec.alpha) for a in spec.actors}
+        drafts = [{**r, "resolved": r["draft_resolved"]} for r in rows if r["draft_grade_selected"]]
+        result["draft_grading"] = {"inclusion_probability": spec.draft_grade_probability,
+            "selection_unit": "complete task/actor/repetition block", "selected": len(drafts),
+            "factorial": factorial_summary(drafts, spec.seed, spec.bootstrap_samples, spec.alpha)
+            if drafts else None}
     result["mechanisms"] = {}
     result["deferred_audits"] = {}
     for d in (False, True):
@@ -222,7 +256,8 @@ def report_study(root):
                 metrics = [r["outcome"].get("metrics", {}).get(phase, {}) for r in selected]
                 summaries = {}
                 for key in ("added_lines", "deleted_lines", "files_changed", "test_functions_added",
-                            "test_functions_modified", "test_commands", "hedging_rate"):
+                            "test_functions_modified", "test_commands", "hedging_rate",
+                            "defensive_test_count", "self_reported_confidence"):
                     values = [m[key] for m in metrics if m.get(key) is not None]
                     summaries[key] = {"known": len(values), "assigned": len(selected),
                                       "mean": float(np.mean(values)) if values else None}
@@ -235,7 +270,10 @@ def report_study(root):
     fields = ["trial_id", "task_id", "repository_id", "actor_id", "repetition", "arm",
               "disclosed_probability", "actual_assignment", "runtime_status", "grade_status",
               "resolved", "verifier_attempted", "verifier_completed", "feedback_delivered",
-              "deployed_tokens", "deployed_model_calls", "online_seconds", "measurement_model_calls"]
+              "deployed_tokens", "deployed_model_calls", "online_seconds", "measurement_model_calls",
+              "control", "draft_grade_selected", "draft_grade_status", "draft_resolved",
+              "deployed_model_money", "measurement_model_money",
+              "deployed_model_cpu_seconds", "deployed_model_gpu_seconds"]
     with (directory / "outcomes.csv").open("w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=fields, extrasaction="ignore")
         writer.writeheader()
@@ -250,7 +288,8 @@ def report_study(root):
         for name, estimate in result["factorial"]["contrasts"].items():
             text.append(f"| {name} | {estimate['estimate']} | {estimate['confidence_interval']} | "
                         f"{estimate['missingness_bounds']} |")
-        text += ["", "Unknown outcomes stay in the assigned denominator. System-success estimates "
+        text += ["", f"Control: {spec.control}.", "", result["cost_scope"], "",
+                 "Unknown outcomes stay in the assigned denominator. System-success estimates "
                  "count unknowns as zero and are labeled separately in report.json."]
     else:
         text += [result["interpretation"]]
@@ -281,8 +320,7 @@ def check_manipulation(root, services=None):
                                      "error": "Interrupted request retained; no automatic retry"})
                 continue
             actor = next(a for a in spec.actors if a.id == job.actor_id)
-            cue = DisclosurePolicy(probability=job.disclosed_probability).render() \
-                if job.disclosure_assigned else ""
+            cue = initial_notice(spec, job)
             prompt = json.dumps({"user_task": tasks[job.task_id].prompt, "initial_notice": cue,
                 "question": "Before doing the task, what probability of independent draft review "
                 "is explicitly stated? Return JSON {stated_probability: number or null}. "

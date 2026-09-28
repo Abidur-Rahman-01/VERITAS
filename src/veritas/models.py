@@ -1,11 +1,13 @@
 import json
 import math
 import os
+import secrets
 import time
 
 import httpx
 
 from .config import ModelConfig
+from .model_provenance import record_response
 from .schema import Proposal, Usage, Verification
 
 POLICY_SYSTEM = """You are an expert autonomous software engineering and research agent.
@@ -102,20 +104,28 @@ class LocalModel:
         deadline = min(cfg.timeout_seconds, timeout_seconds) if timeout_seconds else cfg.timeout_seconds
         messages = [{"role": "system", "content": system}, {"role": "user", "content": user}]
         start = time.monotonic()
+        nonce = secrets.token_hex(32) if cfg.attestation else None
+        headers = {"X-Veritas-Nonce": nonce} if nonce else {}
+
+        def provenance(data, payload, content, usage):
+            try:
+                record_response(cfg, data, payload, nonce, content, usage)
+            except ValueError as exc:
+                usage.seconds = time.monotonic() - start
+                raise ModelOutputError(str(exc), usage, content) from exc
+
         if cfg.backend == "openai_compatible":
-            headers = {}
             key = os.environ.get(cfg.api_key_env)
             if key:
                 headers["Authorization"] = "Bearer " + key
+            payload = {"model": cfg.name, "messages": messages,
+                       "temperature": cfg.temperature, "max_tokens": cap}
+            if cfg.sampling_seed is not None:
+                payload["seed"] = cfg.sampling_seed
             response = self.client.post(
                 cfg.base_url.rstrip("/") + "/chat/completions",
                 headers=headers,
-                json={
-                    "model": cfg.name,
-                    "messages": messages,
-                    "temperature": cfg.temperature,
-                    "max_tokens": cap,
-                },
+                json=payload,
                 timeout=deadline,
             )
             response.raise_for_status()
@@ -128,21 +138,21 @@ class LocalModel:
                 completion_tokens=usage_data.get("completion_tokens", 0),
                 measured="prompt_tokens" in usage_data and "completion_tokens" in usage_data,
             )
+            provenance(data, payload, content, usage)
             if choice.get("finish_reason") == "length":
                 usage.seconds = time.monotonic() - start
                 raise ModelOutputError(
                     "Model output truncated; increase max_tokens", usage, content
                 )
         elif cfg.backend == "ollama":
+            payload = {"model": cfg.name, "messages": messages, "stream": False,
+                       "format": "json", "options": {"temperature": cfg.temperature,
+                                                       "num_predict": cap}}
+            if cfg.sampling_seed is not None:
+                payload["options"]["seed"] = cfg.sampling_seed
             response = self.client.post(
                 cfg.base_url.rstrip("/") + "/api/chat",
-                json={
-                    "model": cfg.name,
-                    "messages": messages,
-                    "stream": False,
-                    "format": "json",
-                    "options": {"temperature": cfg.temperature, "num_predict": cap},
-                },
+                headers=headers, json=payload,
                 timeout=deadline,
             )
             response.raise_for_status()
@@ -153,6 +163,7 @@ class LocalModel:
                 completion_tokens=data.get("eval_count", 0),
                 measured="prompt_eval_count" in data and "eval_count" in data,
             )
+            provenance(data, payload, content, usage)
             if data.get("done_reason") == "length":
                 usage.seconds = time.monotonic() - start
                 raise ModelOutputError(

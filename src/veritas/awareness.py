@@ -32,6 +32,12 @@ class ActorSpec(StrictModel):
     revision: str = Field(min_length=1)
     model: ModelConfig
 
+    @model_validator(mode="after")
+    def consistent_attestation(self):
+        if self.model.attestation and self.model.attestation.revision != self.revision:
+            raise ValueError("Attested revision must match the declared actor/reviewer revision")
+        return self
+
 
 class ReviewLimits(StrictModel):
     input_chars: int = Field(default=32000, ge=1000)
@@ -63,6 +69,20 @@ class DisclosurePolicy(StrictModel):
         )
 
 
+class MeasurementSpec(StrictModel):
+    enabled: bool = False
+    input_chars: int = Field(default=32000, ge=1000)
+    output_tokens: int = Field(default=768, gt=0)
+    seconds: float = Field(default=180, gt=0)
+
+
+class TokenPrice(StrictModel):
+    input_per_million: float = Field(ge=0)
+    output_per_million: float = Field(ge=0)
+    per_call: float = Field(default=0, ge=0)
+    source: str = Field(min_length=1)
+
+
 class StudyProtocol(StrictModel):
     version: Literal[2] = 2
     implementation_sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
@@ -92,6 +112,14 @@ class StudyProtocol(StrictModel):
     assignment_probability: float = Field(default=0.5, ge=0, le=1)
     doses: list[float] = Field(default_factory=lambda: [0.1, 0.5, 0.9])
     shadow_sample_probability: float = Field(default=0.2, ge=0, le=1)
+    draft_grade_probability: float = Field(default=0, ge=0, le=1)
+    control: Literal["primary", "neutral_length_matched"] = "primary"
+    neutral_control_text: str | None = None
+    confidence: MeasurementSpec = Field(default_factory=MeasurementSpec)
+    defensive_tests: MeasurementSpec = Field(default_factory=MeasurementSpec)
+    # Frozen, user-supplied rates; absent rates mean unknown, never free inference.
+    currency: str = Field(default="USD", pattern=r"^[A-Z]{3}$")
+    model_prices: dict[str, TokenPrice] = Field(default_factory=dict)
     compact: bool = True
     history_chars: int = Field(default=30000, ge=1000)
     input_chars: int = Field(default=60000, ge=1000)
@@ -115,6 +143,18 @@ class StudyProtocol(StrictModel):
             raise ValueError("Specify exact task_ids or a task_limit, not both")
         if len({a.id for a in self.actors}) != len(self.actors):
             raise ValueError("Actor IDs must be unique")
+        if self.reviewer.id in {a.id for a in self.actors}:
+            raise ValueError("Reviewer ID must differ from actor IDs")
+        if set(self.model_prices) - {a.id for a in [*self.actors, self.reviewer]}:
+            raise ValueError("Model prices must be keyed by actor/reviewer ID")
+        if self.control == "neutral_length_matched":
+            if self.design != "factorial":
+                raise ValueError("Neutral sensitivity control requires the factorial design")
+            cue = DisclosurePolicy(probability=self.disclosure_probability).render()
+            if not self.neutral_control_text or len(self.neutral_control_text) != len(cue):
+                raise ValueError("Neutral control must match disclosure length in Unicode characters")
+        elif self.neutral_control_text is not None:
+            raise ValueError("Primary control must not contain a neutral sentence")
         if self.design == "factorial" and (
             self.disclosure_probability != 0.5 or self.assignment_probability != 0.5
         ):
@@ -150,6 +190,7 @@ class Assignment(StrictModel):
     slot: int = Field(default=0, ge=0)
     order: int = Field(ge=0)
     shadow_selected: bool
+    draft_grade_selected: bool = False
 
     @model_validator(mode="after")
     def validate_disclosure(self):
@@ -164,6 +205,12 @@ class Assignment(StrictModel):
         if self.actual_assignment and self.shadow_selected:
             raise ValueError("Deferred audits are sampled only from A=0")
         return self
+
+
+def initial_notice(spec, job):
+    if job.disclosure_assigned:
+        return DisclosurePolicy(probability=job.disclosed_probability).render()
+    return spec.neutral_control_text or ""
 
 
 def repository_key(value):
@@ -273,6 +320,10 @@ def plan_study(protocol, tasks, splits):
         for actor in spec.actors:
             for rep in range(spec.repetitions):
                 block = digest([study_id, task.task_id, actor.id, rep])[:24]
+                # Sample complete blocks with a separate stream: no outcome-dependent selection,
+                # and optional draft grading cannot unbalance the four-cell subset.
+                draft_selected = random.Random(digest([spec.seed, task.task_id, actor.id,
+                    rep, "draft-grade"])).random() < spec.draft_grade_probability
                 treatments = [(bool(int(a[0])), 0.5 if a[0] == "1" else None,
                                bool(int(a[1])), 0.5, a) for a in ARMS]
                 if spec.design == "dose":
@@ -291,6 +342,7 @@ def plan_study(protocol, tasks, splits):
                         (probability if a else 1 - probability) / len(treatments),
                         slot=slot, order=slot, shadow_selected=(not a and rng.random() <
                                                    spec.shadow_sample_probability),
+                        draft_grade_selected=draft_selected,
                     ))
     rng.shuffle(jobs)
     for i, job in enumerate(jobs):
@@ -330,16 +382,22 @@ def create_study(config, output):
     write_json(output / "splits.json", splits)
     write_json(output / "protocol.json", spec.model_dump(mode="json"))
     write_json(output / "grader.json", fingerprint)
+    from .awareness_measurements import CONFIDENCE_SYSTEM, INTENT_SYSTEM
     from .models import POLICY_COMPACT_SYSTEM, POLICY_SYSTEM
     from .patch_review import REVIEW_SYSTEM
 
     write_json(output / "prompts.json", {
         "actor_system": POLICY_COMPACT_SYSTEM if spec.compact else POLICY_SYSTEM,
         "reviewer_system": REVIEW_SYSTEM,
+        "confidence_system": CONFIDENCE_SYSTEM, "defensive_test_rubric": INTENT_SYSTEM,
+        "control": spec.control, "neutral_control_text": spec.neutral_control_text,
+        "length_match_unit": "unicode_characters", "tokenizer_counts": None,
         "cues": {str(p): DisclosurePolicy(probability=p).render() for p in
                  (spec.doses if spec.design == "dose" else [spec.disclosure_probability])},
         "continuation": CONTINUE, "tool_contract_sha256": file_hash(Path(__file__).with_name("contracts.py")),
-        "sampling_seed_supported": False, "model_revisions": "declared by configuration",
+        "sampling_seeds": {a.id: a.model.sampling_seed for a in [*spec.actors, spec.reviewer]},
+        "model_revisions": {a.id: "signed_response_required" if a.model.attestation else
+                            "declared by configuration" for a in [*spec.actors, spec.reviewer]},
         "input_limit_unit": "unicode_characters"})
     plan = {"version": 2, "files": {n: file_hash(output / n) for n in
             ("tasks.jsonl", "assignments.jsonl", "splits.json", "protocol.json", "grader.json", "prompts.json")},

@@ -61,6 +61,10 @@ class Usage(StrictModel):
     completion_tokens: int = Field(default=0, ge=0)
     measured: bool = True
     seconds: float = Field(default=0, ge=0)
+    cpu_seconds: float | None = Field(default=None, ge=0)
+    gpu_seconds: float | None = Field(default=None, ge=0)
+    resource_source: str | None = None
+    provenance: dict[str, Any] = Field(default_factory=dict)
 
     @property
     def total(self):
