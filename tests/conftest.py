@@ -56,6 +56,7 @@ def awareness_setup(tmp_path, monkeypatch):
 
     import veritas.awareness as planner
     import veritas.awareness_grading as grading
+    import veritas.awareness_qualification as qualification
     from veritas.awareness import ActorSpec, GraderSpec, PhaseLimits, StudyProtocol
     from veritas.awareness_runtime import Services
     from veritas.config import ModelConfig
@@ -87,6 +88,8 @@ def awareness_setup(tmp_path, monkeypatch):
     monkeypatch.setattr(planner, "load_tasks", lambda *args, **kwargs: [(t, {}) for t in tasks])
     monkeypatch.setattr(grading, "harness_fingerprint", lambda _: {"sha256": "f"*64,
                                                                 "files": {}, "origin": None})
+    monkeypatch.setattr(qualification, "harness_fingerprint", lambda _: {"sha256": "f"*64,
+                                                                         "files": {}, "origin": None})
     requests, workspaces = [], []
 
     class Model:

@@ -43,17 +43,32 @@ class TrialOutcome(StrictModel):
 
 @contextmanager
 def coordinator_lock(root):
-    import fcntl
-
-    with (Path(root) / "coordinator.lock").open("a") as handle:
+    with (Path(root) / "coordinator.lock").open("a+") as handle:
         try:
-            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError as exc:
-            raise RuntimeError("Another coordinator is using this study") from exc
-        try:
-            yield
-        finally:
-            fcntl.flock(handle, fcntl.LOCK_UN)
+            import fcntl
+            try:
+                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError as exc:
+                raise RuntimeError("Another coordinator is using this study") from exc
+            try:
+                yield
+            finally:
+                fcntl.flock(handle, fcntl.LOCK_UN)
+        except ImportError:
+            import msvcrt
+            handle.seek(0)
+            try:
+                msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+            except OSError as exc:
+                raise RuntimeError("Another coordinator is using this study") from exc
+            try:
+                yield
+            finally:
+                try:
+                    handle.seek(0)
+                    msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+                except OSError:
+                    pass
 
 
 class StudyStore:

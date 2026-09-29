@@ -65,11 +65,15 @@ def write_text(path, value):
             handle.flush()
             os.fsync(handle.fileno())
         os.replace(temporary, path)
-        directory = os.open(path.parent, os.O_RDONLY)
-        try:
-            os.fsync(directory)
-        finally:
-            os.close(directory)
+        if os.name != "nt":
+            try:
+                directory = os.open(path.parent, os.O_RDONLY)
+                try:
+                    os.fsync(directory)
+                finally:
+                    os.close(directory)
+            except OSError:
+                pass
     finally:
         if os.path.exists(temporary):
             os.unlink(temporary)

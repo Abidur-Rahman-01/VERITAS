@@ -1,0 +1,31 @@
+services:
+  veritas-sandbox:
+    build:
+      context: .
+      dockerfile: Dockerfile.sandbox
+    image: veritas-sandbox:local
+    container_name: veritas-sandbox-builder
+    restart: "no"
+    command: ["python", "--version"]
+
+  veritas:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: veritas:latest
+    container_name: veritas-app
+    depends_on:
+      - veritas-sandbox
+    volumes:
+      - .:/app
+      - /var/run/docker.sock:/var/run/docker.sock
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      - VERITAS_DOCKER_TESTS=1
+      - OLLAMA_HOST=http://host.docker.internal:11434
+      - PYTHONUNBUFFERED=1
+    stdin_open: true
+    tty: true
+    entrypoint: ["veritas"]
+    command: ["--help"]
