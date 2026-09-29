@@ -45,7 +45,7 @@ sandbox:
   cpus: 2
   timeout_seconds: 60
 grader:
-  python: .venv-rebench/Scripts/python.exe
+  python: .venv-rebench/bin/python
   identity: d307ff9f2168a0448843c0d5881d2cd498d9f73f
   namespace: none
   timeout_seconds: 1800

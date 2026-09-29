@@ -135,14 +135,24 @@ The following is a runbook, not a record of completed experimental steps. Stages
 
 1. **Start Docker Desktop (Linux Container Backend):**
    Ensure Docker Desktop is active with WSL2 Linux backend (`docker ps` returns 0).
-2. **Setup Dedicated Grader Environment:**
-   To satisfy `veritas awareness qualify`, build a dedicated isolated virtual environment for SWE-bench evaluation:
-   On Windows, create a separate environment with the pinned SWE-ReBench fork (the project environment must not also supply the grader package):
-   ```bat
-   uv venv --python 3.12 .venv-rebench
-   uv pip install --python .venv-rebench\Scripts\python.exe -e . "swebench @ git+https://github.com/SWE-rebench/SWE-bench-fork.git@d307ff9f2168a0448843c0d5881d2cd498d9f73f"
+2. **Setup the dedicated Linux grader environment:**
+   The SWE-bench harness imports Python's Unix-only `resource` module, so its grader must run in Linux. Do not install this fork into a native Windows Python environment.
+
+   From **PowerShell**, identify and open your regular WSL distribution (for example, Ubuntu):
+   ```powershell
+   wsl --list --verbose
+   wsl --distribution Ubuntu
    ```
-   Set `grader.python` in `configs/awareness-local.yaml` to `.venv-rebench/Scripts/python.exe`. The awareness grader now recognizes Windows `Lib/site-packages` as well as Unix venv layouts.
+   Replace `Ubuntu` with the distribution name shown by the first command. Do not use Docker Desktop's internal `docker-desktop` distribution; it is not your development environment and may not have `uv` installed. In the Linux shell, go to the repository. For a D: checkout with the usual WSL automount, the path is `/mnt/d/2110001/VERITAS` (check `ls /mnt/d` if it differs):
+   ```bash
+   cd /mnt/d/2110001/VERITAS
+   ```
+   Install `uv` in that Linux distribution if needed (`curl -LsSf https://astral.sh/uv/install.sh | sh`, then restart the shell or source `~/.local/bin/env`). Create and verify the dedicated environment using the repo script:
+   ```bash
+   bash scripts/setup_rebench.sh
+   .venv-rebench/bin/python -c 'import swebench; print(swebench.__file__)'
+   ```
+   Set `grader.python` in `configs/awareness-local.yaml` to `.venv-rebench/bin/python`. Keep Docker Desktop running with its Linux container backend enabled; `docker ps` should work inside this WSL distribution.
 
 ### Step 2: Download & Prepare Pinned Datasets
 
