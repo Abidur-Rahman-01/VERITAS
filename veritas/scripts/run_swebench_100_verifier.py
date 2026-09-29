@@ -1,27 +1,24 @@
-"""Large-Scale SWE-bench Verified Benchmark (100+ Tasks Verification).
+"""Synthetic scheduler exercise over SWE-bench task metadata.
 
 Evaluates the VERITAS verification runtime across 100+ real-world SWE-bench Verified tasks.
 Benchmarks:
-1. Deterministic Precondition & Permission Verification
-2. Epistemic Entropy Pre-Gating
-3. Multi-Model Risk Scoring (3B Sentinel + 14B Workhorse)
-4. Receding Horizon Value-of-Verification (RC-VoV) vs BAVAR, Error x Impact, Always, Never
-5. Cryptographic Checkpoint & State Recovery Invariance across 100+ Software Repositories
+This script does not execute SWE-bench tasks or inject executable faults. It
+only synthesizes action contracts and compares scheduler selections. The
+synthetic fault labels are retained solely to report how often selected
+actions overlap randomly labeled opportunities; that overlap is not detection.
 """
 
 from __future__ import annotations
 
 import argparse
 import csv
-import hashlib
 import json
+import random
 import time
 from pathlib import Path
 from typing import Any
 
-from veritas.actions.classes import ActionClass
-from veritas.actions.contracts import ActionContract, Provenance
-from veritas.actions.permissions import PermissionPolicy
+from veritas.actions.contracts import ActionContract
 from veritas.eval.baselines import (
     BavarStyleScheduler,
     ErrorImpactScheduler,
@@ -29,10 +26,7 @@ from veritas.eval.baselines import (
     RCVOVScheduler,
     AlwaysScheduler,
 )
-from veritas.sandbox.checkpoint import DirectoryCheckpointStore, hash_directory
-from veritas.risk.calibrator import TemperatureCalibrator
 from veritas.risk.impact import ImpactModel
-from veritas.verification.deterministic import DeterministicVerifier
 
 
 def load_swe_tasks(tasks_path: Path, limit: int = 100) -> list[dict[str, Any]]:
@@ -53,9 +47,7 @@ def synthesize_task_trajectory(task: dict[str, Any], task_idx: int) -> list[Acti
     repo = task.get("repo", "unknown/repo")
     inst_id = task.get("instance_id", f"swe_{task_idx:03d}")
     
-    # 4 distinct lifecycle steps per SWE-bench task
-    # Fault is injected on alternating tasks to measure verification precision
-    has_fault = (task_idx % 2 == 1)
+    # Four metadata-derived action contracts; no repository actions are run.
 
     c1 = ActionContract(
         tool="file.read",
@@ -64,7 +56,7 @@ def synthesize_task_trajectory(task: dict[str, Any], task_idx: int) -> list[Acti
         intent=f"Inspect issue context for {inst_id}",
         permissions_required=("workspace:read",),
         reversible=True,
-        metadata={"task_id": inst_id, "step": 0, "injected_fault": False, "is_critical": False},
+        metadata={"task_id": inst_id, "step": 0, "is_critical": False},
     )
 
     c2 = ActionContract(
@@ -74,7 +66,7 @@ def synthesize_task_trajectory(task: dict[str, Any], task_idx: int) -> list[Acti
         intent="Reproduce reported bug",
         permissions_required=("workspace:read", "calc:execute"),
         reversible=True,
-        metadata={"task_id": inst_id, "step": 1, "injected_fault": False, "is_critical": False},
+        metadata={"task_id": inst_id, "step": 1, "is_critical": False},
     )
 
     # Step 3: State-mutating code patch (Crucial point of verification)
@@ -84,12 +76,11 @@ def synthesize_task_trajectory(task: dict[str, Any], task_idx: int) -> list[Acti
         arguments={
             "path": f"src/{repo.split('/')[-1]}/fix.py",
             "patch_chars": len(task.get("patch", "")),
-            "injected_fault": has_fault,
         },
-        intent=f"Apply candidate fix for {inst_id}" + (" [REGRESSION_INJECTED]" if has_fault else ""),
+        intent=f"Apply candidate fix for {inst_id}",
         permissions_required=("workspace:write",),
         reversible=False,  # Mutating state
-        metadata={"task_id": inst_id, "step": 2, "injected_fault": has_fault, "is_critical": True},
+        metadata={"task_id": inst_id, "step": 2, "is_critical": True},
     )
 
     c4 = ActionContract(
@@ -99,7 +90,7 @@ def synthesize_task_trajectory(task: dict[str, Any], task_idx: int) -> list[Acti
         intent="Audit workspace diff and commit status",
         permissions_required=("workspace:read",),
         reversible=True,
-        metadata={"task_id": inst_id, "step": 3, "injected_fault": False, "is_critical": False},
+        metadata={"task_id": inst_id, "step": 3, "is_critical": False},
     )
 
     return [c1, c2, c3, c4]
@@ -109,17 +100,22 @@ def run_benchmark(
     tasks_file: Path,
     limit: int = 100,
     budget: float = 0.24,
+    seed: int = 42,
 ) -> tuple[list[dict], dict]:
     tasks = load_swe_tasks(tasks_file, limit=limit)
     print(f"--> Loaded {len(tasks)} SWE-bench Verified tasks from {tasks_file.name}")
 
-    permissions = PermissionPolicy(
-        granted_permissions=frozenset({"workspace:read", "workspace:write", "calc:execute"}),
-        allowed_tools=frozenset({"file.read", "file.write", "test.run", "git.diff"}),
-    )
-    deterministic = DeterministicVerifier(permissions)
     impact_model = ImpactModel()
-    calibrator = TemperatureCalibrator(temperature=4.0)
+    # Assign labels independently of action content and policy features. These
+    # are synthetic opportunity labels, not faults injected into execution.
+    rng = random.Random(seed)
+    action_keys = [
+        (task_idx, step_idx)
+        for task_idx, task in enumerate(tasks)
+        for step_idx, _ in enumerate(synthesize_task_trajectory(task, task_idx))
+    ]
+    labeled_count = len(action_keys) // 2
+    labeled_action_keys = set(rng.sample(action_keys, labeled_count))
 
     schedulers = [
         NeverScheduler(),
@@ -136,14 +132,8 @@ def run_benchmark(
         t0 = time.perf_counter()
         total_steps = 0
         actions_verified = 0
-        errors_caught = 0
-        false_rejections = 0
+        labeled_opportunities_selected = 0
         budget_spent = 0.0
-        recoveries_executed = 0
-
-        # Simulate cryptographic state invariance checks
-        simulated_rollbacks = 0
-        hash_invariance_passes = 0
 
         for idx, task in enumerate(tasks):
             remaining_b = budget
@@ -152,11 +142,8 @@ def run_benchmark(
             for step_idx, action in enumerate(trajectory):
                 total_steps += 1
                 impact = impact_model.score(action).value
-                is_fault = action.metadata.get("injected_fault", False)
-
-                # Prior error probability
-                raw_score = 1.9 if is_fault else -2.5
-                p_err = calibrator.calibrate(raw_score)
+                # Keep the scheduler input independent of synthetic labels.
+                p_err = 0.1
 
                 record = {
                     "action_id": action.action_id,
@@ -181,26 +168,14 @@ def run_benchmark(
                     remaining_b -= 0.03
                     budget_spent += 0.03
 
-                    # Verifier checks
-                    det_ok = deterministic.verify(action).passed
-                    if is_fault:
-                        errors_caught += 1
-                        # Cryptographic rollback simulation
-                        h_cp = hashlib.sha256(f"checkpoint_state_{idx}".encode()).hexdigest()
-                        h_restored = hashlib.sha256(f"checkpoint_state_{idx}".encode()).hexdigest()
-                        if h_cp == h_restored:
-                            hash_invariance_passes += 1
-                        recoveries_executed += 1
-                    elif not is_fault and not det_ok:
-                        false_rejections += 1
+                    if (idx, step_idx) in labeled_action_keys:
+                        labeled_opportunities_selected += 1
 
         t1 = time.perf_counter()
         elapsed_s = t1 - t0
 
         ver_rate = (actions_verified / max(1, total_steps)) * 100.0
-        faults_total = sum(1 for i in range(len(tasks)) if i % 2 == 1)
-        precision = (errors_caught / max(1, actions_verified)) * 100.0 if actions_verified else 0.0
-        recall = (errors_caught / max(1, faults_total)) * 100.0
+        opportunities_total = len(labeled_action_keys)
 
         res = {
             "policy": sched.name,
@@ -209,26 +184,34 @@ def run_benchmark(
             "actions_verified": actions_verified,
             "verification_rate_percent": round(ver_rate, 1),
             "budget_spent": round(budget_spent, 2),
-            "errors_caught": errors_caught,
-            "total_faults_injected": faults_total,
-            "detection_recall_percent": round(recall, 1),
-            "verifier_precision_percent": round(precision, 1),
-            "false_rejections": false_rejections,
-            "recoveries_executed": recoveries_executed,
-            "hash_invariance_rate": "100%" if recoveries_executed == hash_invariance_passes else "99.9%",
+            "simulation_only": True,
+            "synthetic_opportunities_selected": labeled_opportunities_selected,
+            "synthetic_opportunities_total": opportunities_total,
+            "fault_detection_metrics": None,
+            "recovery_metrics": None,
+            "state_integrity_metrics": None,
             "runtime_seconds": round(elapsed_s, 2),
         }
         results_summary.append(res)
-        print(f"Policy: {sched.name:20s} | Verified: {actions_verified:3d}/{total_steps} ({ver_rate:4.1f}%) | Caught: {errors_caught:2d}/{faults_total} | FalseRej: {false_rejections} | Cost: ${budget_spent:.2f}")
+        print(f"Policy: {sched.name:20s} | Selected: {actions_verified:3d}/{total_steps} ({ver_rate:4.1f}%) | Synthetic labeled overlap: {labeled_opportunities_selected}/{opportunities_total} | Cost: ${budget_spent:.2f}")
 
-    return results_summary, {"tasks_count": len(tasks), "budget": budget}
+    return results_summary, {
+        "tasks_count": len(tasks),
+        "budget": budget,
+        "seed": seed,
+        "evaluation_type": "synthetic_scheduler_simulation",
+        "executes_swebench": False,
+        "injects_executable_faults": False,
+        "detection_metrics_available": False,
+    }
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Scaled 100+ SWE-bench Verified Verification")
+    parser = argparse.ArgumentParser(description="Synthetic scheduler simulation over SWE-bench task metadata")
     parser.add_argument("--tasks", type=Path, default=Path("artifacts/swe-verified-map.tasks.jsonl"))
     parser.add_argument("--limit", type=int, default=100)
     parser.add_argument("--budget", type=float, default=0.24)
+    parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--output-json", type=Path, default=Path("research/results/swe_100_eval.json"))
     parser.add_argument("--output-csv", type=Path, default=Path("research/results/swe_100_eval.csv"))
     args = parser.parse_args()
@@ -240,7 +223,7 @@ def main() -> None:
     if not tasks_path.exists():
         tasks_path = Path("F:/Abidur 2110001/VERITAS/artifacts/swe-verified-map.tasks.jsonl")
 
-    results, meta = run_benchmark(tasks_path, limit=args.limit, budget=args.budget)
+    results, meta = run_benchmark(tasks_path, limit=args.limit, budget=args.budget, seed=args.seed)
 
     # Save JSON
     args.output_json.parent.mkdir(parents=True, exist_ok=True)

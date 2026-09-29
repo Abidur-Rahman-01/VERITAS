@@ -1,4 +1,6 @@
-# VERITAS Research & Benchmark Results Report
+# VERITAS Infrastructure & Qualification Status Report
+
+> **Research status (September 29, 2026):** The causal evaluation-awareness experiment ($D \times A$) has not run. There is no `awareness-report.json`, and no causal estimate is available. This document records software infrastructure, qualification status, and exploratory legacy-track outputs; it does not report evidence for the project's core causal claim and is not a publication results report.
 
 **Document Date:** September 29, 2026  
 **Repository:** [VERITAS](file:///D:/2110001/VERITAS) (`Abidur-Rahman-01/VERITAS`)  
@@ -9,9 +11,7 @@
 
 ## 1. Executive Summary & Codebase Updates
 
-The VERITAS project has completed a major architectural transformation from single-agent heuristic verification (v1) to a dual-track framework:
-1. **Adaptive Selective Verification & Multi-Model Scheduling (v1/Track 1):** Verified selective verification algorithms (Error × Impact, RC-VoV, BAVAR) across 100+ SWE-bench tasks and 52 GAIA tasks, pairing fast sentinel pre-filters (3B) with high-capacity reasoning workhorses (14B/32B).
-2. **Causal Evaluation Awareness ($D \times A$ Factorial) Architecture (v2/Track 2):** Developed the formal framework to isolate whether coding agents alter repair behavior simply from anticipating evaluation ($D$), independent of delivered verifier feedback ($A$), across frozen draft-review-revision boundaries with independent SWE-bench grading and Learn-Then-Test static gate calibration transfer.
+The repository contains an implemented causal evaluation-awareness ($D \times A$) framework and legacy-track scripts and data. The causal experiment has not been executed: the split and plan files are absent, qualification lists unresolved prerequisites, and no awareness report exists. The numbers in Section 2 are exploratory outputs from the earlier track and must not be treated as validation of the causal hypothesis.
 
 ### Recent Commit Timeline & Major Updates
 
@@ -25,12 +25,12 @@ The VERITAS project has completed a major architectural transformation from sing
 
 ---
 
-## 2. Benchmark Results & Current Empirical Findings
+## 2. Exploratory Legacy-Track Outputs (Not Core-Hypothesis Evidence)
 
-### 2.1. SWE-Bench Verified (100 Tasks) Verification Policy Comparison
+### 2.1. Legacy SWE-100 Synthetic Policy Simulation (Not SWE-bench Task Performance)
 
 *Source:* [swe_100_eval.json](file:///D:/2110001/VERITAS/veritas/research/results/swe_100_eval.json) & [swe_100_eval.csv](file:///D:/2110001/VERITAS/veritas/research/results/swe_100_eval.csv)  
-*Setup:* 100 SWE-bench Verified tasks, 400 total execution steps, 50 injected faults across alternating tasks, cryptographic directory state checkpointing.
+*Setup as implemented in the revised script:* 100 task metadata rows are used to synthesize four action contracts each. This does not execute SWE-bench tasks or evaluate patches. Synthetic opportunity labels are randomized independently of policy inputs and are not placed in action contracts. The script reports scheduler selections and label overlap only; detection, recovery, and state-integrity metrics are explicitly unavailable. The result files currently in the repository predate this correction and must not be interpreted as outputs of the revised script.
 
 | Verification Policy | Actions Verified | Verification Rate (%) | Budget Spent ($) | Errors Caught (of 50) | Detection Recall (%) | Verifier Precision (%) | False Rejections | Recoveries Executed | Hash Invariance Rate |
 |---|---|---|---|---|---|---|---|---|---|
@@ -40,17 +40,15 @@ The VERITAS project has completed a major architectural transformation from sing
 | **`bavar_style`** | 100 / 400 | 25.0% | $3.00 | 50 | 100.0% | 50.0% | 0 | 50 | 100% |
 | **`rc_vov`** | 100 / 400 | 25.0% | $3.00 | 50 | 100.0% | 50.0% | 0 | 50 | 100% |
 
-#### Key Insights:
-- **87.5% Cost Reduction:** The selective `error_x_impact` policy achieved the exact same 100% fault detection recall as `always` verification, but reduced the budget from $12.00 to $1.50.
-- **Perfect Precision (100%):** Because `error_x_impact` verified only steps whose risk-impact product exceeded threshold, it eliminated 350 redundant verifications, resulting in 100.0% precision with 0 false rejections.
-- **State Integrity:** All policies maintained 100% cryptographic hash invariance across task directory snapshots.
+#### Interpretation:
+These are scheduler counts under a synthetic trajectory and label-informed error-probability input. They do not establish detection recall, verifier precision, cost effectiveness on SWE-bench, or cryptographic state integrity. Do not cite the headline metrics as empirical findings. The script requires redesign with fault assignment independent of scheduler inputs and an outcome-based verifier oracle before it can support a detection claim.
 
 ---
 
 ### 2.2. Extended Multi-Model Reasoning & Contract Benchmark
 
 *Source:* [extended_models_eval.json](file:///D:/2110001/VERITAS/veritas/research/results/extended_models_eval.json) & [extended_models_eval.csv](file:///D:/2110001/VERITAS/veritas/research/results/extended_models_eval.csv)  
-*Setup:* Evaluated 8 open-weight local models served via Ollama on repository reasoning, tool proposing, contract structuring latency, and calibrated risk prior.
+*Setup:* Ten problems per model, as recorded in the CSV. These small exploratory runs have high sampling uncertainty; the percentages are descriptive only. No scaling inference is warranted from this sample.
 
 | Model | Family | Scale | VRAM Footprint | Accuracy (%) | Step Latency (ms) | Contract Latency (ms) | Valid Contract | Tool / Operation Proposed | Calibrated Risk Prior |
 |---|---|---|---|---|---|---|---|---|---|
@@ -63,10 +61,8 @@ The VERITAS project has completed a major architectural transformation from sing
 | `qwen2.5-coder:7b` | Qwen 2.5 Coder | 7B | 4.7 GB | 80.0% | 4,458.8 | 2,367.4 | True | `Django ORM` / `list_queryset_cache` | 0.01 |
 | `qwen2.5-coder:14b` | Qwen 2.5 Coder | 14B | 9.0 GB | **90.0%** | 6,008.7 | 2,801.9 | True | `Django ORM` / `QuerySet` | 0.01 |
 
-#### Key Insights:
-- **Scaling Threshold:** Code reasoning performance scales directly from 30% (1B) to 80% (7B Coder) and 90% (14B Coder).
-- **Contract Structuring Invariance:** Contract generation latency remains highly stable (~2.2s to 2.8s) regardless of model size, allowing low-overhead formalization.
-- **Model Role Suitability:** `llama3.2:3b` (2.0 GB VRAM, 60% accuracy) serves as an optimal fast sentinel pre-filter, while `qwen2.5-coder:14b` (9.0 GB VRAM, 90% accuracy) serves as the primary repair workhorse.
+#### Interpretation:
+Every reported model has n=10. The results are too small to support a scaling claim. Accuracy is non-monotonic: `mistral:7b` scores 40%, below `llama3.2:3b` at 60%; all model rows should be retained in any discussion. Latency and role assignments are exploratory measurements, not validated deployment recommendations.
 
 ---
 
@@ -80,6 +76,8 @@ The VERITAS project has completed a major architectural transformation from sing
 | `qwen2.5-coder:7b` | 7B | 4.7 GB | Baseline Workhorse | 6,249.7 | 2,076.7 | `fast_sentinel` |
 | `qwen2.5-coder:14b` | 14B | 9.0 GB | Deep Reasoning & Refactoring Workhorse | 14,260.8 | 2,043.5 | `fast_sentinel` |
 | `qwen2.5-coder:32b` | 32B | 19.5 GB | Frontier-Class Local Workhorse (Host RAM Offload) | 4,850.0 | 2,198.2 | `fast_sentinel` |
+
+**Data quality note:** The JSON marks the 32B model `installed: false` while reporting a 4,850 ms contract latency, lower than the 3B and 14B rows. This result is internally inconsistent with the stated model availability and warrants a controlled rerun with model identity, warm/cold state, and timing method logged. It is not interpretable as a valid latency comparison as recorded.
 
 ---
 
@@ -96,14 +94,14 @@ The VERITAS project has completed a major architectural transformation from sing
 | `rc_vov` | 52 | 128 | 39 | 30.47% | $1.17 | 20 | 20 |
 
 #### Key Insights:
-- In complex open-ended workflows, `rc_vov` (Receding Horizon Value-of-Verification) triggered 39 targeted verifications ($1.17 cost), successfully intercepting 20 subtle calculation and JSON extraction failures and executing 20 automatic self-correcting reflexions.
+- The output records `error_x_impact` selecting no actions and `rc_vov` selecting 39. Treat these as exploratory scheduler counts. The script/data do not establish that the former's zero rate reflects a generalization failure or a calibration bug; it does establish that the policy did not activate in this suite. The `20` caught errors/recoveries should not be treated as independent verified outcome evidence without auditing the outcome logic.
 
 ---
 
 ### 2.5. CSO (Contract & State Optimization) Preference Dataset
 
 *Source:* [cso_preferences.jsonl](file:///D:/2110001/VERITAS/veritas/research/results/cso_preferences.jsonl)  
-*Dataset Composition:* 23 verified preference pairs across GSM8K and GAIA Level 1-3 tasks with injected reasoning faults, verified repairs, VoV delta ($\Delta \text{VoV} \in [0.15, 0.20]$), and cost savings ($0.03/step). This dataset forms the training foundation for fine-tuning verification-guided policy heads.
+*Dataset Composition:* 23 preference pairs across GSM8K and GAIA Level 1-3 tasks. This is a small pilot artifact; it is not a meaningful training foundation for fine-tuning policy heads and should not be described as validated preference supervision.
 
 ---
 
@@ -129,9 +127,9 @@ The VERITAS project has completed a major architectural transformation from sing
 
 ---
 
-## 3. How to Run VERITAS Perfectly: The Stage 0–6 Production Guide
+## 3. Outstanding Work: Experiment Execution Runbook
 
-To transition from unit-tested infrastructure to publication-grade, mathematically sound research results, execute the pipeline according to this exact step-by-step protocol.
+The following is a runbook, not a record of completed experimental steps. Stages for freezing cohorts, qualification, treatment execution, grading, reporting, and gate calibration remain outstanding. Passing software tests establishes software behavior only; it does not establish the research hypothesis. The `243 passing tests` entry in the commit timeline is software engineering evidence, not empirical research evidence.
 
 ### Step 1: Fix Host Environment & Isolation Prerequisites
 
