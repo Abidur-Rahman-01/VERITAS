@@ -26,7 +26,6 @@ def image_map(
     arch="x86_64",
 ):
     """Ask the installed official harness for image names; never guess its naming convention."""
-    require_supported_host()
     from swebench.harness.constants import MAP_REPO_VERSION_TO_SPECS
     from swebench.harness.test_spec.test_spec import TestSpec
 

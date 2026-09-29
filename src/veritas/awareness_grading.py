@@ -46,7 +46,14 @@ def harness_fingerprint(python):
         raise ValueError("Configured grader Python does not exist")
     # Do not resolve the venv executable symlink: its parent selects site-packages.
     environment = executable.parent.parent
-    packages = sorted(environment.glob("lib/python*/site-packages/swebench"))
+    # Unix venvs use lib/pythonX/site-packages; Windows venvs use
+    # Lib/site-packages. Keep discovery scoped to this interpreter's venv so
+    # the dedicated-grader isolation check still rejects ambiguous installs.
+    packages = sorted({
+        package
+        for pattern in ("lib/python*/site-packages/swebench", "Lib/site-packages/swebench")
+        for package in environment.glob(pattern)
+    })
     if len(packages) != 1:
         raise ValueError("Use a dedicated grader environment containing one swebench package")
     package = packages[0]

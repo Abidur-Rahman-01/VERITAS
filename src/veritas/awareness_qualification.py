@@ -6,9 +6,8 @@ import tempfile
 from pathlib import Path
 
 import httpx
-import yaml
 
-from .awareness import StudyProtocol, checked_splits, plan_study
+from .awareness import checked_splits, load_protocol_config, plan_study
 from .awareness_grading import harness_fingerprint
 from .data import load_tasks
 from .io import digest, file_hash, write_json
@@ -19,7 +18,7 @@ from .state import tree_hash
 
 def qualify_protocol(config, output, *, execute=command, initialize=initialize_swe_workspace,
                      client_factory=httpx.Client):
-    spec = StudyProtocol.model_validate(yaml.safe_load(Path(config).read_text()))
+    spec = load_protocol_config(config)
     report = {"version": 1, "protocol_hash": digest(spec.model_dump(mode="json")),
               "host": {"system": platform.system(), "machine": platform.machine()},
               "checks": {}, "image_digests": {}, "base_tree_hashes": {},

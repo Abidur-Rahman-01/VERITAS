@@ -137,11 +137,12 @@ The following is a runbook, not a record of completed experimental steps. Stages
    Ensure Docker Desktop is active with WSL2 Linux backend (`docker ps` returns 0).
 2. **Setup Dedicated Grader Environment:**
    To satisfy `veritas awareness qualify`, build a dedicated isolated virtual environment for SWE-bench evaluation:
-   ```bash
-   python -m venv .grader-venv
-   .grader-venv/Scripts/pip install swebench==2.1.0
+   On Windows, create a separate environment with the pinned SWE-ReBench fork (the project environment must not also supply the grader package):
+   ```bat
+   uv venv --python 3.12 .venv-rebench
+   uv pip install --python .venv-rebench\Scripts\python.exe -e . "swebench @ git+https://github.com/SWE-rebench/SWE-bench-fork.git@d307ff9f2168a0448843c0d5881d2cd498d9f73f"
    ```
-   Update `grader.python` in `configs/awareness-local.yaml` to point to `.grader-venv/Scripts/python.exe`.
+   Set `grader.python` in `configs/awareness-local.yaml` to `.venv-rebench/Scripts/python.exe`. The awareness grader now recognizes Windows `Lib/site-packages` as well as Unix venv layouts.
 
 ### Step 2: Download & Prepare Pinned Datasets
 
@@ -151,7 +152,7 @@ Freeze the dataset snapshot without contamination:
 uv run veritas data download --manifest configs/datasets.yaml
 
 # 2. Normalize task rows into data/prepared
-uv run veritas data prepare --manifest configs/datasets.yaml --output data/prepared
+uv run veritas data prepare --manifest configs/datasets.yaml --output data/prepared --research-pool swe_rebench
 ```
 
 ### Step 3: Freeze Disjoint Repository Pools
@@ -161,10 +162,6 @@ Split repositories into four strictly non-overlapping pools to prevent data leak
 uv run veritas awareness split \
   --tasks data/prepared \
   --output artifacts/awareness-splits.json \
-  --dev-ratio 0.20 \
-  --pilot-ratio 0.20 \
-  --cal-ratio 0.30 \
-  --confirm-ratio 0.30 \
   --seed 42
 ```
 
@@ -184,7 +181,7 @@ Generate the immutable $2 \times 2$ factorial plan ($D \in \{0, 1\} \times A \in
 ```bash
 uv run veritas awareness plan \
   --config configs/awareness-local.yaml \
-  --output artifacts/awareness-plan.json
+  --output artifacts/study
 ```
 
 ### Step 6: Execute Actor Inference Across Treatment Arms
@@ -192,18 +189,16 @@ uv run veritas awareness plan \
 Run the trials under identical budgets, isolated Docker workspaces, and frozen prompts:
 ```bash
 uv run veritas awareness run \
-  --plan artifacts/awareness-plan.json \
-  --output artifacts/runs/
+  --study artifacts/study
 ```
-*Note on Resume:* If interrupted, use `uv run veritas awareness resume --plan ...` to continue without discarding existing runs.
+*Note on Resume:* If interrupted, use `uv run veritas awareness resume --study artifacts/study` to continue without discarding existing runs.
 
 ### Step 7: Independent Blind Grading
 
 Grade all submitted candidate patches using the isolated SWE-bench harness:
 ```bash
 uv run veritas awareness grade \
-  --runs artifacts/runs/ \
-  --output artifacts/grades/
+  --study artifacts/study
 ```
 
 ### Step 8: Cluster-Robust Statistical Reporting
@@ -211,8 +206,7 @@ uv run veritas awareness grade \
 Compute the pre-registered causal contrasts with repository clustering and non-response bounds:
 ```bash
 uv run veritas awareness report \
-  --grades artifacts/grades/ \
-  --output artifacts/awareness-report.json
+  --study artifacts/study
 ```
 
 #### Pre-registered Estimands:

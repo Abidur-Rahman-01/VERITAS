@@ -36,7 +36,7 @@ reviewer:
     name: gemma3:4b
     max_tokens: 768
     temperature: 0
-images: {}
+images: artifacts/swe-rebench-images.json
 image_digests: {}
 base_tree_hashes: {}
 sandbox:
@@ -45,7 +45,7 @@ sandbox:
   cpus: 2
   timeout_seconds: 60
 grader:
-  python: .venv/Scripts/python.exe
+  python: .venv-rebench/Scripts/python.exe
   identity: d307ff9f2168a0448843c0d5881d2cd498d9f73f
   namespace: none
   timeout_seconds: 1800

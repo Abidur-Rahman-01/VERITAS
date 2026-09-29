@@ -350,8 +350,17 @@ def plan_study(protocol, tasks, splits):
     return selected, jobs
 
 
+def load_protocol_config(config):
+    """Load a protocol, allowing large image maps to live in a JSON sidecar."""
+    value = yaml.safe_load(Path(config).read_text())
+    image_map = value.get("images")
+    if isinstance(image_map, str):
+        value["images"] = json.loads(Path(image_map).read_text())
+    return StudyProtocol.model_validate(value)
+
+
 def create_study(config, output):
-    spec = StudyProtocol.model_validate(yaml.safe_load(Path(config).read_text()))
+    spec = load_protocol_config(config)
     from .awareness_grading import harness_fingerprint
 
     code = implementation([p.name for p in Path(__file__).parent.glob("*.py")])
