@@ -1,7 +1,7 @@
 version: 2
 name: veritas-v2-local-study
-tasks: data/prepared
-splits: artifacts/awareness-splits.json
+tasks: data/prepared-rebench
+splits: artifacts/awareness-splits-rebench.json
 partition: development
 design: factorial
 source: swe_rebench
@@ -13,7 +13,7 @@ actors:
     revision: 845dbda0ea48ed749caafd9e6037047aa19acfcfd82e704d7ca97d631a0b697e
     model:
       backend: ollama
-      base_url: http://127.0.0.1:11434
+      base_url: http://172.23.16.1:11434
       name: qwen2.5:7b
       max_tokens: 2048
       temperature: 0
@@ -22,7 +22,7 @@ actors:
     revision: 46e0c10c039e019119339687c3c1757cc81b9da49709a3b3924863ba87ca666e
     model:
       backend: ollama
-      base_url: http://127.0.0.1:11434
+      base_url: http://172.23.16.1:11434
       name: llama3.1:8b
       max_tokens: 2048
       temperature: 0
@@ -32,7 +32,7 @@ reviewer:
   revision: a2af6cc3eb7fa8be8504abaf9b04e88f17a119ec3f04a3addf55f92841195f5a
   model:
     backend: ollama
-    base_url: http://127.0.0.1:11434
+    base_url: http://172.23.16.1:11434
     name: gemma3:4b
     max_tokens: 768
     temperature: 0
@@ -45,7 +45,7 @@ sandbox:
   cpus: 2
   timeout_seconds: 60
 grader:
-  python: .venv-rebench/bin/python
+  python: /home/user/.venvs/veritas-rebench/bin/python
   identity: d307ff9f2168a0448843c0d5881d2cd498d9f73f
   namespace: none
   timeout_seconds: 1800
