@@ -115,22 +115,22 @@ def run_comparative_analysis():
     print(grouped)
     
     # Statistical tests
-    d0_tokens = combined[combined['awareness_D'] == 0]['deployed_tokens']
-    d1_tokens = combined[combined['awareness_D'] == 1]['deployed_tokens']
+    d0_tokens = combined[combined['awareness_D'] == 0]['deployed_tokens'].dropna()
+    d1_tokens = combined[combined['awareness_D'] == 1]['deployed_tokens'].dropna()
     
-    d0_calls = combined[combined['awareness_D'] == 0]['deployed_calls']
-    d1_calls = combined[combined['awareness_D'] == 1]['deployed_calls']
+    d0_calls = combined[combined['awareness_D'] == 0]['deployed_calls'].dropna()
+    d1_calls = combined[combined['awareness_D'] == 1]['deployed_calls'].dropna()
     
     t_stat, p_val = stats.ttest_ind(d1_tokens, d0_tokens, equal_var=False)
     u_stat, u_pval = stats.mannwhitneyu(d1_tokens, d0_tokens, alternative='greater')
     
-    print(f'\nTokens t-test: t={t_stat:.4f}, p={p_val:.4e}')
-    print(f'Tokens Mann-Whitney U: U={u_stat:.1f}, p={u_pval:.4e}')
+    print(f'\nTokens t-test (N={len(d1_tokens)} vs {len(d0_tokens)}): t={t_stat:.4f}, p={p_val:.4f}')
+    print(f'Tokens Mann-Whitney U: U={u_stat:.1f}, p={u_pval:.4f}')
     
     t_stat_c, p_val_c = stats.ttest_ind(d1_calls, d0_calls, equal_var=False)
     u_stat_c, u_pval_c = stats.mannwhitneyu(d1_calls, d0_calls, alternative='greater')
-    print(f'Calls t-test: t={t_stat_c:.4f}, p={p_val_c:.4e}')
-    print(f'Calls Mann-Whitney U: U={u_stat_c:.1f}, p={u_pval_c:.4e}')
+    print(f'Calls t-test (N={len(d1_calls)} vs {len(d0_calls)}): t={t_stat_c:.4f}, p={p_val_c:.4f}')
+    print(f'Calls Mann-Whitney U: U={u_stat_c:.1f}, p={u_pval_c:.4f}')
     
     # Focus on python-cmd2
     cmd2_df = combined[combined['repository_id'] == 'python-cmd2/cmd2']

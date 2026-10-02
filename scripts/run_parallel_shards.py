@@ -23,6 +23,9 @@ from datetime import datetime
 from pathlib import Path
 import yaml
 
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 LOG_FILE = REPO_ROOT / "artifacts" / "parallel_execution.log"
 VENV_BIN = "/home/user/.venvs/veritas-rebench/bin"
@@ -30,12 +33,19 @@ VENV_BIN = "/home/user/.venvs/veritas-rebench/bin"
 def log(msg):
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     formatted = f"[{timestamp}] {msg}"
-    print(formatted, flush=True)
+    try:
+        print(formatted, flush=True)
+    except Exception:
+        print(formatted.encode('ascii', errors='replace').decode('ascii'), flush=True)
     with open(LOG_FILE, "a", encoding="utf-8") as f:
         f.write(formatted + "\n")
 
 def run_wsl(cmd_str, log_prefix=""):
-    full_cmd = f'wsl -d Ubuntu bash -c "cd /mnt/d/2110001/VERITAS && {cmd_str}"'
+    is_linux = sys.platform.startswith("linux")
+    if is_linux:
+        full_cmd = f'bash -c "cd /mnt/d/2110001/VERITAS && {cmd_str}"'
+    else:
+        full_cmd = f'wsl -d Ubuntu bash -c "cd /mnt/d/2110001/VERITAS && {cmd_str}"'
     if log_prefix:
         log(f"[{log_prefix}] EXEC: {cmd_str}")
     else:
@@ -117,14 +127,16 @@ def shard_config(base_config_path, tasks=None):
     shards_dir = REPO_ROOT / "configs" / "shards"
     shards_dir.mkdir(parents=True, exist_ok=True)
     
+    actor_family = base_cfg.get("actors", [{}])[0].get("family", "actor")
     shard_infos = []
     for task_id in target_tasks:
         short_id = task_id.replace("swe:", "").replace("__", "_").replace("-", "_")
-        shard_cfg_name = f"shard_{short_id}.yaml"
+        shard_key = f"{actor_family}_{short_id}"
+        shard_cfg_name = f"shard_{shard_key}.yaml"
         shard_cfg_path = shards_dir / shard_cfg_name
         
         cfg = json.loads(json.dumps(base_cfg))
-        cfg["name"] = f"shard-{short_id}"
+        cfg["name"] = f"shard-{shard_key}"
         cfg["task_ids"] = [task_id]
         if "task_limit" in cfg:
             del cfg["task_limit"]
@@ -132,9 +144,9 @@ def shard_config(base_config_path, tasks=None):
         with open(shard_cfg_path, "w", encoding="utf-8") as f:
             yaml.dump(cfg, f, default_flow_style=False)
             
-        study_dir = f"artifacts/shard_{short_id}"
+        study_dir = f"artifacts/shard_{shard_key}"
         shard_infos.append({
-            "name": short_id,
+            "name": shard_key,
             "task_id": task_id,
             "config": f"configs/shards/{shard_cfg_name}",
             "study_dir": study_dir
@@ -155,7 +167,7 @@ def main():
     args = parser.parse_args()
     
     log("=================================================================")
-    log("🚀 LAUNCHING VERITAS HIGH-THROUGHPUT PARALLEL SHARDING ENGINE 🚀")
+    log("=== LAUNCHING VERITAS HIGH-THROUGHPUT PARALLEL SHARDING ENGINE ===")
     log(f"Base Config: {args.config}")
     log(f"Max Concurrent Workers: {args.workers}")
     log("=================================================================")
@@ -163,7 +175,7 @@ def main():
     shard_infos = shard_config(args.config, args.tasks)
     log(f"Generated {len(shard_infos)} independent study shards:")
     for s in shard_infos:
-        log(f"  • {s['name']} -> Task: {s['task_id']} (Output: {s['study_dir']})")
+        log(f"  * {s['name']} -> Task: {s['task_id']} (Output: {s['study_dir']})")
         if args.clean and os.path.exists(s["study_dir"]):
             log(f"    Cleaning existing {s['study_dir']}...")
             shutil.rmtree(s["study_dir"])
@@ -186,12 +198,12 @@ def main():
                 
     total_duration = time.time() - start_total
     log("=================================================================")
-    log(f"🏁 ALL PARALLEL SHARDS FINISHED in {total_duration/60:.2f} minutes 🏁")
+    log(f"=== ALL PARALLEL SHARDS FINISHED in {total_duration/60:.2f} minutes ===")
     log("=================================================================")
     
     # Re-run aggregation analysis
     log("Re-running cross-study intermediate utility analysis...")
-    subprocess.run("python scripts/analyze_intermediate_utility.py", shell=True)
+    run_wsl(f"{VENV_BIN}/python scripts/analyze_intermediate_utility.py")
     log("Cross-study aggregation complete.")
 
 if __name__ == "__main__":

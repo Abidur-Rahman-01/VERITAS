@@ -36,7 +36,7 @@ input_chars: 60000
 max_completion_tokens: 1000000
 max_model_calls: 1000
 meaningful_effect: 0.05
-name: trial-llama-multitask
+name: shard-PennyLaneAI_pennylane_5063
 observation_chars: 2000
 partition: development
 repetitions: 1
@@ -69,8 +69,8 @@ seed: 42
 shadow_sample_probability: 0.2
 source: swe_rebench
 splits: artifacts/awareness-splits-rebench.json
-task_ids: null
-task_limit: 4
+task_ids:
+- swe:PennyLaneAI__pennylane-5063
 task_weighting: equal_tasks_equal_actors
 tasks: data/prepared-rebench
 version: 2

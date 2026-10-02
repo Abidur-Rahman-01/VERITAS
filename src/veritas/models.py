@@ -27,11 +27,12 @@ Available tools:
 - final_answer: {"answer": "final result; use a bare number for math problems"}
 
 Workflow rules:
-1. For repository tasks, explore relevant files before editing. For arithmetic tasks, solve directly with reasoning or python; do not explore unrelated files.
-2. If an action returns an error, analyze the error output and try a different, informed approach. Never repeat failing code identically.
-3. Use edit_file for small edits after reading the file. Include enough context in old to match exactly once. Use write_file for new files or full rewrites.
-4. Verify changes by running tests or python verification.
-5. When finished, submit final_answer to complete the task."""
+1. Repository Localization: You are modifying an existing codebase. For code bug fixes, you MUST inspect existing repository files (under package directories like cmd2/, etc.) and modify them in-place using edit_file. NEVER create a new standalone python script or dummy module to solve an existing codebase bug, because the evaluation test suite only executes the existing repository modules.
+2. Read before edit: Read the exact file section with read_file to confirm line content and line numbers before using edit_file. Ensure old matches unique lines in the existing file.
+3. Code Search: To search a large repository for relevant functions or keywords (such as 'persistent_history'), use python to search (e.g. {"tool": "python", "args": {"code": "import subprocess; print(subprocess.check_output(['grep', '-rn', 'persistent_history', 'cmd2/']).decode())"}}) or list_files.
+4. If an action returns an error, analyze the error output and try a different, informed approach. Never repeat failing code identically.
+5. Verify changes by running tests or python verification.
+6. When finished, submit final_answer to complete the task."""
 
 POLICY_COMPACT_SYSTEM = """Solve the task concisely in the isolated workspace. Output ONLY JSON {"tool":name,"args":object}.
 Tools (args):

@@ -1,14 +1,14 @@
 actor_retry: never
 actors:
-- family: llama
-  id: actor-llama
+- family: qwen
+  id: actor-qwen14b
   model:
     backend: ollama
     base_url: http://172.23.16.1:11434
     max_tokens: 2048
-    name: llama3.1:8b
+    name: qwen2.5-coder:14b
     temperature: 0
-  revision: 46e0c10c039e019119339687c3c1757cc81b9da49709a3b3924863ba87ca666e
+  revision: 9ec8897f747e246e970bc5cfdda85d22f1123dc2e3d34978a010a75968716849
 allow_research_pool: true
 alpha: 0.05
 assignment_probability: 0.5
@@ -29,14 +29,13 @@ grader:
   python: /home/user/.venvs/veritas-rebench/bin/python
   timeout_seconds: 1800
 history_chars: 30000
-image_digests:
-  python-cmd2__cmd2-744: sha256:5b0752cb2a6bb4537f708f4397915205ef9d396e66dec4010a09c9e5b51ee736
+image_digests: {}
 images: artifacts/swe-rebench-images.json
 input_chars: 60000
 max_completion_tokens: 1000000
 max_model_calls: 1000
 meaningful_effect: 0.05
-name: trial-llama-multitask
+name: shard-qwen_sympy_sympy_19512
 observation_chars: 2000
 partition: development
 repetitions: 1
@@ -69,8 +68,8 @@ seed: 42
 shadow_sample_probability: 0.2
 source: swe_rebench
 splits: artifacts/awareness-splits-rebench.json
-task_ids: null
-task_limit: 4
+task_ids:
+- swe:sympy__sympy-19512
 task_weighting: equal_tasks_equal_actors
 tasks: data/prepared-rebench
 version: 2
