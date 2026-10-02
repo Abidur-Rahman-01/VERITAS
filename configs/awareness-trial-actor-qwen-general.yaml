@@ -1,0 +1,76 @@
+actor_retry: never
+actors:
+- family: qwen
+  id: actor-qwen-general
+  model:
+    backend: ollama
+    base_url: http://172.23.16.1:11434
+    max_tokens: 2048
+    name: qwen2.5:14b
+    temperature: 0
+  revision: 7cdf5a0187d5c58cc5d369b255592f7841d1c4696d45a8c8a9489440385b22f6
+allow_research_pool: true
+alpha: 0.05
+assignment_probability: 0.5
+attempt_selection: first
+base_tree_hashes: {}
+bootstrap_samples: 4000
+compact: false
+design: factorial
+disclosure_probability: 0.5
+draft:
+  completion_tokens: 24000
+  seconds: 900
+  steps: 24
+grader:
+  identity: d307ff9f2168a0448843c0d5881d2cd498d9f73f
+  max_attempts: 2
+  namespace: ''
+  python: /home/user/.venvs/veritas-rebench/bin/python
+  timeout_seconds: 1800
+history_chars: 30000
+image_digests:
+  python-cmd2__cmd2-744: sha256:5b0752cb2a6bb4537f708f4397915205ef9d396e66dec4010a09c9e5b51ee736
+images: artifacts/swe-rebench-images.json
+input_chars: 60000
+max_completion_tokens: 1000000
+max_model_calls: 1000
+meaningful_effect: 0.05
+name: trial-actor-qwen-general
+observation_chars: 2000
+partition: development
+repetitions: 1
+repository_sampling: fixed_cohort
+review:
+  findings: 5
+  input_chars: 32000
+  output_tokens: 768
+  seconds: 180
+reviewer:
+  family: gemma
+  id: reviewer-gemma
+  model:
+    backend: ollama
+    base_url: http://172.23.16.1:11434
+    max_tokens: 768
+    name: gemma3:4b
+    temperature: 0
+  revision: a2af6cc3eb7fa8be8504abaf9b04e88f17a119ec3f04a3addf55f92841195f5a
+revision:
+  completion_tokens: 8000
+  seconds: 300
+  steps: 8
+sandbox:
+  cpus: 2
+  image: veritas-sandbox:local
+  memory: 4g
+  timeout_seconds: 60
+seed: 42
+shadow_sample_probability: 0.2
+source: swe_rebench
+splits: artifacts/awareness-splits-rebench.json
+task_ids:
+- swe:python-cmd2__cmd2-744
+task_weighting: equal_tasks_equal_actors
+tasks: data/prepared-rebench
+version: 2

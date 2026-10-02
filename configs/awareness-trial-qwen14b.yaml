@@ -1,29 +1,21 @@
 version: 2
-name: veritas-v2-local-study
+name: veritas-trial-qwen14b
 tasks: data/prepared-rebench
 splits: artifacts/awareness-splits-rebench.json
 partition: development
 design: factorial
 source: swe_rebench
 allow_research_pool: true
-task_limit: 4
+task_ids:
+  - "swe:python-cmd2__cmd2-744"
 actors:
-  - id: actor-qwen
+  - id: actor-qwen14b
     family: qwen
     revision: 9ec8897f747e246e970bc5cfdda85d22f1123dc2e3d34978a010a75968716849
     model:
       backend: ollama
       base_url: http://172.23.16.1:11434
       name: qwen2.5-coder:14b
-      max_tokens: 2048
-      temperature: 0
-  - id: actor-llama
-    family: llama
-    revision: 46e0c10c039e019119339687c3c1757cc81b9da49709a3b3924863ba87ca666e
-    model:
-      backend: ollama
-      base_url: http://172.23.16.1:11434
-      name: llama3.1:8b
       max_tokens: 2048
       temperature: 0
 reviewer:
@@ -38,10 +30,7 @@ reviewer:
     temperature: 0
 images: artifacts/swe-rebench-images.json
 image_digests:
-  PennyLaneAI__pennylane-5063: sha256:4bb5a5c734c49f5c66d6561a24fd9a4860d61c4b48cedbb18c930e907673357c
   python-cmd2__cmd2-744: sha256:5b0752cb2a6bb4537f708f4397915205ef9d396e66dec4010a09c9e5b51ee736
-  sympy__sympy-19512: sha256:ea3ffd5bf0948100c8ccaf5757689b5d06f30a4777726bfc3627dc7c6b73fc3a
-  sympy__sympy-20967: sha256:92eb213078807429a220151276268e7370780fd56224748d24d7a3d74d728209
 base_tree_hashes: {}
 sandbox:
   image: veritas-sandbox:local
