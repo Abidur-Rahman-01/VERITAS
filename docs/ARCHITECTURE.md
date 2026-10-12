@@ -353,6 +353,83 @@ comparison or a sensitivity analysis with caveats. OpenAI's 2026 reassessment re
 test/task problems and contamination in its audit, so it should not be the only evidence for a
 frontier coding claim. State the exact snapshot and limits.
 
+### Recent benchmark landscape relevant to this study
+
+This is a focused inventory of recent benchmark families discussed in the project review, not
+an exhaustive systematic review of every A* paper. “A*” depends on the field and ranking scheme;
+the scope here is recent ICSE, FSE, ASE, ICLR, NeurIPS and ICML work plus clearly marked adjacent
+resources. A paper may use a benchmark without introducing it. Subsets and variants are not
+independent datasets, so their scores must not be pooled as independent replications.
+
+| Benchmark / dataset family | Task and recent paper context | Relation to VERITAS / use decision |
+|---|---|---|
+| SWE-bench | Real GitHub issue resolution in repository context; ICLR 2024. | Core task family and historical baseline. |
+| SWE-bench Lite | Smaller SWE-bench subset used for practical agent evaluation, including Agentless (FSE 2025). | Development or historical comparison; overlaps SWE-bench. |
+| SWE-bench Lite-S | Revised Lite subset used in repair work. | Sensitivity only; document exact task IDs and overlap. |
+| SWE-bench Verified | Human-screened 500-task subset, widely used in agent evaluations. | Secondary comparability/sensitivity set, not sole evidence; quality and contamination concerns need caveats. |
+| SWE-rebench | NeurIPS 2025 Datasets & Benchmarks paper: over 21,000 interactive Python SWE tasks and fresh-task collection for less contamination-prone evaluation. | Preferred main source among integrated datasets; pin snapshot, audit tasks and freeze sample. [Paper](https://proceedings.nips.cc/paper_files/paper/2025/hash/21bec6ace947b1b58967b945c8ac0f10-Abstract-Datasets_and_Benchmarks_Track.html) |
+| SWE-rebench V2 | Language-agnostic follow-up task-collection pipeline. | Do not silently replace the pinned source; requires a new adapter/version, manifest and split. |
+| SWE-bench Multimodal | Repository issues where images are relevant to task understanding or tests; ICLR 2025. | Later robustness study; visual input changes the task and needs a separate protocol. |
+| Rust-SWE-bench | 500 repository issue tasks from 34 Rust repositories; ICSE 2026. | Cross-language generalization after Python qualification; analyze separately by language. [Paper](https://conf.researchr.org/details/icse-2026/icse-2026-research-track/67/Evaluating-and-Improving-Automated-Repository-Level-Rust-Issue-Resolution-with-LLM-ba) |
+| USEbench | 1,271 repository-level tasks assembled from multiple sources and task types; ICSE 2026. | Potential generalization suite after provenance and overlap audit; stratify by task type. |
+| SWE-bench Pro | More complex/long-horizon repository issue tasks; recent preprint/submission status should be checked at use time. | Optional stress test; verify status, access and protocol before adopting. |
+| Multi-SWE-bench | Repository repair tasks across several programming languages. | Optional cross-language set; establish language-specific graders and report strata separately. |
+| SWE-bench Live | Continuously updated tasks, including broader languages/platforms. | Later external validation; freeze a dated batch and retain provenance. |
+| SWE-Gym | Interactive SWE environments and training data; ICML 2025. | Primarily a training/environment resource, not an independent holdout by default; enforce train/eval separation. |
+| RACE-Bench | 528 repository-level feature-addition tasks from 12 repositories, with executable patch checks and structured reasoning; ASE 2026. | Adjacent task type, not issue repair; separate feature-addition study. [Paper](https://conf.researchr.org/details/ase-2026/ase-2026-research-track/130/RACE-Bench-A-Reasoning-Augmented-Benchmark-for-Repository-Level-Code-Agents-on-Featu) |
+| Doc2Feat-Bench | Documentation-driven repository feature addition; ASE 2026. | Separate feature-addition study; documentation is an additional input condition. [ASE program](https://conf.researchr.org/track/ase-2026/ase-2026-research-track) |
+| RealBench | Repository-level code generation from requirements plus UML design; FSE 2026. | Not bug repair; do not pool success outcomes with SWE issue resolution. [Paper](https://conf.researchr.org/details/fse-2026/fse-2026-research-papers/187/RealBench-A-Repo-Level-Code-Generation-Benchmark-Aligned-with-Real-World-Software-De) |
+| RepoReasoner | Repository-level reasoning, including output and call-chain prediction; FSE 2026. | Can study reasoning separately; it does not grade repair success. [Paper](https://conf.researchr.org/details/fse-2026/fse-2026-research-papers/58/RepoReasoner-Evaluating-Repository-Level-Code-Reasoning-Ability-of-Long-Context-Lang) |
+| ExplainBench | Accuracy and trustworthiness of agent-generated code/patch explanations; ASE 2026. | Optional explanation-quality study, not a repair benchmark. [Paper](https://conf.researchr.org/details/ase-2026/ase-2026-research-track/65/ExplainBench-Evaluating-Code-Explanations-from-Agents) |
+| TDD-Bench Verified | SWE issue reproduction-test generation and selection; used in recent ICSE work. | Relevant to a later test-generation question, not a direct repair-success measure. [ICSE paper](https://conf.researchr.org/details/icse-2026/icse-2026-research-track/309/Heterogeneous-Prompting-and-Execution-Feedback-for-SWE-Issue-Test-Generation-and-Sele) |
+| SWE-fficiency | Software performance-optimization tasks; ICML 2026. | Different objective and grading; separate optimization study. [Paper](https://proceedings.mlr.press/v306/ma26l.html) |
+| SWE-Lancer | Freelance software-engineering tasks, including tasks with monetary value. | Different task mix and grading; optional external validity, not directly comparable leaderboard evidence. [Overview](https://openai.com/index/swe-lancer/) |
+
+Recent papers also analyze agents on existing datasets without introducing a new benchmark. An
+ICSE 2026 process study examines thousands of trajectories and test logs from agents on 500
+SWE-bench issues ([paper](https://conf.researchr.org/details/icse-2026/icse-2026-research-track/98/Beyond-Final-Code-A-Process-Oriented-Error-Analysis-of-Software-Development-Agents-i)).
+Another ICSE 2026 study finds that test-passing patches can still differ behaviorally from
+developer patches ([paper](https://conf.researchr.org/details/icse-2026/icse-2026-research-track/59/Are-Solved-Issues-in-SWE-bench-Really-Solved-Correctly-An-Empirical-Study)).
+These motivate trajectory retention and independent patch-quality audits; they do not make raw
+scores across different benchmarks comparable.
+
+### Dataset work required for this paper
+
+Do not attempt to run every benchmark family in one paper. Many are overlapping variants, and
+others measure feature addition, explanation, test generation, reasoning or optimization rather
+than repository repair. A mixed 20-benchmark score table would combine different populations
+and research questions. The primary study should test the D × A causal question on repository
+issue repair; adjacent task types are follow-up studies.
+
+Before confirmation, complete these dataset tasks:
+
+1. **Choose and pin the primary snapshot.** Prefer the already integrated 21,336-task SWE-rebench
+   release. Record source revision, loader version, harness commit, task IDs and hashes.
+2. **Audit task validity.** Review a preregistered stratified sample for issue clarity, runnable
+   setup, meaningful fail-to-pass and pass-to-pass tests, patchability and independent grading.
+   Publish audit counts, exclusion reasons and unresolved cases.
+3. **Create fixed, non-overlapping pools.** Separate prompt development, graded power pilot, gate
+   calibration and untouched confirmation. Freeze task and repository grouping before tuning;
+   deduplicate aliases and benchmark overlap across pools.
+4. **Select confirmation size from graded-pilot power.** Simulate task-paired four-arm runs with
+   repository clustering, model-by-treatment variation, incomplete runs and planned contrasts.
+   Do not use a generic fixed task count or the full 21K set as a sample-size argument.
+5. **Use Verified only as secondary sensitivity/comparability evidence.** Record its exact
+   version, overlap with the primary tasks and test-quality limitations.
+6. **Add a second task family only after repair qualification.** Rust-SWE-bench or a multilingual
+   repair set can test generality, but needs validated adapters/graders and language-stratified
+   estimates. RACE-Bench, Doc2Feat-Bench, RealBench, RepoReasoner, ExplainBench, TDD-Bench and
+   SWE-fficiency require separate research questions.
+7. **Preserve provenance for every run.** Record source/task ID, repository/commit, issue and
+   base-tree hashes, image digest, harness/test revision, patch hash, grader report, assignment,
+   exclusions, retries and failures.
+
+Compare treatment arms within the same benchmark and task/model block. Never compare one VERITAS
+arm on one dataset with a published score on another and call it a treatment improvement:
+models, scaffolding, budgets, task versions and graders differ. If multiple repair sets are
+included, report each separately or use a prespecified stratified model that represents benchmark
+and task heterogeneity.
+
 ### Do not use these as the primary paper dataset
 
 - `swe_test` is the older original test split and has contamination/task-quality concerns.
