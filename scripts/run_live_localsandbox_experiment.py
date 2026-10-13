@@ -388,10 +388,10 @@ def main():
         print(f" - {m['name']:<22} | Family: {family:<8} | Size: {size_gb:4.1f} GB ({param_sz}) | Caps: {caps}")
 
     # 2. Select actor and reviewer
-    # Preferred actor: qwen2.5-coder:7b (fast, code-optimized)
+    # Validated actor: qwen2.5-coder:14b (calibrated at 90% resolution)
     # Preferred reviewer: llama3.1:8b (distinct family: llama vs qwen2)
     actor_cfg = ModelConfig(
-        name="qwen2.5-coder:7b",
+        name="qwen2.5-coder:14b",
         backend="ollama",
         base_url="http://127.0.0.1:11434",
         temperature=0,
