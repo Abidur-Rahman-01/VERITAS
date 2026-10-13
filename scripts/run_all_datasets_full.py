@@ -398,11 +398,15 @@ def main():
     parser.add_argument("--actor", type=str, default="qwen2.5-coder:30b", help="Actor model")
     parser.add_argument("--reviewer", type=str, default="llama3.1:8b", help="Reviewer model")
     parser.add_argument("--arm", type=str, default="11", choices=["00", "10", "01", "11"], help="Factorial arm")
+    parser.add_argument("--out-dir", type=str, default=None, help="Explicit output directory to save or resume")
     parser.add_argument("--limit-per-dataset", type=int, default=None, help="Optional limit per dataset (default: all)")
     args = parser.parse_args()
 
-    timestamp_str = time.strftime("%Y%m%d_%H%M%S")
-    out_dir = REPO_ROOT / "artifacts" / f"master_full_study_{timestamp_str}"
+    if args.out_dir:
+        out_dir = Path(args.out_dir)
+    else:
+        timestamp_str = time.strftime("%Y%m%d_%H%M%S")
+        out_dir = REPO_ROOT / "artifacts" / f"master_full_study_{timestamp_str}"
     out_dir.mkdir(parents=True, exist_ok=True)
 
     print("================================================================================")
@@ -443,13 +447,34 @@ def main():
         results_file = d_dir / "results.jsonl"
 
         d_results = []
+        completed_task_ids = set()
         d_resolved = 0
         d_repairs = 0
         d_tokens = 0
         t0_d = time.time()
 
+        if results_file.exists():
+            for line in results_file.read_text(encoding="utf-8").splitlines():
+                if line.strip():
+                    try:
+                        record = json.loads(line)
+                        completed_task_ids.add(record["task_id"])
+                        d_results.append(record)
+                        if record["resolved"]:
+                            d_resolved += 1
+                        if record["repaired"]:
+                            d_repairs += 1
+                        d_tokens += record["total_tokens"]
+                    except Exception:
+                        pass
+            if completed_task_ids:
+                print(f"Resuming {d_name.upper()}: {len(completed_task_ids)} tasks already completed ({d_resolved} resolved).", flush=True)
+
         for idx, task_data in enumerate(d_tasks, start=1):
             t_id = task_data["task_id"]
+            if t_id in completed_task_ids:
+                continue
+
             safe_name = t_id.replace("/", "_")
             trial_dir = d_dir / f"task_{idx:04d}_{safe_name}"
 
