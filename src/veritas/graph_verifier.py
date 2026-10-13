@@ -16,7 +16,7 @@ from pathlib import Path
 from .contracts import contract
 from .graph import DAG, Node
 from .io import digest
-from .sandbox import DockerSandbox
+from .sandbox import default_sandbox_factory
 from .sanitize import redact
 from .schema import Proposal, Usage, Verification
 
@@ -95,7 +95,7 @@ class GraphVerifier:
         with tempfile.TemporaryDirectory(prefix="veritas-graph-") as temp:
             clone = Path(temp) / "workspace"
             shutil.copytree(workspace, clone)
-            sandbox = DockerSandbox(clone, self.sandbox_config)
+            sandbox = default_sandbox_factory(clone, self.sandbox_config)
             if action is not None:
                 candidate = sandbox.execute(action)
                 if candidate["exit_code"] != 0:

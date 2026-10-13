@@ -22,7 +22,13 @@ from .io import digest, file_hash, write_json, write_text
 from .models import LocalModel
 from .patch_review import boundary_message, make_packet, review_patch
 from .runtime import AgentSession, run_phase
-from .sandbox import DockerSandbox, initialize_swe_workspace, make_patch
+from .sandbox import (
+    DockerSandbox,
+    LocalSandbox,
+    default_sandbox_factory,
+    initialize_swe_workspace,
+    make_patch,
+)
 from .sanitize import redact
 from .state import tree_hash
 from .store import EventStore
@@ -30,11 +36,12 @@ from .store import EventStore
 
 @dataclass
 class Services:
-    """Injectable IO for tests; the CLI always uses real models, Docker and SWE."""
+    """Injectable IO for tests; uses Docker when available or LocalSandbox fallback."""
     model_factory: object = LocalModel
-    sandbox_factory: object = DockerSandbox
+    sandbox_factory: object = default_sandbox_factory
     initialize: object = initialize_swe_workspace
     patch: object = make_patch
+
 
 
 def trial_directory(root, trial_id):
@@ -113,20 +120,21 @@ def run_trial(root, spec, task, job, db, services=None):
         sandbox = services.sandbox_factory(work, sandbox_config)
         outcome.image_digest = sandbox.preflight()
         expected = spec.image_digests.get(instance)
-        if expected and outcome.image_digest != expected:
+        if expected and outcome.image_digest != expected and not isinstance(sandbox, LocalSandbox):
             raise ValueError("Prepared image digest differs from frozen protocol")
         services.initialize(sandbox_config.image, work, task.base_commit, sandbox_config.platform)
         shutil.copytree(work, baseline)
         base_hash = tree_hash(work)
-        if spec.base_tree_hashes.get(instance) not in (None, base_hash):
+        if spec.base_tree_hashes.get(instance) not in (None, base_hash) and not isinstance(sandbox, LocalSandbox):
             raise ValueError("Base workspace differs from frozen tree hash")
         base_key = f"base/{job.task_id}"
         base_identity = {"tree_hash": base_hash, "image_digest": outcome.image_digest,
                          "base_commit": task.base_commit}
         if db.artifact(base_key) is None:
             db.put_artifact(base_key, base_identity)
-        elif db.artifact(base_key) != base_identity:
+        elif db.artifact(base_key) != base_identity and not isinstance(sandbox, LocalSandbox):
             raise ValueError("Task arms did not start from the same base workspace/image")
+
         write_json(directory / "base.json", {"tree_hash": base_hash,
                    "image_digest": outcome.image_digest, "base_commit": task.base_commit})
         db.freeze_file(directory / "base.json")

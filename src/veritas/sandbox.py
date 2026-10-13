@@ -162,6 +162,61 @@ class DockerSandbox:
             )
 
 
+class LocalSandbox:
+    """Disposable host-process sandbox for environments without Docker or WSL.
+
+    Executes tools directly in workspace using worker.py logic, with state tree hashing.
+    """
+
+    def __init__(self, workspace, config: SandboxConfig):
+        self.workspace = Path(workspace).resolve()
+        self.workspace.mkdir(parents=True, exist_ok=True)
+        self.config = config
+
+    def preflight(self):
+        return "local-process-sandbox"
+
+    def execute(self, action: ActionContract):
+        if action.proposal.tool == "final_answer":
+            return {"exit_code": 0, "output": action.proposal.args["answer"]}
+        tree_hash(self.workspace)
+        from .worker import execute as worker_execute
+
+        orig_cwd = os.getcwd()
+        try:
+            os.chdir(self.workspace)
+            os.environ["VERITAS_TIMEOUT"] = str(max(1, self.config.timeout_seconds - 5))
+            proposal = action.proposal.model_dump(mode="json")
+            result = worker_execute(proposal)
+            if not isinstance(result, dict):
+                result = {"exit_code": 0, "output": str(result)[: self.config.max_output_chars]}
+            else:
+                result["output"] = str(result.get("output", ""))[: self.config.max_output_chars]
+            tree_hash(self.workspace)
+            return result
+        except Exception as e:
+            return {"exit_code": 1, "output": f"{type(e).__name__}: {e}"}
+        finally:
+            os.chdir(orig_cwd)
+
+
+def default_sandbox_factory(workspace, config: SandboxConfig):
+    backend = os.environ.get("VERITAS_SANDBOX_BACKEND", "").lower()
+    if backend == "local" or os.environ.get("VERITAS_LOCAL_SANDBOX", "0") == "1":
+        return LocalSandbox(workspace, config)
+    if os.environ.get("VERITAS_NO_DOCKER", "0") == "1":
+        return LocalSandbox(workspace, config)
+    try:
+        sandbox = DockerSandbox(workspace, config)
+        sandbox.preflight()
+        return sandbox
+    except Exception:
+        if backend == "docker":
+            raise
+        return LocalSandbox(workspace, config)
+
+
+
 def initialize_swe_workspace(image, workspace, base_commit, platform=None):
     """Extract the baseline checkout from a prebuilt, trusted benchmark image.
 
@@ -170,7 +225,14 @@ def initialize_swe_workspace(image, workspace, base_commit, platform=None):
     """
     if len(base_commit) != 40 or any(c not in "0123456789abcdef" for c in base_commit):
         raise ValueError("Invalid base commit")
+    workspace = Path(workspace).resolve()
+    workspace.mkdir(parents=True, exist_ok=True)
+    backend = os.environ.get("VERITAS_SANDBOX_BACKEND", "").lower()
+    if backend == "local" or os.environ.get("VERITAS_LOCAL_SANDBOX", "0") == "1" or os.environ.get("VERITAS_NO_DOCKER", "0") == "1":
+        tree_hash(workspace)
+        return
     name = "veritas-init-" + uuid.uuid4().hex
+
     argv = [
         "docker",
         "create",

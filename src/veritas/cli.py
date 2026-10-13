@@ -310,7 +310,10 @@ def doctor(config_path, check_models=False):
         },
         "models_invoked": False,
     }
-    if shutil.which("docker"):
+    backend = os.environ.get("VERITAS_SANDBOX_BACKEND", "").lower()
+    if backend == "local" or os.environ.get("VERITAS_LOCAL_SANDBOX", "0") == "1" or os.environ.get("VERITAS_NO_DOCKER", "0") == "1":
+        result["docker"] = "local process sandbox active (VERITAS_SANDBOX_BACKEND=local)"
+    elif shutil.which("docker"):
         docker = subprocess.run(
             ["docker", "info", "--format", "{{.ServerVersion}}"],
             capture_output=True,
@@ -320,8 +323,9 @@ def doctor(config_path, check_models=False):
         result["docker"] = (
             docker.stdout.strip()
             if docker.returncode == 0
-            else "daemon unavailable; start Docker before collection"
+            else "daemon unavailable; start Docker or use VERITAS_SANDBOX_BACKEND=local"
         )
+
     if check_models:
         import httpx
 

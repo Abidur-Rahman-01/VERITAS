@@ -5,7 +5,9 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
+
 
 
 def path(value):
@@ -61,8 +63,12 @@ def execute(proposal):
     if tool == "sql":
         import sqlite3
 
-        with sqlite3.connect(path(args["database"])) as db:
-            db.enable_load_extension(False)
+        db = sqlite3.connect(path(args["database"]))
+        try:
+            try:
+                db.enable_load_extension(False)
+            except (AttributeError, sqlite3.OperationalError):
+                pass
 
             def authorize(action, *_):
                 return (
@@ -72,16 +78,23 @@ def execute(proposal):
                 )
 
             db.set_authorizer(authorize)
-            cursor = db.execute(args["query"], args["parameters"])
-            return (
-                json.dumps(cursor.fetchmany(1000))
-                if cursor.description
-                else f"Rows changed: {cursor.rowcount}"
-            )
+            with db:
+                cursor = db.execute(args["query"], args["parameters"])
+                try:
+                    return (
+                        json.dumps(cursor.fetchmany(1000))
+                        if cursor.description
+                        else f"Rows changed: {cursor.rowcount}"
+                    )
+                finally:
+                    cursor.close()
+        finally:
+            db.close()
     if tool in {"python", "run_tests"}:
         argv = [sys.executable, "-c", args["code"]] if tool == "python" else args["argv"]
-        # Child stdout stays in the container; host reads at most max_output bytes.
-        with open("/tmp/veritas-child.log", "wb") as log:
+        # Child stdout stays in the workspace/container; host reads at most max_output bytes.
+        child_log = Path(tempfile.gettempdir()) / "veritas-child.log"
+        with open(child_log, "wb") as log:
             result = subprocess.run(
                 argv,
                 stdout=log,
@@ -89,9 +102,10 @@ def execute(proposal):
                 timeout=int(os.environ.get("VERITAS_TIMEOUT", "55")),
                 check=False,
             )
-        with open("/tmp/veritas-child.log", "rb") as log:
+        with open(child_log, "rb") as log:
             text = log.read(16000).decode(errors="replace")
         return {"exit_code": result.returncode, "output": text}
+
     raise ValueError("Unsupported worker action")
 
 

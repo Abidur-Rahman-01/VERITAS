@@ -4,7 +4,7 @@ import tempfile
 from pathlib import Path
 
 from .contracts import contract
-from .sandbox import DockerSandbox
+from .sandbox import default_sandbox_factory
 from .schema import Proposal, Verification
 
 
@@ -22,8 +22,8 @@ class Verifier:
                 shutil.copytree(workspace, clone)
                 baseline = Path(temp) / "baseline"
                 shutil.copytree(workspace, baseline)
-                baseline_sandbox = DockerSandbox(baseline, self.sandbox_config)
-                sandbox = DockerSandbox(clone, self.sandbox_config)
+                baseline_sandbox = default_sandbox_factory(baseline, self.sandbox_config)
+                sandbox = default_sandbox_factory(clone, self.sandbox_config)
                 outcome = sandbox.execute(action)
                 if outcome["exit_code"] != 0:
                     return Verification(

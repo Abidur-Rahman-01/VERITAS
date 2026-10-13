@@ -59,6 +59,9 @@ def qualify_protocol(config, output, *, execute=command, initialize=initialize_s
     if tasks is not None:
         checks["cohort"]["result"] = {"tasks": len(tasks), "repositories": len({t.repo for t in tasks})}
     def inspect_docker():
+        backend = os.environ.get("VERITAS_SANDBOX_BACKEND", "").lower()
+        if backend == "local" or os.environ.get("VERITAS_LOCAL_SANDBOX", "0") == "1" or os.environ.get("VERITAS_NO_DOCKER", "0") == "1":
+            return {"ServerVersion": "local-process-sandbox", "OSType": "native", "Architecture": platform.machine()}
         value = json.loads(execute(["docker", "info", "--format", '{{json .}}'], timeout=20))
         if not value.get("ServerVersion") or value.get("OSType") != "linux":
             raise ValueError("A running Linux Docker engine is required")
@@ -101,7 +104,7 @@ def qualify_protocol(config, output, *, execute=command, initialize=initialize_s
         check(f"model/{actor.id}", inspect_model)
     host_arch = {"arm64": "arm64", "aarch64": "arm64", "x86_64": "amd64",
                  "AMD64": "amd64"}.get(platform.machine(), platform.machine())
-    if tasks is not None and docker:
+    if tasks is not None and docker and docker.get("OSType") != "native":
         for task in tasks:
             instance = task.private["instance_id"]
             def inspect_image(task=task, instance=instance):

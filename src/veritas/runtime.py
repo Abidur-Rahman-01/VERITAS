@@ -603,7 +603,13 @@ def collect(
     from .data import load_tasks
     from .graph_verifier import GraphVerifier
     from .models import LocalModel
-    from .sandbox import DockerSandbox, initialize_swe_workspace, make_patch
+    from .sandbox import (
+        DockerSandbox,
+        LocalSandbox,
+        default_sandbox_factory,
+        initialize_swe_workspace,
+        make_patch,
+    )
     from .store import EventStore
     from .verifier import Verifier
 
@@ -653,7 +659,7 @@ def collect(
                         f"No prepared image for {task.private['instance_id']}; run swe image-map first"
                     )
                 sandbox_config.image = image
-            sandbox = DockerSandbox(workspace, sandbox_config)
+            sandbox = default_sandbox_factory(workspace, sandbox_config)
             image_digest = sandbox.preflight()
             if task.kind == "swe":
                 initialize_swe_workspace(

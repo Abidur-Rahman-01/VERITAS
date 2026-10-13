@@ -19,8 +19,17 @@ import time
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-VERITAS_BIN = Path("/home/user/.venvs/veritas-rebench/bin/veritas")
-PYTHON_BIN = Path("/home/user/.venvs/veritas-rebench/bin/python")
+VERITAS_BIN = (
+    Path(shutil.which("veritas"))
+    if shutil.which("veritas")
+    else Path("/home/user/.venvs/veritas-rebench/bin/veritas")
+)
+PYTHON_BIN = (
+    Path(sys.executable)
+    if sys.executable
+    else Path("/home/user/.venvs/veritas-rebench/bin/python")
+)
+
 SUMMARY_MD = REPO_ROOT / "artifacts" / "overnight_summary.md"
 
 
