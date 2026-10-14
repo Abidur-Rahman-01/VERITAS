@@ -253,11 +253,15 @@ def run_task_trial(
     a_feedback = arm[1] == "1"
     t_id = task_data["task_id"].replace("/", "_")
 
+    if trial_dir.exists():
+        shutil.rmtree(trial_dir, ignore_errors=True)
+    trial_dir.mkdir(parents=True, exist_ok=True)
+
     ws_dir = trial_dir / "workspace"
     baseline_dir = trial_dir / "baseline"
 
     pkg_name, prompt = setup_task_workspace(task_data, ws_dir)
-    shutil.copytree(ws_dir, baseline_dir)
+    shutil.copytree(ws_dir, baseline_dir, dirs_exist_ok=True)
     initial_tree = tree_hash(ws_dir)
 
     sandbox_cfg = SandboxConfig(image="local", memory="2g", cpus=2, timeout_seconds=60, max_output_chars=5000)
@@ -478,13 +482,27 @@ def main():
             safe_name = t_id.replace("/", "_")
             trial_dir = d_dir / f"task_{idx:04d}_{safe_name}"
 
-            res = run_task_trial(
-                task_data=task_data,
-                arm=args.arm,
-                actor_cfg=actor_cfg,
-                reviewer_cfg=reviewer_cfg,
-                trial_dir=trial_dir,
-            )
+            try:
+                res = run_task_trial(
+                    task_data=task_data,
+                    arm=args.arm,
+                    actor_cfg=actor_cfg,
+                    reviewer_cfg=reviewer_cfg,
+                    trial_dir=trial_dir,
+                )
+            except Exception as e:
+                print(f"[{d_name.upper()} | {idx:04d}/{total_d:04d}] {t_id:18s} -> ERROR ({e})", flush=True)
+                res = {
+                    "dataset": task_data["dataset"],
+                    "task_id": task_data["task_id"],
+                    "arm": args.arm,
+                    "resolved": False,
+                    "repaired": False,
+                    "regressed": False,
+                    "total_tokens": 0,
+                    "total_seconds": 0,
+                    "error": str(e),
+                }
 
             d_results.append(res)
             if res["resolved"]:

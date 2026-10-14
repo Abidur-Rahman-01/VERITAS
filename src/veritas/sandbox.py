@@ -324,4 +324,4 @@ def make_patch(baseline, workspace):
         git("add", "-f", ".")
         return git(
             "diff", "--cached", "--binary", "--no-ext-diff", "--no-textconv", "HEAD"
-        ).decode()
+        ).decode("utf-8", errors="replace")
