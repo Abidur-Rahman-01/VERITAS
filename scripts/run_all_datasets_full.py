@@ -473,6 +473,14 @@ def main():
                         pass
             if completed_task_ids:
                 print(f"Resuming {d_name.upper()}: {len(completed_task_ids)} tasks already completed ({d_resolved} resolved).", flush=True)
+                if len(completed_task_ids) >= total_d and (d_dir / "summary.json").exists():
+                    try:
+                        d_summary = json.loads((d_dir / "summary.json").read_text(encoding="utf-8"))
+                        overall_results[d_name] = d_summary
+                        print(f"Dataset {d_name.upper()} already fully completed ({d_summary['pass_at_1']}% Pass@1). Loaded summary.", flush=True)
+                        continue
+                    except Exception:
+                        pass
 
         for idx, task_data in enumerate(d_tasks, start=1):
             t_id = task_data["task_id"]
@@ -536,7 +544,7 @@ def main():
             }
             write_json(d_dir / "checkpoint.json", chk)
 
-        d_time = time.time() - t0_d
+        d_time = sum(r.get("total_seconds", 0) for r in d_results)
         d_summary = {
             "dataset": d_name,
             "total_tasks": total_d,
@@ -545,14 +553,22 @@ def main():
             "repairs": d_repairs,
             "total_tokens": d_tokens,
             "total_seconds": round(d_time, 2),
-            "mean_seconds_per_task": round(d_time / total_d, 2),
+            "mean_seconds_per_task": round(d_time / total_d, 2) if total_d else 0.0,
         }
         overall_results[d_name] = d_summary
         write_json(d_dir / "summary.json", d_summary)
 
         print(f"\nCompleted {d_name.upper()}: {d_resolved}/{total_d} ({d_summary['pass_at_1']}%) in {d_time/60.0:.1f} mins", flush=True)
 
-    # Master Report
+    # Master Report: aggregate all dataset summaries present in out_dir
+    for name in dataset_loaders.keys():
+        s_path = out_dir / name / "summary.json"
+        if name not in overall_results and s_path.exists():
+            try:
+                overall_results[name] = json.loads(s_path.read_text(encoding="utf-8"))
+            except Exception:
+                pass
+
     write_json(out_dir / "master_report.json", overall_results)
     print("\n================================================================================")
     print(" ALL DATASETS FULL BENCHMARK COMPLETE!")
