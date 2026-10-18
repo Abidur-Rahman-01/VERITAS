@@ -154,6 +154,31 @@ The following literature figures were checked against publisher, conference, or 
 
 **Cohort reconciliation required:** `RESULTS.md` reports a 32-run primary SWE factorial cohort with 0 resolved tasks, while the supplied executive summary presents a 128-run inventory and 4/4 versus 0/4 CLI surrender comparison. These can coexist if they are different cohorts, but every table and inferential test must identify the exact included studies, tasks, assignment records, and preregistration status. Recompute the p-values and FDR family from row-level data before using “all tests remain significant.”
 
+## Venue fit and two paper routes
+
+“Transactions-level” can mean different editorial goals. TMLR is **Transactions on Machine Learning
+Research**. Its current published criteria ask whether claims have accurate, convincing, clear
+evidence, whether the findings interest some part of its audience, and whether the paper explains
+the work clearly; it is not accurate to describe it as judging correctness alone or as having no
+interest criterion. See the [TMLR Editors-in-Chief criteria update](https://blog.tmlr.org/2026/increasing-emphasis-on-clear-writing-in-acceptance-criteria/).
+IEEE TSE's stated scope seeks well-defined theoretical results and empirical studies with potential
+impact on software construction, analysis, or management. See the [official TSE scope](https://www.computer.org/digital-library/journals/ts/cfp-ieee-transactions-on-software-engineering).
+
+| Target route | Strongest fit | Evidence and framing required | Current position |
+|---|---|---|---|
+| TMLR | A general lesson about how LLM agents use external verification, how feedback changes recovery versus generic retries, and the cost/quality tradeoff across task families. | A preregistered, powered experiment; transparent nulls and uncertainty; task-family/model heterogeneity; convincing evaluation; clear relevance to ML researchers beyond a system score. The full multi-benchmark track can support breadth only if task-specific effects and graders are handled correctly. | Plausible first target after evidence repair. The current post-loop suite is not enough because it has no equal-cost retry contrast. The awareness study is not ready because of small/floor cohorts and accounting conflicts. |
+| IEEE TSE | A substantive software-engineering result about repository-level repair, quality gates, patch correctness, or where repair pipelines fail. | Real repository tasks; independent SWE grading; matched retry/feedback budgets; at least two actor families for robustness; trajectory and patch analysis; meaningful engineering implications and reproducibility. Use HumanEval/MBPP as secondary evidence, not the main TSE contribution. | Higher empirical and software-engineering contribution bar. The present 2,240-task suite is useful context, but a controlled SWE-ReBench-style study and validated failure analysis are still needed. |
+
+The awareness D × A factorial may be the project's **most distinctive candidate question**, because it asks whether advance disclosure changes behavior separately from delivered feedback. That is a novelty hypothesis, not an established result. A separate awareness paper becomes plausible only after the full randomization ledger is reconciled, tasks have non-floor resolution rates, the trial is powered, and the effect replicates beyond the 4-versus-4 `cmd2` cohort. Do not combine its exploratory 128-run inventory with the main equal-budget repair study to inflate sample size.
+
+### Submission-quality sequence
+
+1. Reconcile all records and rewrite the claims table so every number points to an exact run set and endpoint.
+2. Decide whether the first manuscript targets a general ML audience (TMLR route) or a software-engineering audience (TSE route); do not submit the same broad framing unchanged to both.
+3. Run a graded pilot for the selected primary estimand and use it to power a frozen confirmation study.
+4. Complete the equal-cost retry control, independent grading, model/task stratification, and preregistered failure analysis before writing causal conclusions.
+5. Report null or small effects with the same care as positive results. A well-powered finding that feedback adds little beyond retry can be useful if the measurements and limits are clear.
+
 ## Separate study record: evaluation awareness and verifier feedback
 
 The following sections retain the awareness-study design, literature notes, and implementation
