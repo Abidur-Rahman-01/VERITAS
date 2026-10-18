@@ -1,22 +1,23 @@
-# VERITAS v2: correction and evaluation-awareness decomposition
+# VERITAS: long-horizon LLM problem solving with iterative verification
 
-This is the single detailed guide to the VERITAS paper and software. It is written for both a
-researcher deciding what evidence to collect and an engineer deciding where to implement it.
-It distinguishes implemented code from planned work. A design, passing test, or prepared dataset
-is not evidence that the central research result has been observed.
+This is the main guide to the VERITAS research program and software. The primary paper direction
+is long-horizon LLM problem solving with an explicit verifier-and-repair loop across code and
+reasoning tasks. The repository also contains a separate evaluation-awareness study and an older
+dependency-verification line; those are distinct projects and do not define the main paper question.
+Distinguish completed runs and measured results from designs and planned work.
 
-**Architecture review and implementation: 2026-09-28.** This specification supersedes the dependency-interaction
-pilot as the main research direction. The proposed `D × A` design is viable, but it requires
-a treatment planner, a two-phase runtime, independent outcome linkage, and a new analysis
-adapter. It is not just a prompt sentence and a verifier flag. The current checkout contains
-the original runtime plus dedicated awareness modules under `src/veritas/`.
+**Research direction:** evaluate whether iterative verifier feedback and bounded autonomous repair
+improve end-task success, and characterize their quality, compute, and failure modes over
+long-horizon tasks. The awareness factorial documented later is a separate exploratory study,
+not the central claim of this paper.
 
-**Implementation status:** the v2 code and focused stub-based tests are now present. They were
-written and reviewed without executing the application, tests, models, Docker, grading, or
-experiments, as requested. Runtime qualification, test results, and scientific evidence remain
-outstanding. The architecture describes intended behavior, not a claim of validated execution.
+**Evidence status:** README and the run reports record completed benchmark and calibration work,
+while the awareness factorial has its own separate report and artifacts. This guide does not
+independently verify those runs. For every headline number, retain the exact source record, task
+denominator, model/runtime identity, and grading procedure; mark plans and exploratory studies as
+such.
 
-### Corrections to the submitted v2 plan
+### Prior awareness study: design review notes
 
 | Proposed assumption | Verified finding / design correction |
 |---|---|
@@ -30,35 +31,139 @@ outstanding. The architecture describes intended behavior, not a claim of valida
 | Stage 0 traces determine success ICC | Ungraded behavioral proxies cannot estimate the intraclass correlation of binary repair success. Add a graded pilot on the intended actors. |
 | Nonzero awareness necessarily violates a gate's target | The sign and magnitude depend on the calibration and deployment populations. Test transfer empirically; a change can improve risk, worsen it, or leave it unchanged. |
 
-Sections 3 and 8 define the revised intervention, section 15 defines inference and gate transfer,
-and section 17 gives the Stage 0–6 execution pipeline. Awareness-specific APIs are implemented
-in the working tree; none of the scientific stages has been executed by this change.
+The repository contains benchmark runners, verifier/controller workflows, model comparisons,
+full-dataset execution scripts, and a separately implemented awareness-study pipeline. Check each
+run's records and reports before using its outcomes as evidence; a runner or passing software test
+does not establish a scientific result.
 
 ## Quick decision sheet
 
 | Item | Current recommendation |
 |---|---|
-| Core concept | Separate the effect of expecting review from the effect of receiving verifier feedback. |
-| Main question | Does a review-awareness cue change coding-agent repair quality when no feedback is delivered, and how does that compare with actual verifier feedback? |
-| Experimental design | Randomized `2 × 2`: disclose a fixed review probability `D` (no/yes) × assigned review `A` (no/yes), with independent final grading. |
-| Probability semantics | Main study: `p*=0.5`, matching the balanced schedule. Undisclosed probability is `null`, not a statement of zero review probability. |
-| Primary outcome | Task-level SWE repair success from a frozen, independent grader. |
-| Dataset | Start from the repository's pinned SWE-ReBench 21,336-task snapshot; audit chosen tasks and freeze splits. Keep SWE-bench Verified secondary. |
-| Actor models | Two distinct actor families minimum; three preferred. Run each actor in every arm. |
-| Verifier | One fixed verifier, preferably from a family separate from the actors; qualify it before confirmation. |
-| Review schedule | One draft-patch review, followed by the same bounded revision phase in every arm. Deliver PASS as well as findings in `A=1`. |
-| Software shape | One Python application, a sequential job runner, local SQLite and artifact files, existing Docker tools, and a separate grader process. |
-| Fine-tuning | Not required. Freeze actor weights; current LoRA code is for the critic. |
-| Current status | Planner, two-phase runtime, grading, analysis and gate code are present; execution validation and research evidence remain outstanding. |
-| Immediate next step | When execution is authorized, run the focused stub-based tests before any model or Docker smoke runs. |
+| Main paper direction | Long-horizon LLM problem solving with iterative verifier feedback and bounded autonomous repair. |
+| Core question | When does a verifier-guided draft → review → repair loop improve end-task success, and what compute and failure costs does it add? |
+| Evidence base | Full-split runs across GSM8K, MBPP, HumanEval, and MATH-500, plus repository-level SWE studies and multi-model comparisons; report each track with its own protocol and denominator. |
+| Primary outcomes | Independently graded task success, successful repairs from initially failing drafts, regressions, compute, and runtime. |
+| Main design improvement | Add matched no-feedback controls, hold inference budgets constant, and report per-task transitions to isolate verifier benefit from extra attempts or tokens. |
+| Awareness study | Separate exploratory line. Preserve its protocol, code, and records as a distinct study; do not make it the main paper framing. |
+| Immediate priority | Freeze one primary question, reconcile reported counts against source artifacts, and run a controlled comparison that isolates feedback from extra effort. |
 
-The concrete build design is in [section 8](#8-implementation-architecture), with integration
-points in [section 11](#11-where-to-change-what). The remaining sections explain the research,
-literature, datasets, and execution plan. The architecture remains the research specification;
-the separate `veritas awareness` CLI implements its software workflow without establishing a
-research result.
+For the related-work audit and claim-by-claim novelty status, see [NOVELTY_AUDIT.md](NOVELTY_AUDIT.md).
 
-## 1. The core concept
+## Main paper opportunity: measure verifier-attributable recovery
+
+The full benchmark results are a useful starting point, but a high pass rate and a count of
+successful repairs do not by themselves show that verifier feedback caused the repairs. A stronger
+paper would estimate the **incremental value of verifier feedback under a fixed inference budget**.
+
+For each task, retain the initial answer, verifier result, revision, final independent grade, token
+use, and runtime. Compare matched randomized arms:
+
+| Arm | Draft | Additional allowance | Feedback |
+|---|---|---|---|
+| Draft-only | One initial attempt | None | None |
+| Self-revision | One initial attempt | One revision with the same token/step cap as the treatment | No verifier findings |
+| Verifier-guided repair | One initial attempt | One revision with the same token/step cap | Standardized verifier findings |
+
+The primary causal contrast is verifier-guided repair minus self-revision on independently graded
+final success. Also report recovery among initially failing tasks, regressions among initially
+passing tasks, and added compute per additional task solved. Use a frozen task set, randomize within
+task/model blocks, and show task-family and model-specific estimates with uncertainty intervals.
+Keep GSM8K, MATH, HumanEval, MBPP, and repository repair as separate strata; they have different
+graders and failure modes.
+
+This design can make the existing results more informative without inferring a new capability from
+the aggregate repair count alone. The potential contribution is a **large-scale, trajectory-level
+measurement of verifier-attributable recovery and its cost across long-horizon task families**.
+That is a direction to develop, not a settled novelty claim: compare it with current literature,
+and do not claim causal gains until these matched comparisons exist.
+
+## Main paper research questions
+
+Keep one primary estimand and treat the remaining questions as secondary or separate studies.
+
+| ID | Status | Research question | Primary evidence needed |
+|---|---|---|---|
+| RQ1 | Primary | On independently graded repository repairs, how much does actionable verifier feedback improve final success over an equally costly generic retry? | Randomized, task/model-blocked comparison; independent SWE grading; total cost measured for actor, reviewer, and tools. |
+| RQ2 | Secondary | How does verifier value vary by task family and initial answer state? | Separate task-family results; recovery on initially failing tasks; regression on initially passing tasks. Do not pool incompatible graders into one accuracy estimate. |
+| RQ3 | Secondary | Which failure types are recoverable, and does repository localization explain failures beyond semantic repair quality? | Blinded trajectory and patch coding on a representative sample; inter-rater agreement; held-out randomized localization intervention before causal claims. |
+| RQ4 | Secondary | What success, regression, and compute tradeoff does the repair loop produce as the number of steps or available budget grows? | Budget sweeps with matched total system cost and fixed task/model cohorts; report success-cost curves and stopping behavior. |
+| RQ5 | Secondary | Does the result replicate across model families, scales, and task families? | Same frozen protocol across actors; report model-by-treatment and task-family interaction intervals, not only pooled averages. |
+| RQ6 | Separate awareness study | Does an advance evaluation cue change persistence or repair outcomes, and does it interact with actual verifier feedback? | Separate randomized D × A study, informative non-floor tasks, adequate power, and reconciled cohort ledger. Do not merge its runs into RQ1. |
+| RQ7 | Deferred | Does a frozen verification gate calibrated in one setting transfer to held-out tasks, repositories, or awareness conditions? | A preregistered gate-transfer study with separate development, calibration, and untouched confirmation pools. No result is established by architecture alone. |
+
+**Scope decision:** RQ1 is the paper's primary claim. RQ2–RQ5 explain where and why it holds. RQ6 is a separate study line; RQ7 is deferred until a gate and valid transfer data exist. A single paper should not claim all seven as equally tested contributions.
+
+## How to test the full benchmark suite
+
+The supplied full-scale report is broad coverage evidence, but its current loop result does not isolate verifier value. Preserve it as the existing system-performance result, then use saved task records where possible and rerun only the missing counterfactual conditions.
+
+### 1. Freeze and validate the task ledger
+
+For every item record dataset/version, task ID, model tag and revision, prompt/config hash, sandbox image, assigned condition, random seed or decoding settings, start/end time, per-role token use, verifier call and output, each draft/revision, and each independent grade. Verify that tasks are unique and that every benchmark denominator equals its official split. Store the initial attempt and final attempt separately.
+
+### 2. Run matched conditions
+
+Use these conditions on the same task/model blocks, randomize execution order, and start each arm from a clean task state:
+
+| Condition | Use | Budget handling |
+|---|---|---|
+| Initial draft | Establish one-shot baseline and starting correctness. | One fixed actor allowance. |
+| Generic self-retry | Measures the value of another chance without verifier findings. | Same total system allowance as the feedback arm. |
+| Verifier-guided repair | Tests actionable feedback. | Count verifier and actor usage; use the same total cost cap as generic self-retry. |
+
+Report two comparisons: (a) **equal total budget**, where reviewer cost is charged against the same total budget available to the retry control; and (b) **equal actor revision budget**, where the reviewer cost is reported as additional deployment overhead. Token counts alone do not equal compute across model sizes, so also report wall time and local hardware/energy information when available. Draft-only remains a useful baseline but is not the main causal comparator.
+
+When a common initial draft can be safely reused across revision conditions, freeze and hash it before randomizing feedback. Otherwise randomize the whole trial within task/model blocks and analyze the task as the unit. Never give the control arm hidden verifier findings, hidden gold labels, or grader internals.
+
+### 3. Use task-appropriate independent graders
+
+| Task family | Final success grade | Feedback allowed to the actor | Leakage and validity checks |
+|---|---|---|---|
+| GSM8K | Exact normalized numeric answer, using a frozen parser and official answer key. | Only the prespecified verifier feedback; never expose the gold answer or exact hidden test result unless that is the treatment being tested. | Manually audit parser edge cases, units, equivalent forms, and failed parses. |
+| MATH-500 | Exact normalized answer under a frozen answer parser; separately audit symbolic equivalence where the parser supports it. | Frozen, reproducible diagnostic/check output. | Audit parser correctness and ambiguity; do not treat an LLM judge as ground truth without calibration. |
+| HumanEval | Official harness and hidden unit tests in the isolated sandbox. | Only allowed test/verification diagnostics; keep hidden tests and expected outputs private. | Pin harness/runtime; verify no test or reference solution exposure. |
+| MBPP sanitized | Pinned sanitized split and official test execution. | Same policy as HumanEval. | Record sanitized version, exact test IDs, harness, and exclusions. |
+| SWE repository repair | Pinned repository commit and independent SWE-bench-compatible grading harness. | The assigned feedback arm receives the frozen patch-review or test diagnostic; control receives no verifier findings. | Verify base commit, patch application, test-image identity, grading retries, and hidden test isolation. |
+
+For every task family, report the first-draft score and post-intervention score. Define success before running: no post hoc acceptance rules. A verifier may be fallible; retain its raw verdict and independently grade the final artifact.
+
+### 4. Analyze recovery, regression, and cost
+
+Report final success difference between verifier feedback and equal-budget retry as the primary effect, with a confidence interval. Also report: recovery rate among initially failing drafts; regression rate among initially passing drafts; net change over all tasks; verifier false-positive/false-negative rates where labels permit; tool calls; actor and verifier tokens; elapsed time; and cost per additional resolved task. Use task-paired randomization inference or paired bootstrap, with clustering by repository for SWE and by task for fixed benchmark items. Report all model/task strata and missing/failed runs; do not drop inconvenient failures.
+
+Use a graded pilot on the exact tasks and models to estimate baseline success, variance, within-task correlation, repository clustering, and missingness. Set a minimum meaningful effect and simulate power before selecting confirmation size. Freeze the task manifest, analysis, test family, exclusion rules, budget cap, and stopping rule before confirmation. The 2,240-task suite provides useful pilot data, but not a substitute for randomized equal-budget controls.
+
+## Recent-paper comparison and current VERITAS values
+
+The following literature figures were checked against publisher, conference, or primary paper records on 2026-10-19. VERITAS numbers in the second column are **reported in the supplied project summary and have not been reconciled here against raw artifacts**. These studies use different tasks and endpoints; the table is a novelty comparison, not a leaderboard.
+
+| Work / value reported | VERITAS reported value | Interpretation for novelty |
+|---|---|---|
+| *Which quality gates actually improve agentic software maintenance?* ([IST article](https://www.sciencedirect.com/science/article/pii/S0950584926003526)): 458 paired TAM-Eval tasks, five Qwen2.5-Coder sizes, 30,524 model-policy-task observations, matched generic-retry control; command-content acceptance without repository execution. Feedback value varied by model/policy. | 2,240 tasks, 1,894 final resolutions (84.55%), 101 recorded draft-to-pass repairs; 2,036,367 tokens; 12.07 hours. No equal-budget generic-retry comparator in the supplied master table. | Prior work already isolates feedback from retry opportunity. VERITAS's possible extension is real repository patch execution and independent task grading under matched total budgets. The supplied result is not yet evidence for that extension. |
+| ASE APR 2026 ([feedback granularity study](https://conf.researchr.org/details/ase-2026/apr-2026-papers/8/Evaluating-Symbolic-Feedback-Granularity-for-LLM-Based-Program-Repair)): 540 HumanEval+/MBPP+-derived tasks, five feedback modalities, token-matched and redundant-feedback controls; counterexamples strongest. | HumanEval: 137/164 resolved (83.54%), one reported verifier repair. MBPP: 215/257 (83.66%), six reported repairs. | Function-level repair and feedback modality are already studied. VERITAS should focus on multi-step/repository repair, transitions, and task-level heterogeneity, not claim first iterative code repair. |
+| *VeriHarness* ([primary paper](https://arxiv.org/abs/2610.00972)): five long-horizon workspace benchmarks, two frontier models, ~26,000 rollouts; evidence-backed revision improved over one rollout by 6.2 points for Gemini 3.5 Flash and 6.4 for Claude Opus 4.8 (as reported in its abstract). | GSM8K: 1,196/1,319 resolved (90.67%), 50 repairs. MATH-500: 346/500 (69.20%), 44 repairs. These are final loop results, not a matched causal feedback contrast. | Long-horizon verification and revision are occupied. VERITAS needs the equal-budget causal estimate and its task-family/recovery analysis. GSM8K/MATH outcome percentages are not directly comparable to workspace artifact scores. |
+| Anthropic coding-audit realism ([study](https://alignment.anthropic.com/2026/coding-audit-realism/)): audit realism win rate rose 4.6% → 32.8% for reward-hacking scenarios after giving auditors real deployment resources; endpoint is realism, not repair success. | Awareness inventory: 128 runs across 12 studies; 4.77M tokens, 2,365 tool calls, 40.52 hours. `cmd2` report: surrender 4/4 without cue versus 0/4 with cue; tokens 23,631 versus 75,084 in that cohort. | Awareness in coding contexts is active prior work. VERITAS may offer a different randomized behavioral endpoint, but the cohort size and protocol accounting must be audited; do not equate realism measurements with causal repair outcomes. |
+| IEEE TSE [SOSRepair](https://ieeexplore.ieee.org/document/8854217): 22/65 ManyBugs defects patched; improved localization raised patches passing independent tests to 16/23 among manually localized cases. | One cmd2-744 example shows a plausible directory-creation idiom placed in a new file rather than the target module. | The general localization bottleneck is established. VERITAS's value would be quantitative trajectory classification plus a held-out intervention, not the single anecdote. |
+| — | Full benchmark detail: GSM8K 1,196/1,319 (90.67%, 50 repairs); MBPP 215/257 (83.66%, 6); HumanEval 137/164 (83.54%, 1); MATH-500 346/500 (69.20%, 44); total 1,894/2,240 (84.55%, 101). | These are reported post-loop scores. Reconcile denominator, harness, and repair transitions before publication; no control effect can be inferred from the totals. |
+| — | Llama 3.1 8B multi-task factorial, N=16: Arm 00 44,048 mean tokens / 20 calls / 25% surrender; Arm 01 35,824 / 15 / 25%; Arm 10 46,356 / 20.25 / 0%; Arm 11 46,638 / 21 / 0%. Reported valid patch rate is 100% on CLI, while SWE resolution remains a different endpoint. | Descriptive small-cohort arm summaries. They do not establish differences in repair success; preserve per-task uncertainty and specify which trial records are included. |
+| — | Cross-dataset cue pilot: domains mostly N=2; Meta Synthesis N=10, reported 90% pass in arms 00/01 versus 100% in arms 10/11, 1.10× token ratio, 8 repairs and 0 regressions. | Useful hypothesis-generating result only. Tiny strata do not establish cross-domain generalization. |
+| — | Local model calibration, seven tasks/model: Qwen2.5-Coder 30B 6/7; Qwen2.5-Coder 14B and DeepCoder 14B 4/7; DeepSeek-Coder-V2 16B 2/7; Granite-Code 20B and StarCoder2 15B 0/7. | Pilot calibration only; too small for definitive model ranking or parameter-scale claims. |
+
+**Interpretation:** VERITAS has a substantial reported benchmark inventory, but breadth and task count are not the same as novelty. The distinguishing value must come from auditable task transitions, matched cost controls, independent grades, repository-level external validity, and a tested explanation of when feedback helps or harms.
+
+**Cohort reconciliation required:** `RESULTS.md` reports a 32-run primary SWE factorial cohort with 0 resolved tasks, while the supplied executive summary presents a 128-run inventory and 4/4 versus 0/4 CLI surrender comparison. These can coexist if they are different cohorts, but every table and inferential test must identify the exact included studies, tasks, assignment records, and preregistration status. Recompute the p-values and FDR family from row-level data before using “all tests remain significant.”
+
+## Separate study record: evaluation awareness and verifier feedback
+
+The following sections retain the awareness-study design, literature notes, and implementation
+details for reproducibility. They are not the main paper direction described above.
+
+The numbered awareness sections below are retained as a distinct study record. Their hypotheses,
+power plan, D × A analysis, and gate-transfer proposal are not evidence for main-paper RQ1 unless
+the shared task/protocol linkage is explicitly justified and preregistered.
+
+#### 1. The core concept (awareness study)
 
 **A coding agent may behave differently when it expects its work to be checked. That behavioral
 change can happen before any verifier runs or gives feedback. A normal “verify versus do not
@@ -84,7 +189,7 @@ imply a credible penalty for failure; the proposed experiment only makes review 
 experiment tests the effect of an assigned cue. It cannot directly observe an LLM's private
 belief or prove intentional deception.
 
-## 2. The research goal and paper question
+#### 2. The research goal and paper question (awareness study)
 
 ### Main question
 
@@ -120,7 +225,7 @@ awareness cue and actual verifier feedback on coding repairs, with independent t
 a measured consequence for evaluating verification policies. A focused literature review must
 still confirm that this exact combination is not already published.
 
-## 3. Experiment design: the four conditions
+#### 3. Experiment design: the four conditions
 
 Randomize two factors at the task-run level, blocked by task and model:
 
@@ -1378,13 +1483,14 @@ this architecture review.
 
 | Question | Current answer |
 |---|---|
-| What is the core concept? | Separate behavior caused by awareness of possible review from benefit caused by verifier feedback. |
-| What is the goal? | Estimate both effects on independently graded coding repair and test a verification-policy consequence. |
-| Which dataset? | Primary candidate: the project's pinned 21,336-task SWE-ReBench snapshot, with task-quality audit and frozen split. SWE-bench Verified is secondary due current contamination/task-quality concerns. |
-| How many models? | Minimum two actor families plus one fixed independent verifier; three actor families preferred. Critic is optional. |
-| Is it implemented? | V2 code and focused tests are present, including treatment, assignment, ledger, grading, analysis and static gates. Tests and runtime qualification have not been executed in this change. |
-| What is the main novelty? | Potentially, the causal `awareness cue × delivered feedback` decomposition in coding-agent repair and its measured policy implication. This remains provisional pending a systematic review and results. |
-| Is it A*? | Possible but unknown. It depends on effect size, robustness, realistic cues, dataset quality, powered analysis, and meaningful policy consequences—not on architecture alone. |
+| What is the main paper direction? | Long-horizon LLM problem solving with iterative verification and autonomous repair. |
+| What is the primary question? | On independently graded repository repairs, how much does actionable feedback add over an equally costly generic retry? |
+| What do current VERITAS numbers show? | User-reported full-suite performance is 1,894/2,240 (84.55%) with 101 recorded repairs. These do not yet isolate feedback benefit because no matched equal-budget retry result is in the supplied summary. |
+| What do recent papers show? | Equal-budget feedback/retry, feedback granularity, and long-horizon verification have already been studied. Novelty must lie in the specific repository-level causal result, robustness, and recovery/localization analysis. |
+| What needs correction first? | Reconcile the 128-run awareness inventory with the reported 32-run primary zero-resolution cohort and identify exact rows for every statistic. |
+| What is the next sequence? | Audit raw records → validate graders and denominators → pilot the matched-budget controls → power and freeze protocol → run untouched confirmation → report task-family effects and costs. |
+| What stays separate? | The awareness factorial and dependency pilot remain distinct study lines unless a shared protocol and estimand are explicitly established. |
+| What supports a strong submission? | A powered causal contrast, independent grades, controls for retry and total compute, task/model robustness, confidence intervals, calibrated claims, and a reproducible artifact. |
 
 ## Project document policy
 

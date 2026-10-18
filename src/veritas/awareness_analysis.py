@@ -38,7 +38,10 @@ def _joined_grade(db, spec, job, outcome, phase):
 
 
 def study_rows(root):
-    plan, spec, _, jobs = read_study(root)
+    # Reports are part of the frozen protocol just like execution and grading.
+    # Refuse to analyze artifacts with a different implementation than the one
+    # whose source hash was recorded when the study was planned.
+    plan, spec, _, jobs = read_study(root, check_code=True)
     rows = []
     with StudyStore(root) as db:
         db.verify(plan["study_id"], jobs)

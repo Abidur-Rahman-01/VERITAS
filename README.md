@@ -2,20 +2,20 @@
 
 VERITAS is a research codebase for studying coding agents and verification.
 
-The proposed paper asks whether a coding agent changes its repair behavior when told its work
-may be reviewed, even when no verifier feedback is delivered. It separates that **evaluation
-awareness** effect from the effect of assigned verifier feedback using a randomized four-condition
-design. The main protocol discloses a 50% review-selection probability in the disclosure arms,
-with balanced review assignment in both disclosure conditions. The v2 implementation includes frozen planning, draft/revision execution, bounded patch review,
-independent SWE grading, factorial analysis, pilot power simulation, and static gate calibration/transfer.
-The test suite (242 passing tests), LocalSandbox execution runtime, and multi-tier agent calibration
-(comparing 7B and 14B coding models across diagnosable outcome tiers) have now been executed and validated.
-All raw records and replication scripts are tracked under `replication/` and `artifacts/`.
+VERITAS studies long-horizon LLM problem solving with iterative verification and autonomous repair.
+The repository includes full benchmark runners for reasoning and code tasks, SWE repository
+workflows, model comparisons, verifier/controller policies, and a separate evaluation-awareness
+factorial study. The awareness study is a distinct research line, not the main paper framing.
 
-Read [the architecture and research guide](docs/ARCHITECTURE.md) for the full research question,
-block diagrams, literature map, dataset and model recommendations, code/function map, runtime
-status, implementation locations, and experiment plan. It is the only detailed Markdown project
-guide in `docs/`.
+The high-level paper opportunity is to measure when verifier-guided repair improves independently
+graded task success, how often it repairs an initially failing answer, and what added compute it
+costs. See [the architecture and research guide](docs/ARCHITECTURE.md) for the proposed controlled
+comparisons and evidence requirements. Keep claims grounded in their source artifacts; passing
+software tests alone does not validate research results.
+
+Read [the architecture and research guide](docs/ARCHITECTURE.md) for the paper direction, system
+map, study designs, evidence requirements, and implementation notes. It is the detailed Markdown
+project guide in `docs/`.
 
 ## CLI workflows
 
