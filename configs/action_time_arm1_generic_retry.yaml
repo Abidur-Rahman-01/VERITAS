@@ -1,0 +1,23 @@
+# Arm 1: Equal-Budget Generic Self-Retry Control
+# Actor receives identical total budget (token/step cap) allowing a retry turn,
+# but strictly without verifier findings or pre-execution action blocking.
+seed: 42
+model:
+  backend: ollama
+  base_url: http://127.0.0.1:11434
+  name: qwen2.5-coder:7b
+  max_tokens: 2048
+  temperature: 0.0
+run:
+  max_steps: 60
+  max_replans: 1
+  policy: never
+  verification_budget: 0.0
+  budget_unit: verifier_call_credit
+  allow_uncalibrated: true
+  audit_all: false
+impact:
+  read_op: 0.1
+  code_edit: 0.4
+  env_mutation: 0.75
+  final_answer: 0.6

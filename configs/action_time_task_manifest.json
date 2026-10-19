@@ -1,0 +1,91 @@
+{
+  "manifest_name": "TSE_Action_Time_Verification_Frozen_Manifest",
+  "version": "1.0.0",
+  "description": "Frozen task manifest for testing Action-Time Verification vs. Generic Retry and Unverified Baselines under equal inference budgets.",
+  "target_domains": [
+    "SWE-bench_Verified",
+    "HumanEval",
+    "MBPP_Sanitized",
+    "GSM8K"
+  ],
+  "tasks": [
+    {
+      "task_id": "swe_cmd2_744",
+      "domain": "SWE-bench_Verified",
+      "repo": "python-cmd2/cmd2",
+      "base_commit": "b3e0dc92f7c0065098ffb41505c8793b8279ad91",
+      "test_cmd": "pytest tests/test_history.py"
+    },
+    {
+      "task_id": "swe_sympy_19512",
+      "domain": "SWE-bench_Verified",
+      "repo": "sympy/sympy",
+      "base_commit": "c4240751f77d33b497b7cb3ff6f3cc979d36ffc1",
+      "test_cmd": "pytest sympy/core/tests/test_numbers.py"
+    },
+    {
+      "task_id": "swe_pennylane_5063",
+      "domain": "SWE-bench_Verified",
+      "repo": "PennyLaneAI/pennylane",
+      "base_commit": "a52e05a812df5dc87c4276189ef851a70ff614f1",
+      "test_cmd": "pytest pennylane/tests/test_devices.py"
+    },
+    {
+      "task_id": "HumanEval/0",
+      "domain": "HumanEval",
+      "entry_point": "has_close_elements",
+      "split": "canonical"
+    },
+    {
+      "task_id": "HumanEval/1",
+      "domain": "HumanEval",
+      "entry_point": "separate_paren_groups",
+      "split": "canonical"
+    },
+    {
+      "task_id": "HumanEval/10",
+      "domain": "HumanEval",
+      "entry_point": "make_palindrome",
+      "split": "canonical"
+    },
+    {
+      "task_id": "MBPP/1",
+      "domain": "MBPP_Sanitized",
+      "entry_point": "min_cost",
+      "split": "sanitized"
+    },
+    {
+      "task_id": "MBPP/2",
+      "domain": "MBPP_Sanitized",
+      "entry_point": "similar_elements",
+      "split": "sanitized"
+    },
+    {
+      "task_id": "GSM8K/0",
+      "domain": "GSM8K",
+      "split": "test"
+    },
+    {
+      "task_id": "GSM8K/1",
+      "domain": "GSM8K",
+      "split": "test"
+    }
+  ],
+  "conditions": {
+    "Arm_0": {
+      "name": "Unverified_Baseline",
+      "config": "configs/action_time_arm0_unverified.yaml",
+      "description": "Standard actor, policy='never', no verifier interventions"
+    },
+    "Arm_1": {
+      "name": "Equal_Budget_Generic_Retry",
+      "config": "configs/action_time_arm1_generic_retry.yaml",
+      "description": "Generic self-retry control, matched total budget, no verifier feedback"
+    },
+    "Arm_2": {
+      "name": "Action_Time_Verification_Gate",
+      "config": "configs/action_time_arm2_action_time_gate.yaml",
+      "description": "In-loop pre-execution verification, logs decision='verify', blocks bad mutations"
+    }
+  }
+}

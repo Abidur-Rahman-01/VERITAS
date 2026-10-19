@@ -1,0 +1,34 @@
+# Arm 2: Action-Time Verification Quality Gate
+# Uses runtime controller to dynamically score and verify proposed mutations (file edits, bash, answers)
+# before execution. Populates decision='verify', checks verification verdict, and blocks on FAIL.
+seed: 42
+model:
+  backend: ollama
+  base_url: http://127.0.0.1:11434
+  name: qwen2.5-coder:7b
+  max_tokens: 2048
+  temperature: 0.0
+verifier:
+  backend: ollama
+  base_url: http://127.0.0.1:11434
+  name: qwen2.5-coder:7b
+  max_tokens: 768
+  temperature: 0.0
+run:
+  max_steps: 60
+  max_replans: 3
+  # Policy choices: 'always' (verify all mutations), or 'rcvov' (risk-calibrated)
+  policy: always
+  verification_budget: 0.4
+  verification_cost: 0.02
+  false_alarm_cost: 0.1
+  budget_unit: verifier_call_credit
+  allow_uncalibrated: true
+  audit_all: false
+impact:
+  read_op: 0.1
+  code_edit: 0.5
+  env_mutation: 0.8
+  db_write: 0.9
+  external_api: 1.0
+  final_answer: 0.7
