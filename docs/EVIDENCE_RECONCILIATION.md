@@ -2,6 +2,18 @@
 
 This document officially resolves the **six evidence gaps** identified in [docs/NOVELTY_AUDIT.md](file:///F:/Sadik/VERITAS/docs/NOVELTY_AUDIT.md). It provides the exact row-level ledgers, statistical definitions, denominator validations, and experimental categorizations required prior to drafting manuscripts.
 
+> [!IMPORTANT]
+> **Epistemic Status: Reported but Unverified pending Primary-Host Run-Log Audit**  
+> All statistics, token counts, early-surrender classifications, and trial decompositions compiled below represent **reported metrics** as recorded in the study database and CSV ledgers from the primary execution host (`D:/2110001/VERITAS`).  
+> In accordance with strict scientific validation standards, **these numbers must be treated as reported but unverified rather than confirmed findings** until the real raw records from the other PC are ingested and verified across five non-negotiable criteria:
+> 1. **Cohort Grouping:** Confirming which runs belong to each factorial arm, confirmatory pilot, focused CLI cohort, or exploratory sweep.
+> 2. **Intervention Fidelity:** Auditing the exact prompt strings delivered to each agent ($D=0$ vs. $D=1$) and confirming whether verifier feedback was actually received ($A=1$) or strictly withheld ($A=0$).
+> 3. **Operational Definition of Surrender:** Verifying how "gave up early" was defined, triggered, and recorded programmatically (e.g., tool call type, exit state, step-11 vs. max-step threshold).
+> 4. **Log-Level Metric Concordance:** Auditing raw `events.sqlite` event streams and transcripts to verify whether reported tool calls, prompt tokens, completion tokens, and latencies match raw run logs.
+> 5. **Independent Grading Verification:** Verifying whether patch evaluation was independently graded via containerized test suite execution (`pytest`/`tox`) rather than self-reported or unisolated checks.
+>
+> Until this five-point audit is executed against the primary PC's raw run artifacts, all figures remain provisional and unverified.
+
 ---
 
 ## Table of Contents

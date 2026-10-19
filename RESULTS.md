@@ -1,12 +1,15 @@
 # VERITAS Experimental Results & Qualification Status Report
 
-> **Research Status (October 1, 2026):** The primary causal evaluation-awareness experiment ($D \times A$) has run to completion across all 32 assigned trials. Full pipeline execution (`qualify` $\to$ `plan` $\to$ `run` $\to$ `grade` $\to$ `audit` $\to$ `measure` $\to$ `check-cue` $\to$ `verify` $\to$ `report`) completed cleanly with **zero unknown outcomes**, **zero infrastructure errors**, and **cryptographically valid event-chain integrity** (`"integrity": "valid"`). This document records the finalized experimental results, causal contrasts, behavioral mechanism findings, execution runbook, and exploratory legacy-track archives.
+> **Research Status (October 1, 2026):** The primary causal evaluation-awareness experiment ($D \times A$) has run to completion across all 32 assigned trials. Full pipeline execution (`qualify` $\to$ `plan` $\to$ `run` $\to$ `grade` $\to$ `audit` $\to$ `measure` $\to$ `check-cue` $\to$ `verify` $\to$ `report`) completed cleanly with **zero unknown outcomes**, **zero infrastructure errors**, and **cryptographically valid event-chain integrity** (`"integrity": "valid"`). This document records the experimental results, causal contrasts, behavioral mechanism findings, execution runbook, and exploratory legacy-track archives.
+>
+> [!IMPORTANT]
+> **Audit Status:** All metrics, token counts, and trial breakdowns in this report are **reported historical figures** recorded from the execution host (`D:/2110001/VERITAS`). Until the raw run records (`events.sqlite`, transcripts, container test logs) are verified across the five audit criteria (cohort assignment, prompt cue/review fidelity, operational surrender definition, log token counts, and independent grading), these numbers remain **reported but unverified** rather than confirmed findings.
 
 **Document Date:** October 1, 2026  
-**Repository:** [VERITAS](file:///D:/2110001/VERITAS) (`Abidur-Rahman-01/VERITAS`)  
+**Repository:** [VERITAS](file:///F:/Sadik/VERITAS) (`Abidur-Rahman-01/VERITAS`)  
 **Study ID:** `f442dcc9f59d0c63d0144ab0ebc0485c7a07fba9056196f86c0d7f6697ced89e`  
-**Specification Reference:** [docs/ARCHITECTURE.md](file:///D:/2110001/VERITAS/docs/ARCHITECTURE.md)  
-**Configuration Reference:** [configs/awareness-local.yaml](file:///D:/2110001/VERITAS/configs/awareness-local.yaml), [configs/datasets.yaml](file:///D:/2110001/VERITAS/configs/datasets.yaml)
+**Specification Reference:** [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)  
+**Configuration Reference:** [configs/awareness-local.yaml](configs/awareness-local.yaml), [configs/datasets.yaml](configs/datasets.yaml)
 
 ---
 

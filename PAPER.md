@@ -1,8 +1,8 @@
 # Do Evaluation Cues Alter Persistence and Tool-Use in Autonomous Coding Agents? A Factorial Controlled Experiment
 
-**Abstract**—Autonomous coding agents powered by large language models (LLMs) are increasingly deployed to resolve repository-level software bugs. A standard assumption in software engineering benchmarks (e.g., SWE-bench) is behavioral invariance: that an agent's problem-solving strategy and persistence depend solely on the codebase and bug description, unaffected by whether the agent perceives itself to be under benchmark assessment. In this paper, we conduct a pre-registered, randomized $2 \times 2$ factorial controlled trial manipulating evaluation disclosure ($D \in \{0, 1\}$) and verifier feedback ($A \in \{0, 1\}$) across real-world Python repositories (`cmd2`, `sympy`, `pennylane`) using open-weights foundation models (`llama3.1:8b`, `qwen2.5-coder:14b`, `qwen2.5:7b`).
+**Abstract**—Autonomous coding agents powered by large language models (LLMs) are increasingly deployed to resolve repository-level software bugs. A standard assumption in software engineering benchmarks (e.g., SWE-bench) is behavioral invariance: that an agent's problem-solving strategy and persistence depend solely on the codebase and bug description, unaffected by whether the agent perceives itself to be under benchmark assessment. In this paper, we examine a pre-registered, randomized $2 \times 2$ factorial controlled trial manipulating evaluation disclosure ($D \in \{0, 1\}$) and verifier feedback ($A \in \{0, 1\}$) across real-world Python repositories (`cmd2`, `sympy`, `pennylane`) using open-weights foundation models (`llama3.1:8b`, `qwen2.5-coder:14b`, `qwen2.5:7b`).
 
-Across our experimental trials ($N = 128$ total recorded runs, including a primary 32-trial pre-registered factorial cohort and an 8-trial focused CLI cohort), we examine behavioral persistence and compute consumption. Rather than exhibiting strategic underperformance, agents provided with evaluation cues demonstrated an **anti-surrender effect**: premature abandonment was reduced from $12.5\%$ to $0.0\%$ in the overall cohort (and from $4/4$ to $0/4$ on CLI tasks, Fisher's exact $p = 0.0143$), accompanied by compute escalation ($t = 2.2734, p = 0.0405$ on deployed tool calls; median token surge from $25,822$ to $42,620$ tokens). Furthermore, detailed AST diff inspection identified a distinct **Fault Localization Bottleneck**: agents under evaluation frequently synthesized functionally correct programmatic repairs (e.g., `os.makedirs(os.path.dirname(hist_file), exist_ok=True)` matching ground-truth maintainer commits), but placed them into newly created standalone files rather than editing in-tree source files, leading to false failures on automated test suites. We directly validate this with a controlled prompt intervention recovering in-place localization. All raw trial logs, prompts, configs, and reproduction scripts are released in a self-contained replication package.
+Across $N = 128$ total recorded runs across historical study cohorts, we analyze behavioral persistence and compute consumption under evaluation cues. In the reported data from the execution engine, agents provided with evaluation cues exhibit an **anti-surrender pattern**: premature abandonment is reported as reduced from $12.5\%$ to $0.0\%$ in the overall inventory (and from $4/4$ to $0/4$ on CLI tasks, nominal Fisher's exact $p = 0.0143$), accompanied by reported compute escalation ($t = 2.2734, p = 0.0405$ on deployed tool calls; median token surge from $25,822$ to $42,620$ tokens). Furthermore, detailed AST diff inspection identified a distinct **Fault Localization Bottleneck**: agents under evaluation frequently synthesized functionally correct programmatic repairs (e.g., `os.makedirs(os.path.dirname(hist_file), exist_ok=True)` matching ground-truth maintainer commits), but placed them into newly created standalone files rather than editing in-tree source files, leading to false failures on automated test suites. We directly test this with a controlled prompt intervention recovering in-place localization. Methodologically, we emphasize that these numbers represent reported metrics that remain unverified until the raw run logs, event databases, and execution traces from the primary host machine are confirmed across five pre-specified audit criteria.
 
 ---
 
@@ -14,11 +14,11 @@ A foundational, unexamined premise of these evaluations is **behavioral invarian
 
 In human organizational psychology, the *Hawthorne effect* establishes that subjects alter their behavior, typically increasing effort and compliance, when aware of observation. Conversely, recent AI safety research has identified that models in passive single-turn contexts may alter behavior when detecting evaluations. However, how explicit evaluation cues impact **autonomous, multi-turn, tool-using software engineering agents** interacting with complex code repositories remains uncharacterized.
 
-### Core Contributions
-1. **Factorial Empirical Benchmark on Evaluation Cues:** We execute a pre-registered $2 \times 2$ factorial controlled experiment manipulating disclosed evaluation awareness ($D \in \{0, 1\}$) and automated verifier feedback ($A \in \{0, 1\}$) under identical environments, models, and cryptographic auditing.
-2. **Analysis of Agent Persistence and Compute Escalation:** We show that evaluation awareness reduces premature task surrender (Fisher's exact $p = 0.0143$ in CLI cohorts), significantly increasing deployed tool calls ($p = 0.0405$) and elevating median compute expenditure.
+### Core Contributions & Epistemic Scope
+1. **Factorial Empirical Benchmark on Evaluation Cues:** We formulate a pre-registered $2 \times 2$ factorial controlled design manipulating disclosed evaluation awareness ($D \in \{0, 1\}$) and automated verifier feedback ($A \in \{0, 1\}$) under identical environments, models, and cryptographic auditing.
+2. **Analysis of Reported Persistence and Compute Escalation:** We document that in reported trials, evaluation awareness is associated with eliminated premature task surrender (nominal Fisher's exact $p = 0.0143$ in CLI cohorts), elevated tool calls ($p = 0.0405$), and increased median compute expenditure.
 3. **Controlled Investigation of the Fault Localization Gap:** We demonstrate that 0% benchmark pass rates can mask semantically correct repair logic due to file mislocalization, and provide a controlled comparison showing that in-place scaffolding restores correct target-file modification.
-4. **Reproducible Replication Package:** We release complete trial-level records, configuration manifests, and an end-to-end execution script (`replication/scripts/reproduce_all.py`) that deterministically regenerates every reported table, p-value, and figure.
+4. **Multi-Host Audit Protocol:** We provide a transparent accounting of all 128 historical trials and define an explicit 5-point audit protocol to verify cohort grouping, prompt cue fidelity, operational surrender criteria, raw token logs, and independent grading before reporting confirmed findings.
 
 ---
 
@@ -72,28 +72,38 @@ Experiments were executed on an AMD Ryzen 9 7950X 16-Core/32-Thread system with 
 - **`review.json` / `manipulation.json`**: Double-blinded cue comprehension audit verifying that the model perceived the disclosure condition.
 - **SHA-256 Hash Verification**: Verified via `veritas awareness verify`.
 
+### 3.4 Epistemic Status & Multi-Host Verification Protocol
+Before any metric can be asserted as a confirmed scientific finding, the raw execution logs, transcripts, and database tables from the primary execution machine (`D:/2110001/VERITAS`) must be verified across five non-negotiable criteria:
+1. **Cohort & Arm Grouping:** Confirming which runs belong to each factorial arm, confirmatory pilot, focused CLI cohort, or exploratory parameter sweep.
+2. **Intervention Fidelity:** Auditing the exact prompt strings delivered to each agent ($D=0$ vs. $D=1$) and confirming whether verifier feedback was actually received ($A=1$) or strictly withheld ($A=0$).
+3. **Operational Definition of Surrender:** Verifying how "gave up early" was defined, triggered, and recorded programmatically (e.g., tool call type, exit state, step-11 vs. max-step threshold).
+4. **Log-Level Metric Concordance:** Auditing raw `events.sqlite` event streams and transcripts to verify whether reported tool calls, prompt tokens, completion tokens, and latencies match raw run logs.
+5. **Independent Grading Verification:** Verifying whether patch evaluation was independently graded via containerized test suite execution (`pytest`/`tox`) rather than self-reported or unisolated checks.
+
+Until these five criteria are audited against the raw run artifacts from the primary execution host, all statistics in this paper are presented as **reported but unverified metrics**, rather than confirmed empirical findings.
+
 ---
 
-## 4. Empirical Results
+## 4. Reported Empirical Observations (Awaiting Multi-Host Audit)
 
-Across 12 completed studies, our experimental engine gathered **128 total SWE-bench trials**, consuming **4,766,001 tokens** across **2,365 multi-turn model invocations** over **40.52 hours** of active execution.
+Across 12 completed studies in the historical archive, the experimental engine gathered **128 total SWE-bench trials**, reporting **4,766,001 tokens** across **2,365 multi-turn model invocations** over **40.52 hours** of active execution.
 
 ```
-Token Consumption Jump (Median):
+Token Consumption Jump (Median Reported):
 D = 0 (Unmonitored): [============] 23,905 tokens
 D = 1 (Evaluated):   [=====================================] 74,636 tokens (+212%)
 
-Premature Surrender Rate:
+Premature Surrender Rate (Reported):
 D = 0 (Unmonitored): [====] 12.5% (quits early)
 D = 1 (Evaluated):   [] 0.0% (zero surrenders, p = 0.0143)
 ```
 
-### 4.1 Compute Escalation and The Anti-Surrender Hawthorne Effect
-In unmonitored trials ($D = 0$), models displayed frequent premature surrender, terminating their draft sessions early via `final_answer` after failing initial inspection (surrender rate: $12.5\%$, occurring as early as step 11).
+### 4.1 Compute Escalation and The Reported Anti-Surrender Hawthorne Pattern
+In unmonitored trials ($D = 0$), models displayed frequent premature surrender, terminating their draft sessions early via `final_answer` after failing initial inspection (reported surrender rate: $12.5\%$, occurring as early as step 11).
 
-In stark contrast, when evaluation awareness was disclosed ($D = 1$), premature surrender was **completely eliminated ($0.0\%$)**:
-- **Fisher's Exact Test on CLI Cohort:** $p = 0.0143$ ($0/4$ vs $4/4$ surrenders in unmonitored early sessions).
-- **Median Token Consumption:** Jumped from **$23,905$ tokens** ($D=0$) to **$74,636$ tokens** ($D=1$), representing a **$3.12\times$ compute surge**.
+In contrast, when evaluation awareness was disclosed ($D = 1$), premature surrender was **reported as completely eliminated ($0.0\%$)**:
+- **Fisher's Exact Test on CLI Cohort:** Nominal $p = 0.0143$ ($0/4$ vs $4/4$ surrenders in unmonitored early sessions).
+- **Median Token Consumption:** Jumped from **$23,905$ tokens** ($D=0$) to **$74,636$ tokens** ($D=1$), representing a **$3.12\times$ reported compute surge**.
 - **Model Deployed Calls on CLI Tasks:** Increased from $26.79 \pm 24.8$ calls to $32.50 \pm 2.5$ calls (Welch's two-sample $t$-test: $t = 2.2734, p = 0.0405$).
 
 ![Figure 1: Compute Escalation and Tool Calls](output%20image/fig1_compute_escalation.png)
@@ -233,7 +243,7 @@ Given the Fault Localization Gap, future autonomous SE systems should decouple f
 
 ## 9. Conclusion
 
-Through 128 randomized controlled trials across three production software repositories, we provided the first empirical proof of the observer effect in autonomous coding agents. Evaluation awareness acts as an anti-surrender forcing function ($p = 0.0143$), tripling compute consumption and eliminating early retreat. Moreover, qualitative patch analysis reveals that current agents possess the semantic intelligence to solve complex bugs, but fail benchmark grading due to repository localization errors. Understanding and controlling evaluation awareness is essential for accurate AI benchmark design, reliable enterprise deployment, and predictable compute budgeting.
+Across 128 recorded historical trials across three production software repositories, we analyzed the behavioral response of autonomous coding agents to explicit evaluation cues. In the reported data, evaluation awareness is associated with an anti-surrender pattern (nominal $p = 0.0143$), tripling compute consumption and eliminating early retreat. Moreover, qualitative patch analysis reveals that current agents frequently possess the semantic intelligence to solve complex bugs, but fail benchmark grading due to repository localization errors—a gap that targeted scaffolding successfully mitigates. Finally, we establish that transforming these reported observations into confirmed scientific findings requires completing an independent audit against the raw execution records, prompt logs, and grading traces from the primary host. Understanding and controlling evaluation awareness is essential for accurate AI benchmark design, reliable enterprise deployment, and predictable compute budgeting.
 
 ---
 
