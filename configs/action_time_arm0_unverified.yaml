@@ -9,6 +9,7 @@ model:
   temperature: 0.0
 run:
   max_steps: 30
+  max_replans: 0
   policy: never
   verification_budget: 0.0
   budget_unit: verifier_call_credit
@@ -16,6 +17,8 @@ run:
   audit_all: false
 impact:
   read_op: 0.1
-  code_edit: 0.4
-  env_mutation: 0.75
-  final_answer: 0.6
+  code_edit: 0.5
+  env_mutation: 0.8
+  db_write: 0.9
+  external_api: 1.0
+  final_answer: 0.7

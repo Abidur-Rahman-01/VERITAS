@@ -11,11 +11,11 @@ model:
 verifier:
   backend: ollama
   base_url: http://127.0.0.1:11434
-  name: qwen2.5-coder:7b
+  name: llama3.1:8b
   max_tokens: 768
   temperature: 0.0
 run:
-  max_steps: 60
+  max_steps: 30
   max_replans: 3
   policy: random
   threshold: 0.33  # Probability p of verification per mutation

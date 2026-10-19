@@ -457,6 +457,9 @@ def run_task(
                         else "official_exact_string_answer"
                     )
             if rejected:
+                record.blocked = True
+                record.executed = False
+                record.block_reason = record.verification.reason if record.verification else "Rejected by verifier"
                 before_restore = time.monotonic()
                 if checkpoint:
                     record.restored_hash = checkpoint.restore()

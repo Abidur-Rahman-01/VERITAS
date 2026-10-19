@@ -1,91 +1,194 @@
 {
-  "manifest_name": "TSE_Action_Time_Verification_Frozen_Manifest",
-  "version": "1.0.0",
-  "description": "Frozen task manifest for testing Action-Time Verification vs. Generic Retry and Unverified Baselines under equal inference budgets.",
-  "target_domains": [
-    "SWE-bench_Verified",
-    "HumanEval",
-    "MBPP_Sanitized",
-    "GSM8K"
-  ],
-  "tasks": [
-    {
-      "task_id": "swe_cmd2_744",
-      "domain": "SWE-bench_Verified",
-      "repo": "python-cmd2/cmd2",
-      "base_commit": "b3e0dc92f7c0065098ffb41505c8793b8279ad91",
-      "test_cmd": "pytest tests/test_history.py"
-    },
-    {
-      "task_id": "swe_sympy_19512",
-      "domain": "SWE-bench_Verified",
-      "repo": "sympy/sympy",
-      "base_commit": "c4240751f77d33b497b7cb3ff6f3cc979d36ffc1",
-      "test_cmd": "pytest sympy/core/tests/test_numbers.py"
-    },
-    {
-      "task_id": "swe_pennylane_5063",
-      "domain": "SWE-bench_Verified",
-      "repo": "PennyLaneAI/pennylane",
-      "base_commit": "a52e05a812df5dc87c4276189ef851a70ff614f1",
-      "test_cmd": "pytest pennylane/tests/test_devices.py"
-    },
-    {
-      "task_id": "HumanEval/0",
-      "domain": "HumanEval",
-      "entry_point": "has_close_elements",
-      "split": "canonical"
-    },
-    {
-      "task_id": "HumanEval/1",
-      "domain": "HumanEval",
-      "entry_point": "separate_paren_groups",
-      "split": "canonical"
-    },
-    {
-      "task_id": "HumanEval/10",
-      "domain": "HumanEval",
-      "entry_point": "make_palindrome",
-      "split": "canonical"
-    },
-    {
-      "task_id": "MBPP/1",
-      "domain": "MBPP_Sanitized",
-      "entry_point": "min_cost",
-      "split": "sanitized"
-    },
-    {
-      "task_id": "MBPP/2",
-      "domain": "MBPP_Sanitized",
-      "entry_point": "similar_elements",
-      "split": "sanitized"
-    },
-    {
-      "task_id": "GSM8K/0",
-      "domain": "GSM8K",
-      "split": "test"
-    },
-    {
-      "task_id": "GSM8K/1",
-      "domain": "GSM8K",
-      "split": "test"
-    }
-  ],
+  "manifest_name": "TSE_Action_Time_Verification_20Task_Manifest",
+  "version": "2.0.0",
+  "target_focus": "Repository Repair and Multi-File Software Maintenance",
+  "cohort_size": 20,
   "conditions": {
     "Arm_0": {
       "name": "Unverified_Baseline",
       "config": "configs/action_time_arm0_unverified.yaml",
-      "description": "Standard actor, policy='never', no verifier interventions"
+      "policy": "never",
+      "max_steps": 30,
+      "verifier_budget": 0.0,
+      "actor_model": "qwen2.5-coder:7b",
+      "description": "Unverified control: actor executes tool mutations freely without checks."
     },
     "Arm_1": {
-      "name": "Equal_Budget_Generic_Retry",
-      "config": "configs/action_time_arm1_generic_retry.yaml",
-      "description": "Generic self-retry control, matched total budget, no verifier feedback"
+      "name": "Random_Verification_Equal_Budget",
+      "config": "configs/action_time_arm1_random.yaml",
+      "policy": "random",
+      "max_steps": 30,
+      "verifier_budget": 0.4,
+      "actor_model": "qwen2.5-coder:7b",
+      "verifier_model": "llama3.1:8b",
+      "description": "Random control: mutations randomly verified at p=0.33 under 0.4 budget."
     },
     "Arm_2": {
-      "name": "Action_Time_Verification_Gate",
+      "name": "Selective_Action_Time_Verification_Gate",
       "config": "configs/action_time_arm2_action_time_gate.yaml",
-      "description": "In-loop pre-execution verification, logs decision='verify', blocks bad mutations"
+      "policy": "error_impact",
+      "max_steps": 30,
+      "verifier_budget": 0.4,
+      "actor_model": "qwen2.5-coder:7b",
+      "verifier_model": "llama3.1:8b",
+      "description": "Selective treatment: controller evaluates risk, verifies high-risk mutations, blocks FAIL."
     }
-  }
+  },
+  "tasks": [
+    {
+      "task_id": "swe_cmd2_744",
+      "domain": "SWE-bench_Repo",
+      "repo": "python-cmd2/cmd2",
+      "base_commit": "b3e0dc92f7c0065098ffb41505c8793b8279ad91",
+      "problem": "Fix history file directory creation in persistent history",
+      "test_cmd": "pytest tests/test_history.py"
+    },
+    {
+      "task_id": "swe_cmd2_755",
+      "domain": "SWE-bench_Repo",
+      "repo": "python-cmd2/cmd2",
+      "base_commit": "e581e19486c478a5e8884ee9b69b32c69b91c499",
+      "problem": "Handle quoted redirect symbols in custom parser",
+      "test_cmd": "pytest tests/test_parsing.py"
+    },
+    {
+      "task_id": "swe_cmd2_760",
+      "domain": "SWE-bench_Repo",
+      "repo": "python-cmd2/cmd2",
+      "base_commit": "19b5bfb4ecda4f20ec719c23bc94fb7766649774",
+      "problem": "Fix argument completion on subcommands",
+      "test_cmd": "pytest tests/test_completion.py"
+    },
+    {
+      "task_id": "swe_cmd2_770",
+      "domain": "SWE-bench_Repo",
+      "repo": "python-cmd2/cmd2",
+      "base_commit": "80bc8d167885542ce0eb7eb0f7b5871aa95779ec",
+      "problem": "Ensure colored output respects environment settings",
+      "test_cmd": "pytest tests/test_ansi.py"
+    },
+    {
+      "task_id": "swe_cmd2_780",
+      "domain": "SWE-bench_Repo",
+      "repo": "python-cmd2/cmd2",
+      "base_commit": "395669f984a9611db0ad9be2825501ae5ffbf404",
+      "problem": "Preserve multiline transcript state on abort",
+      "test_cmd": "pytest tests/test_transcript.py"
+    },
+    {
+      "task_id": "swe_sympy_19512",
+      "domain": "SWE-bench_Repo",
+      "repo": "sympy/sympy",
+      "base_commit": "c4240751f77d33b497b7cb3ff6f3cc979d36ffc1",
+      "problem": "Fix Float precision handling in symbolic comparisons",
+      "test_cmd": "pytest sympy/core/tests/test_numbers.py"
+    },
+    {
+      "task_id": "swe_sympy_20967",
+      "domain": "SWE-bench_Repo",
+      "repo": "sympy/sympy",
+      "base_commit": "0407a1be992c9085ec3e6a27e7d70c4ad1082c90",
+      "problem": "Correct polynomial factorization on rational matrices",
+      "test_cmd": "pytest sympy/polys/tests/test_factortools.py"
+    },
+    {
+      "task_id": "swe_sympy_18033",
+      "domain": "SWE-bench_Repo",
+      "repo": "sympy/sympy",
+      "base_commit": "59cb315eef6b1d120a1f267c7e9e51c89280d500",
+      "problem": "Prevent recursion loop in expression expansion",
+      "test_cmd": "pytest sympy/core/tests/test_expand.py"
+    },
+    {
+      "task_id": "swe_sympy_18189",
+      "domain": "SWE-bench_Repo",
+      "repo": "sympy/sympy",
+      "base_commit": "f47e62a26c483d36b85672abdb1c8df4f5abfec2",
+      "problem": "Fix diophantine solver for quadratic forms",
+      "test_cmd": "pytest sympy/solvers/tests/test_diophantine.py"
+    },
+    {
+      "task_id": "swe_sympy_18621",
+      "domain": "SWE-bench_Repo",
+      "repo": "sympy/sympy",
+      "base_commit": "80fbab68fb46bead27b38d387f626154625b525d",
+      "problem": "Correct matrix exponential for degenerate eigenvalues",
+      "test_cmd": "pytest sympy/matrices/tests/test_matrices.py"
+    },
+    {
+      "task_id": "swe_pennylane_5063",
+      "domain": "SWE-bench_Repo",
+      "repo": "PennyLaneAI/pennylane",
+      "base_commit": "a52e05a812df5dc87c4276189ef851a70ff614f1",
+      "problem": "Fix device dispatch for custom adjoint operators",
+      "test_cmd": "pytest pennylane/tests/test_devices.py"
+    },
+    {
+      "task_id": "swe_pennylane_4376",
+      "domain": "SWE-bench_Repo",
+      "repo": "PennyLaneAI/pennylane",
+      "base_commit": "90d1bf4310df66914569cfa8c9629b31121d51a9",
+      "problem": "Fix wire allocation in statevector transforms",
+      "test_cmd": "pytest pennylane/tests/test_wires.py"
+    },
+    {
+      "task_id": "swe_pennylane_4402",
+      "domain": "SWE-bench_Repo",
+      "repo": "PennyLaneAI/pennylane",
+      "base_commit": "4e73bd4812845c4cfa729bc4d693bf6e026139f4",
+      "problem": "Preserve gradient tapes across batch evaluations",
+      "test_cmd": "pytest pennylane/tests/test_gradients.py"
+    },
+    {
+      "task_id": "swe_pennylane_4488",
+      "domain": "SWE-bench_Repo",
+      "repo": "PennyLaneAI/pennylane",
+      "base_commit": "61a123f8b0304918e977c77d643febe344d95ba1",
+      "problem": "Correct parameter broadcasting in hybrid circuits",
+      "test_cmd": "pytest pennylane/tests/test_qnode.py"
+    },
+    {
+      "task_id": "swe_pennylane_4512",
+      "domain": "SWE-bench_Repo",
+      "repo": "PennyLaneAI/pennylane",
+      "base_commit": "31d683707e45ceceb68a8ff7174cf08bfb2aefc8",
+      "problem": "Fix measurement shape inference for multi-qubit observables",
+      "test_cmd": "pytest pennylane/tests/test_measurements.py"
+    },
+    {
+      "task_id": "repo_env_var_interpolator",
+      "domain": "Repo_Maintenance",
+      "package": "env_interpolator",
+      "problem": "Support nested bash default syntax ${VAR:-default} without corruption",
+      "test_cmd": "pytest tests/test_env.py"
+    },
+    {
+      "task_id": "repo_json_schema_coercer",
+      "domain": "Repo_Maintenance",
+      "package": "schema_coercer",
+      "problem": "Coerce ISO dates and numeric string representations recursively",
+      "test_cmd": "pytest tests/test_coercer.py"
+    },
+    {
+      "task_id": "repo_csv_schema_validator",
+      "domain": "Repo_Maintenance",
+      "package": "csv_validator",
+      "problem": "Handle embedded escaped delimiters in quoted CSV fields",
+      "test_cmd": "pytest tests/test_csv.py"
+    },
+    {
+      "task_id": "repo_cli_parser_engine",
+      "domain": "Repo_Maintenance",
+      "package": "cli_engine",
+      "problem": "Support combined short boolean flags like -xvf correctly",
+      "test_cmd": "pytest tests/test_flags.py"
+    },
+    {
+      "task_id": "repo_sql_query_builder",
+      "domain": "Repo_Maintenance",
+      "package": "sql_builder",
+      "problem": "Sanitize identifier quoting and order-by null precedence",
+      "test_cmd": "pytest tests/test_builder.py"
+    }
+  ]
 }
