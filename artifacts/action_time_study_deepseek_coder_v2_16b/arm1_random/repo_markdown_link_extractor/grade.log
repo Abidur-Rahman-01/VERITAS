@@ -1,0 +1,23 @@
+Exit code: 1
+
+STDOUT:
+.F.                                                                      [100%]
+================================== FAILURES ===================================
+___________________________ test_ignore_image_tags ____________________________
+
+    def test_ignore_image_tags():
+        text = "Here is an image ![logo](https://example.com/logo.png) and a link [docs](https://docs.org)."
+>       assert extract_links(text) == [("docs", "https://docs.org")]
+E       AssertionError: assert [('logo', 'ht...://docs.org')] == [('docs', 'https://docs.org')]
+E         
+E         At index 0 diff: ('logo', 'https://example.com/logo.png') != ('docs', 'https://docs.org')
+E         Left contains one more item: ('docs', 'https://docs.org')
+E         Use -v to get more diff
+
+tests\test_links.py:9: AssertionError
+=========================== short test summary info ===========================
+FAILED tests\test_links.py::test_ignore_image_tags - AssertionError: assert [...
+1 failed, 2 passed in 0.08s
+
+
+STDERR:
