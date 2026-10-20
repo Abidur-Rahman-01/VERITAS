@@ -1,0 +1,13 @@
+{
+  "trial_id": "arm2_selective_repo_ip_subnet_matcher",
+  "arm": "arm2_selective",
+  "task_id": "repo_ip_subnet_matcher",
+  "resolved": false,
+  "elapsed_seconds": 64.8,
+  "total_events": 30,
+  "verified_decisions": 1,
+  "blocked_actions": 1,
+  "steps_completed": 0,
+  "policy_tokens": 193754,
+  "verifier_spent": 0.02
+}

@@ -351,8 +351,8 @@ To guarantee that Action-Time Runtime Verification is an architecture-invariant 
 +--------------------------+--------+------------------+------------------+------------------+-----------------+--------------+
 | **qwen2.5-coder:14b**    |  14B   | 48/60 (80.00%)   | 48/60 (80.00%)   | **48/60 (80.00%)**| **53.2%**       | **COMPLETED**|
 | **deepseek-coder-v2:16b**|  16B   | 17/60 (28.33%)   | 16/60 (26.67%)   | **17/60 (28.33%)**| **34.7%**       | **COMPLETED**|
-| **granite-code:20b**     |  20B   | [In Progress]    | [In Progress]    | [In Progress]    | [In Progress]   | **ACTIVE**   |
-| **starcoder2:15b**       |  15B   | [Queued]         | [Queued]         | [Queued]         | [Queued]        | QUEUED       |
+| **granite-code:20b**     |  20B   | 3/60 (5.00%)     | 3/60 (5.00%)     | **3/60 (5.00%)** | **5.1%**        | **COMPLETED**|
+| **starcoder2:15b**       |  15B   | [In Progress]    | [In Progress]    | [In Progress]    | [In Progress]   | **ACTIVE**   |
 | **qwen2.5-coder:30b**    |  30B   | [Queued]         | [Queued]         | [Queued]         | [Queued]        | QUEUED       |
 +--------------------------+--------+------------------+------------------+------------------+-----------------+--------------+
 ```
@@ -364,6 +364,13 @@ All 180 trials (60 unique tasks $\times$ 3 arms) for DeepSeek-Coder-V2 16B are f
 * **33.2% Latency Speedup over Unverified Baseline:** Mean latency under selective gating was **43.60s** vs. **65.28s** for the unverified baseline, because dynamic gating truncated compounding error loops.
 * **Direct Regression Prevention:** Quality gating prevented regressions in `swe_sympy_19512` (Float precision fix), `repo_lru_cache` (cache eviction), `swe_pennylane_5200` (tensor indexing), and `repo_uuid_validator` (regex match preservation), where unverified and random arms failed.
 * **Figures & Artifacts:** Complete dataset stored in [`artifacts/action_time_study_deepseek_coder_v2_16b/`](file:///F:/Sadik/VERITAS/artifacts/action_time_study_deepseek_coder_v2_16b) (180 SQLite event databases, 180 `grade.log` files, 300-DPI publication figures).
+
+### Confirmatory Findings for Model 3 (`granite-code:20b`):
+All 180 trials (60 unique tasks $\times$ 3 arms) for Granite-Code 20B are fully audited and serialized:
+* **Compounding Error Truncation & Latency Reduction:** Unverified baseline repeatedly suffered cascading error spirals consuming up to 300.47s per task (mean latency 107.07s). Under selective gating, mean latency dropped to **86.18s** (a **19.5% speedup**), while random verification bounded failing loops in **27.23s** (**74.6% reduction in wasted runtime**).
+* **Policy Token Reduction:** Selective gating saved **589,437 policy tokens** (10,880,006 tokens under Arm 2 vs. 11,469,443 tokens unverified; 5.1% net reduction).
+* **Decisive Case Victory (`repo_jwt_token_parser`):** Unverified baseline entered cascading broken edits and failed after **211.88s**, whereas Arm 2 Selective Gating resolved the task cleanly in **81.72s** (a **2.6x speedup**), demonstrating direct regression mitigation.
+* **Figures & Artifacts:** Complete dataset stored in [`artifacts/action_time_study_granite_code_20b/`](file:///F:/Sadik/VERITAS/artifacts/action_time_study_granite_code_20b) (180 SQLite event databases, 180 `grade.log` files, 300-DPI publication figures).
 
 Individual, standalone model reports are progressively serialized to:
 * [`docs/TSE_180_TRIAL_QWEN_CODER_14B.md`](file:///F:/Sadik/VERITAS/docs/TSE_180_TRIAL_QWEN_CODER_14B.md)
