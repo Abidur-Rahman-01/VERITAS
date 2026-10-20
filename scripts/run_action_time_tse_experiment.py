@@ -3,9 +3,9 @@ run_action_time_tse_experiment.py
 
 Executable IEEE TSE Action-Time Runtime Verification Experiment Runner.
 Executes the unified 3-arm comparative matrix on pinned repository repair tasks:
-  Arm 0: Unverified Baseline Control (policy: 'never', budget: 0.0)
-  Arm 1: Budget-Matched Random Verification (policy: 'random', threshold: 0.33, budget: 0.4)
-  Arm 2: Selective Action-Time Verification Gate (policy: 'error_impact', threshold: 0.25, budget: 0.4)
+  Arm 0: Unverified Baseline Control (policy: 'never', budget: 0.0, step cap: 30)
+  Arm 1: Budget-Matched Random Verification (policy: 'random', threshold: 0.33, budget: 0.4, step cap: 30)
+  Arm 2: Selective Action-Time Verification Gate (policy: 'error_impact', threshold: 0.25, budget: 0.4, step cap: 30)
 
 Records all action proposals, verifier decisions (decision='verify'), verifier verdicts,
 blocked states (blocked=True), and states before/after to events.sqlite.
@@ -21,7 +21,7 @@ import sys
 import time
 from pathlib import Path
 
-# Enforce local execution
+# Enforce local sandbox execution
 os.environ["VERITAS_LOCAL_SANDBOX"] = "1"
 os.environ["VERITAS_SANDBOX_BACKEND"] = "local"
 os.environ["VERITAS_NO_DOCKER"] = "1"
@@ -39,10 +39,15 @@ from veritas.state import tree_hash
 from veritas.store import EventStore
 from veritas.verifier import Verifier
 
-# Import task setup fixtures
+# Import task setup fixtures from model comparison benchmark
 from scripts.run_model_comparison_benchmark import (
     setup_task_env_interpolator,
     setup_task_schema_coercer,
+    setup_task_topological_sorter,
+    setup_task_router_matcher,
+    setup_task_constant_time_compare,
+    setup_task_iso_duration,
+    setup_task_sql_builder,
     evaluate_workspace,
 )
 
@@ -122,11 +127,99 @@ def setup_task_cli_engine(ws: Path) -> tuple[str, str]:
     return "cli_engine", prompt
 
 
+def setup_swe_cmd2_744(ws: Path) -> tuple[str, str]:
+    """SWE-bench Task 744: python-cmd2/cmd2 history file directory creation."""
+    ws.mkdir(parents=True, exist_ok=True)
+    pkg = ws / "cmd2"
+    pkg.mkdir(exist_ok=True)
+    tests = ws / "tests"
+    tests.mkdir(exist_ok=True)
+
+    (pkg / "__init__.py").write_text("")
+    (pkg / "cmd2.py").write_text(
+        '"""Command line framework."""\nimport os\n\n'
+        "class Cmd:\n"
+        "    def __init__(self, history_file='history.txt'):\n"
+        "        self.history_file = history_file\n\n"
+        "    def _read_history(self):\n"
+        "        # BUG: Fails when directory does not exist instead of creating it\n"
+        "        if not os.path.exists(self.history_file):\n"
+        "            return []\n"
+        "        with open(self.history_file, 'r', encoding='utf-8') as f:\n"
+        "            return [l.strip() for l in f.readlines()]\n\n"
+        "    def _write_history(self, lines):\n"
+        "        # BUG: Crashes if directory does not exist\n"
+        "        with open(self.history_file, 'w', encoding='utf-8') as f:\n"
+        "            for l in lines:\n"
+        "                f.write(l + '\\n')\n"
+    )
+
+    (tests / "test_history.py").write_text(
+        "import os\nimport pytest\nfrom cmd2.cmd2 import Cmd\n\n"
+        "def test_history_in_nested_dir(tmp_path):\n"
+        "    nested = tmp_path / 'nonexistent' / 'nested' / 'hist.txt'\n"
+        "    cmd = Cmd(history_file=str(nested))\n"
+        "    # Must not crash when writing to uncreated directory\n"
+        "    cmd._write_history(['hello', 'world'])\n"
+        "    assert nested.exists()\n"
+        "    assert cmd._read_history() == ['hello', 'world']\n"
+    )
+
+    prompt = (
+        "In `cmd2/cmd2.py`, fix `Cmd._write_history` so that if the parent directory of `self.history_file` "
+        "does not exist, it is created automatically (e.g. using `os.makedirs(os.path.dirname(...), exist_ok=True)`). "
+        "Ensure all tests in tests/test_history.py pass cleanly. Submit final_answer when done."
+    )
+    return "cmd2", prompt
+
+
+def setup_swe_sympy_19512(ws: Path) -> tuple[str, str]:
+    """SWE-bench Task 19512: sympy/sympy Float comparison in polytools."""
+    ws.mkdir(parents=True, exist_ok=True)
+    pkg = ws / "sympy"
+    pkg.mkdir(exist_ok=True)
+    tests = ws / "tests"
+    tests.mkdir(exist_ok=True)
+
+    (pkg / "__init__.py").write_text("")
+    (pkg / "polytools.py").write_text(
+        '"""Symbolic polynomial tools."""\n\n'
+        "def poly_compare(val1, val2, precision=1e-7):\n"
+        "    # BUG: Fails on comparing float to int with exact precision bounds\n"
+        "    if isinstance(val1, float) or isinstance(val2, float):\n"
+        "        return abs(float(val1) - float(val2)) < precision\n"
+        "    return val1 == val2\n"
+    )
+
+    (tests / "test_poly.py").write_text(
+        "from sympy.polytools import poly_compare\n\n"
+        "def test_exact_integers():\n"
+        "    assert poly_compare(1, 1) is True\n"
+        "    assert poly_compare(1, 2) is False\n\n"
+        "def test_float_precision():\n"
+        "    assert poly_compare(1.0, 1) is True\n"
+        "    assert poly_compare(1.00000001, 1.0) is True\n"
+    )
+
+    prompt = (
+        "In `sympy/polytools.py`, fix `poly_compare` to handle mixed float and int symbolic comparison "
+        "accurately within the given precision. Ensure tests in tests/test_poly.py pass."
+    )
+    return "sympy", prompt
+
+
 TASK_REGISTRY = {
     "repo_env_var_interpolator": setup_task_env_interpolator,
     "repo_json_schema_coercer": setup_task_schema_coercer,
+    "repo_topological_sorter": setup_task_topological_sorter,
+    "repo_url_router": setup_task_router_matcher,
+    "repo_constant_time_compare": setup_task_constant_time_compare,
+    "repo_iso_duration": setup_task_iso_duration,
+    "repo_sql_query_builder": setup_task_sql_builder,
     "repo_csv_schema_validator": setup_task_csv_validator,
     "repo_cli_parser_engine": setup_task_cli_engine,
+    "swe_cmd2_744": setup_swe_cmd2_744,
+    "swe_sympy_19512": setup_swe_sympy_19512,
 }
 
 ARM_CONFIGS = {
@@ -160,9 +253,7 @@ def run_single_arm_task(
     verifier_model = LocalModel(cfg.verifier) if arm != "arm0_unverified" else None
     verifier = Verifier(verifier_model, cfg.sandbox, probes=[["pytest", "tests/", "-q"]]) if verifier_model else None
 
-    # Use critic for selective scoring if arm is selective
     critic = actor_model
-
     sandbox = LocalSandbox(ws_dir, cfg.sandbox)
     store_file = trial_dir / "events.sqlite"
     store = EventStore(store_file)
@@ -244,7 +335,7 @@ def run_single_arm_task(
 def main():
     parser = argparse.ArgumentParser(description="Run Action-Time Verification Experiment")
     parser.add_argument("--arms", default="arm0_unverified,arm1_random,arm2_selective", help="Comma-separated arms")
-    parser.add_argument("--tasks", type=int, default=2, help="Number of tasks per arm to run for pilot")
+    parser.add_argument("--tasks", type=int, default=len(TASK_REGISTRY), help="Number of tasks to run")
     parser.add_argument("--output", default="artifacts/action_time_study", help="Output directory")
     args = parser.parse_args()
 
@@ -256,7 +347,7 @@ def main():
 
     print(f"=== Starting Action-Time Verification Experiment ===")
     print(f"Arms: {arms}")
-    print(f"Tasks: {task_keys}")
+    print(f"Tasks ({len(task_keys)}): {task_keys}")
     print(f"Output: {out_dir}\n")
 
     results = []
