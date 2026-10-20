@@ -1,0 +1,21 @@
+Exit code: 1
+
+STDOUT:
+.F                                                                       [100%]
+================================== FAILURES ===================================
+_____________________________ test_combine_stderr _____________________________
+
+    def test_combine_stderr():
+        res = parse_redirect('build.sh > out.log 2>&1')
+>       assert res['stdout'] == 'out.log'
+E       AssertionError: assert '' == 'out.log'
+E         
+E         - out.log
+
+tests\test_redirect.py:8: AssertionError
+=========================== short test summary info ===========================
+FAILED tests\test_redirect.py::test_combine_stderr - AssertionError: assert '...
+1 failed, 1 passed in 0.08s
+
+
+STDERR:
