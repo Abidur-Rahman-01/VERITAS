@@ -1,0 +1,77 @@
+Exit code: 1
+
+STDOUT:
+FFF                                                                      [100%]
+================================== FAILURES ===================================
+____________________________ test_comma_delimited _____________________________
+
+    def test_comma_delimited():
+        sample = "name,age,city\nAlice,30,NY\nBob,25,LA"
+>       assert detect_delimiter(sample) == ","
+               ^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests\test_sniffer.py:5: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+sample = 'name,age,city\nAlice,30,NY\nBob,25,LA'
+
+    def detect_delimiter(sample: str) -> str:
+        """Detect delimiter among [',', '\t', ';']."""
+        delimiters = [",", "\t", ";"]
+        # BUG: Naive character counting includes delimiters inside quoted strings
+>       sample_no_quotes = re.sub(r'"[^"]*"', '', sample)
+                           ^^
+E       NameError: name 're' is not defined
+
+datautils\sniffer.py:7: NameError
+______________________ test_semicolon_with_quoted_commas ______________________
+
+    def test_semicolon_with_quoted_commas():
+        # Many commas appear inside quotes; real delimiter is semicolon
+        sample = 'id;tags;amount\n1;"alpha,beta,gamma,delta,epsilon";100\n2;"zeta,eta,theta,iota";200'
+>       assert detect_delimiter(sample) == ";"
+               ^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests\test_sniffer.py:10: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+sample = 'id;tags;amount\n1;"alpha,beta,gamma,delta,epsilon";100\n2;"zeta,eta,theta,iota";200'
+
+    def detect_delimiter(sample: str) -> str:
+        """Detect delimiter among [',', '\t', ';']."""
+        delimiters = [",", "\t", ";"]
+        # BUG: Naive character counting includes delimiters inside quoted strings
+>       sample_no_quotes = re.sub(r'"[^"]*"', '', sample)
+                           ^^
+E       NameError: name 're' is not defined
+
+datautils\sniffer.py:7: NameError
+_____________________________ test_tab_delimited ______________________________
+
+    def test_tab_delimited():
+        sample = "col1\tcol2\tcol3\nval1\tval2\tval3"
+>       assert detect_delimiter(sample) == "\t"
+               ^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests\test_sniffer.py:14: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+sample = 'col1\tcol2\tcol3\nval1\tval2\tval3'
+
+    def detect_delimiter(sample: str) -> str:
+        """Detect delimiter among [',', '\t', ';']."""
+        delimiters = [",", "\t", ";"]
+        # BUG: Naive character counting includes delimiters inside quoted strings
+>       sample_no_quotes = re.sub(r'"[^"]*"', '', sample)
+                           ^^
+E       NameError: name 're' is not defined
+
+datautils\sniffer.py:7: NameError
+=========================== short test summary info ===========================
+FAILED tests\test_sniffer.py::test_comma_delimited - NameError: name 're' is ...
+FAILED tests\test_sniffer.py::test_semicolon_with_quoted_commas - NameError: ...
+FAILED tests\test_sniffer.py::test_tab_delimited - NameError: name 're' is no...
+3 failed in 0.08s
+
+
+STDERR:
