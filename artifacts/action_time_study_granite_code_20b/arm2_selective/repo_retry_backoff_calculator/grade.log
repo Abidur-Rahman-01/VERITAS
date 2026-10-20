@@ -1,0 +1,18 @@
+Exit code: 1
+
+STDOUT:
+..F                                                                      [100%]
+================================== FAILURES ===================================
+________________________ test_negative_attempt_raises _________________________
+
+    def test_negative_attempt_raises():
+>       with pytest.raises(ValueError):
+E       Failed: DID NOT RAISE ValueError
+
+tests\test_retry.py:14: Failed
+=========================== short test summary info ===========================
+FAILED tests\test_retry.py::test_negative_attempt_raises - Failed: DID NOT RA...
+1 failed, 2 passed in 0.07s
+
+
+STDERR:

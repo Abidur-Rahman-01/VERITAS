@@ -1,0 +1,13 @@
+{
+  "trial_id": "arm2_selective_repo_retry_backoff_calculator",
+  "arm": "arm2_selective",
+  "task_id": "repo_retry_backoff_calculator",
+  "resolved": false,
+  "elapsed_seconds": 61.92,
+  "total_events": 30,
+  "verified_decisions": 0,
+  "blocked_actions": 0,
+  "steps_completed": 0,
+  "policy_tokens": 219047,
+  "verifier_spent": 0.0
+}
