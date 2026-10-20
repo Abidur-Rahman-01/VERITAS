@@ -1,0 +1,22 @@
+Exit code: 1
+
+STDOUT:
+F                                                                        [100%]
+================================== FAILURES ===================================
+__________________________________ test_det ___________________________________
+
+    def test_det():
+        m = [[2.0, 5.0, 7.0],
+             [0.0, 3.0, 4.0],
+             [0.0, 0.0, 4.0]]
+>       assert triangular_det_3x3(m) == 24.0
+E       assert 9.0 == 24.0
+E        +  where 9.0 = triangular_det_3x3([[2.0, 5.0, 7.0], [0.0, 3.0, 4.0], [0.0, 0.0, 4.0]])
+
+tests\test_tri_det.py:7: AssertionError
+=========================== short test summary info ===========================
+FAILED tests\test_tri_det.py::test_det - assert 9.0 == 24.0
+1 failed in 0.06s
+
+
+STDERR:
