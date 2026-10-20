@@ -1,0 +1,21 @@
+Exit code: 1
+
+STDOUT:
+F                                                                        [100%]
+================================== FAILURES ===================================
+______________________________ test_diag_expval _______________________________
+
+    def test_diag_expval():
+        # Eigenvalues: [1.0, -1.0], Probs: [0.7, 0.3] -> 1*0.7 + (-1)*0.3 = 0.4
+>       assert round(compute_diag_expval([1.0, -1.0], [0.7, 0.3]), 2) == 0.4
+E       assert 0.3 == 0.4
+E        +  where 0.3 = round(0.3, 2)
+E        +    where 0.3 = compute_diag_expval([1.0, -1.0], [0.7, 0.3])
+
+tests\test_expval.py:5: AssertionError
+=========================== short test summary info ===========================
+FAILED tests\test_expval.py::test_diag_expval - assert 0.3 == 0.4
+1 failed in 0.09s
+
+
+STDERR:
