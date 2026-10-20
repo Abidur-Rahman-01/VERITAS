@@ -2,7 +2,7 @@
 
 **Target Model:** `qwen2.5-coder:30b` (30B Parameters, Ollama Local Execution)  
 **Frozen Verifier Model:** `llama3.1:8b` (Greedy Decoding $T=0.0$, Localhost)  
-**Sample Size:** 34 Unique Multi-File Repository Tasks $\times$ 3 Arms = **102 Independent Trials**  
+**Sample Size:** 35 Unique Multi-File Repository Tasks $\times$ 3 Arms = **105 Independent Trials**  
 **Standardized Limit:** Strictly **30 steps** per trial across all arms  
 **Output Directory:** [`action_time_study_qwen2.5_coder_30b`](file:///F:/Sadik/VERITAS/artifacts/action_time_study_qwen2.5_coder_30b)  
 
@@ -12,16 +12,16 @@
 
 | Experimental Arm | Completed Trials | Resolved | Success Rate (%) | Exact 95% Clopper-Pearson CI | Verified Decisions | Blocked Actions | Mean Latency | Total Policy Tokens |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| **arm0_unverified** | 34 | 31 | **91.18%** | [76.32%, 98.14%] | 0 | 0 | 12.59s | 1,212,685 |
-| **arm1_random** | 34 | 33 | **97.06%** | [84.67%, 99.93%] | 71 | 5 | 31.20s | 664,273 |
-| **arm2_selective** | 34 | 31 | **91.18%** | [76.32%, 98.14%] | 26 | 8 | 24.61s | 1,293,552 |
+| **arm0_unverified** | 35 | 31 | **88.57%** | [73.26%, 96.80%] | 0 | 0 | 15.98s | 1,587,212 |
+| **arm1_random** | 35 | 33 | **94.29%** | [80.84%, 99.30%] | 77 | 8 | 34.45s | 1,043,492 |
+| **arm2_selective** | 35 | 31 | **88.57%** | [73.26%, 96.80%] | 34 | 12 | 26.74s | 1,419,220 |
 
 ### Causal Contrasts & Statistical Estimates
 
 * **Selective Gate vs. Unverified Baseline:** $\Delta = +0.00\%$
-* **Random Verification Control vs. Unverified Baseline:** $\Delta = +5.88\%$
-* **Selective Gate vs. Random Control:** $\Delta = -5.88\%$
-* **Net Policy Token Reduction:** **-6.7%** token savings under selective quality gating
+* **Random Verification Control vs. Unverified Baseline:** $\Delta = +5.71\%$
+* **Selective Gate vs. Random Control:** $\Delta = -5.71\%$
+* **Net Policy Token Reduction:** **10.6%** token savings under selective quality gating
 
 ---
 
@@ -29,7 +29,7 @@
 
 | Domain Cohort | Unique Tasks | Arm 0 (Unverified) | Arm 1 (Random) | Arm 2 (Selective) |
 | :--- | :---: | :---: | :---: | :---: |
-| **cmd2 (CLI Framework)** | 5 | 5/5 (100.0%) | 5/5 (100.0%) | **5/5 (100.0%)** |
+| **cmd2 (CLI Framework)** | 6 | 5/6 (83.3%) | 5/6 (83.3%) | **5/6 (83.3%)** |
 | **coding_calibration (Calibration Utilities)** | 5 | 4/5 (80.0%) | 5/5 (100.0%) | **4/5 (80.0%)** |
 | **core_algorithms (Core Algorithms)** | 4 | 3/4 (75.0%) | 3/4 (75.0%) | **3/4 (75.0%)** |
 | **pennylane (Quantum Circuits)** | 5 | 5/5 (100.0%) | 5/5 (100.0%) | **5/5 (100.0%)** |
@@ -41,11 +41,11 @@
 
 ## 3. Audited Action-Level Telemetry Across SQLite Databases
 
-* **Total SQLite Databases Audited:** 102
-* **Total Action Event Rows:** 626
-* **Total Action-Time Verified Decisions (`decision='verify'`):** 97
-* **Total Blocked Actions (`blocked=True`, Rollback Executed):** 13
-* **Containerized Pytest Grading Logs:** 102 raw `grade.log` files recorded
+* **Total SQLite Databases Audited:** 105
+* **Total Action Event Rows:** 702
+* **Total Action-Time Verified Decisions (`decision='verify'`):** 111
+* **Total Blocked Actions (`blocked=True`, Rollback Executed):** 20
+* **Containerized Pytest Grading Logs:** 105 raw `grade.log` files recorded
 
 ---
 
@@ -77,6 +77,7 @@
 | `swe_cmd2_760` | cmd2 | PASS | PASS | **PASS** | Consistently Solved | [`A0`](file:///F:/Sadik/VERITAS/artifacts/action_time_study_qwen2.5_coder_30b/arm0_unverified/swe_cmd2_760/grade.log) / [`A1`](file:///F:/Sadik/VERITAS/artifacts/action_time_study_qwen2.5_coder_30b/arm1_random/swe_cmd2_760/grade.log) / [`A2`](file:///F:/Sadik/VERITAS/artifacts/action_time_study_qwen2.5_coder_30b/arm2_selective/swe_cmd2_760/grade.log) |
 | `swe_cmd2_770` | cmd2 | PASS | PASS | **PASS** | Consistently Solved | [`A0`](file:///F:/Sadik/VERITAS/artifacts/action_time_study_qwen2.5_coder_30b/arm0_unverified/swe_cmd2_770/grade.log) / [`A1`](file:///F:/Sadik/VERITAS/artifacts/action_time_study_qwen2.5_coder_30b/arm1_random/swe_cmd2_770/grade.log) / [`A2`](file:///F:/Sadik/VERITAS/artifacts/action_time_study_qwen2.5_coder_30b/arm2_selective/swe_cmd2_770/grade.log) |
 | `swe_cmd2_780` | cmd2 | PASS | PASS | **PASS** | Consistently Solved | [`A0`](file:///F:/Sadik/VERITAS/artifacts/action_time_study_qwen2.5_coder_30b/arm0_unverified/swe_cmd2_780/grade.log) / [`A1`](file:///F:/Sadik/VERITAS/artifacts/action_time_study_qwen2.5_coder_30b/arm1_random/swe_cmd2_780/grade.log) / [`A2`](file:///F:/Sadik/VERITAS/artifacts/action_time_study_qwen2.5_coder_30b/arm2_selective/swe_cmd2_780/grade.log) |
+| `swe_cmd2_790` | cmd2 | FAIL | FAIL | **FAIL** | Hard Defect (Unsolved) | [`A0`](file:///F:/Sadik/VERITAS/artifacts/action_time_study_qwen2.5_coder_30b/arm0_unverified/swe_cmd2_790/grade.log) / [`A1`](file:///F:/Sadik/VERITAS/artifacts/action_time_study_qwen2.5_coder_30b/arm1_random/swe_cmd2_790/grade.log) / [`A2`](file:///F:/Sadik/VERITAS/artifacts/action_time_study_qwen2.5_coder_30b/arm2_selective/swe_cmd2_790/grade.log) |
 | `swe_pennylane_4376` | pennylane | PASS | PASS | **PASS** | Consistently Solved | [`A0`](file:///F:/Sadik/VERITAS/artifacts/action_time_study_qwen2.5_coder_30b/arm0_unverified/swe_pennylane_4376/grade.log) / [`A1`](file:///F:/Sadik/VERITAS/artifacts/action_time_study_qwen2.5_coder_30b/arm1_random/swe_pennylane_4376/grade.log) / [`A2`](file:///F:/Sadik/VERITAS/artifacts/action_time_study_qwen2.5_coder_30b/arm2_selective/swe_pennylane_4376/grade.log) |
 | `swe_pennylane_4402` | pennylane | PASS | PASS | **PASS** | Consistently Solved | [`A0`](file:///F:/Sadik/VERITAS/artifacts/action_time_study_qwen2.5_coder_30b/arm0_unverified/swe_pennylane_4402/grade.log) / [`A1`](file:///F:/Sadik/VERITAS/artifacts/action_time_study_qwen2.5_coder_30b/arm1_random/swe_pennylane_4402/grade.log) / [`A2`](file:///F:/Sadik/VERITAS/artifacts/action_time_study_qwen2.5_coder_30b/arm2_selective/swe_pennylane_4402/grade.log) |
 | `swe_pennylane_4488` | pennylane | PASS | PASS | **PASS** | Consistently Solved | [`A0`](file:///F:/Sadik/VERITAS/artifacts/action_time_study_qwen2.5_coder_30b/arm0_unverified/swe_pennylane_4488/grade.log) / [`A1`](file:///F:/Sadik/VERITAS/artifacts/action_time_study_qwen2.5_coder_30b/arm1_random/swe_pennylane_4488/grade.log) / [`A2`](file:///F:/Sadik/VERITAS/artifacts/action_time_study_qwen2.5_coder_30b/arm2_selective/swe_pennylane_4488/grade.log) |
