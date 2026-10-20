@@ -1,0 +1,22 @@
+Exit code: 1
+
+STDOUT:
+.F                                                                       [100%]
+================================== FAILURES ===================================
+_____________________________ test_chained_alias ______________________________
+
+    def test_chained_alias():
+        # Multi-hop: 'g' -> 'git' -> '/usr/bin/git'
+>       assert resolve_alias({'g': 'git', 'git': '/usr/bin/git'}, 'g') == '/usr/bin/git'
+E       AssertionError: assert 'git' == '/usr/bin/git'
+E         
+E         - /usr/bin/git
+E         + git
+
+tests\test_aliases.py:8: AssertionError
+=========================== short test summary info ===========================
+FAILED tests\test_aliases.py::test_chained_alias - AssertionError: assert 'gi...
+1 failed, 1 passed in 0.07s
+
+
+STDERR:
