@@ -1,0 +1,20 @@
+Exit code: 1
+
+STDOUT:
+F.                                                                       [100%]
+================================== FAILURES ===================================
+______________________________ test_valid_trace _______________________________
+
+    def test_valid_trace():
+        mat = [[0.5, 0.0], [0.0, 0.5]]
+>       assert is_valid_density_trace(mat) is True
+E       assert False is True
+E        +  where False = is_valid_density_trace([[0.5, 0.0], [0.0, 0.5]])
+
+tests\test_density.py:5: AssertionError
+=========================== short test summary info ===========================
+FAILED tests\test_density.py::test_valid_trace - assert False is True
+1 failed, 1 passed in 0.07s
+
+
+STDERR:
