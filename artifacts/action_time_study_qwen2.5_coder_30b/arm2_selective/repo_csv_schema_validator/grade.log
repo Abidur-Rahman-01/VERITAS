@@ -1,0 +1,21 @@
+Exit code: 1
+
+STDOUT:
+.F.                                                                      [100%]
+================================== FAILURES ===================================
+______________________________ test_quoted_split ______________________________
+
+    def test_quoted_split():
+>       assert split_csv_line('"a,b",c') == ['"a,b"', 'c']
+E       assert ['a,b', 'c'] == ['"a,b"', 'c']
+E         
+E         At index 0 diff: 'a,b' != '"a,b"'
+E         Use -v to get more diff
+
+tests\test_csv.py:8: AssertionError
+=========================== short test summary info ===========================
+FAILED tests\test_csv.py::test_quoted_split - assert ['a,b', 'c'] == ['"a,b"'...
+1 failed, 2 passed in 0.07s
+
+
+STDERR:
