@@ -1,0 +1,13 @@
+{
+  "trial_id": "arm2_selective_repo_topological_sorter",
+  "arm": "arm2_selective",
+  "task_id": "repo_topological_sorter",
+  "resolved": false,
+  "elapsed_seconds": 10.59,
+  "total_events": 5,
+  "verified_decisions": 4,
+  "blocked_actions": 4,
+  "steps_completed": 0,
+  "policy_tokens": 20283,
+  "verifier_spent": 0.08
+}

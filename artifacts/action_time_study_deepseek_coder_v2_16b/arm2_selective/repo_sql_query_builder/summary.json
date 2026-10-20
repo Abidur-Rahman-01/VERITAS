@@ -1,0 +1,13 @@
+{
+  "trial_id": "arm2_selective_repo_sql_query_builder",
+  "arm": "arm2_selective",
+  "task_id": "repo_sql_query_builder",
+  "resolved": false,
+  "elapsed_seconds": 132.49,
+  "total_events": 30,
+  "verified_decisions": 3,
+  "blocked_actions": 3,
+  "steps_completed": 0,
+  "policy_tokens": 345803,
+  "verifier_spent": 0.06
+}

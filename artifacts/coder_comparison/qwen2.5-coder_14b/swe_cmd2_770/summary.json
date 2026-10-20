@@ -1,0 +1,12 @@
+{
+  "model": "qwen2.5-coder:14b",
+  "task_id": "swe_cmd2_770",
+  "resolved": false,
+  "steps": 3,
+  "valid_tool_calls": 3,
+  "total_actions": 3,
+  "tool_adherence": 100.0,
+  "tokens_generated": 164,
+  "elapsed_seconds": 7.49,
+  "speed_tps": 21.9
+}

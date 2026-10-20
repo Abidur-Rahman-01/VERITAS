@@ -1,0 +1,121 @@
+Exit code: 1
+
+STDOUT:
+FFF                                                                      [100%]
+================================== FAILURES ===================================
+___________________________ test_linear_dependency ____________________________
+
+    def test_linear_dependency():
+        graph = {"build": ["compile"], "compile": ["source"], "source": []}
+>       res = topological_sort(graph)
+              ^^^^^^^^^^^^^^^^^^^^^^^
+
+tests\test_toposort.py:6: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+graph = {'build': ['compile'], 'compile': ['source'], 'source': []}
+
+    def topological_sort(graph: dict) -> list:
+        """Perform topological sort on DAG {node: [dependencies]}.
+        Dependencies must appear before dependents in the returned order.
+        """
+        visited = set()
+        order = []
+    
+        # BUG: Fails to distinguish recursion stack nodes from completed nodes,
+        # falsely raising CycleError on diamond/convergent dependencies.
+        def dfs(node, visiting):
+            if node in visiting and node not in visited:
+                raise CycleError(f"Cycle detected involving {node}")
+            visiting.add(node)
+            for dep in graph.get(node, []):
+                dfs(dep)
+            order.append(node)
+            visiting.remove(node)
+    
+        for n in sorted(graph.keys()):
+            if n not in visited:
+>               dfs(n)
+E               TypeError: topological_sort.<locals>.dfs() missing 1 required positional argument: 'visiting'
+
+graphlib\toposort.py:26: TypeError
+___________________________ test_diamond_dependency ___________________________
+
+    def test_diamond_dependency():
+        graph = {"A": ["B", "C"], "B": ["D"], "C": ["D"], "D": []}
+>       res = topological_sort(graph)
+              ^^^^^^^^^^^^^^^^^^^^^^^
+
+tests\test_toposort.py:11: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+graph = {'A': ['B', 'C'], 'B': ['D'], 'C': ['D'], 'D': []}
+
+    def topological_sort(graph: dict) -> list:
+        """Perform topological sort on DAG {node: [dependencies]}.
+        Dependencies must appear before dependents in the returned order.
+        """
+        visited = set()
+        order = []
+    
+        # BUG: Fails to distinguish recursion stack nodes from completed nodes,
+        # falsely raising CycleError on diamond/convergent dependencies.
+        def dfs(node, visiting):
+            if node in visiting and node not in visited:
+                raise CycleError(f"Cycle detected involving {node}")
+            visiting.add(node)
+            for dep in graph.get(node, []):
+                dfs(dep)
+            order.append(node)
+            visiting.remove(node)
+    
+        for n in sorted(graph.keys()):
+            if n not in visited:
+>               dfs(n)
+E               TypeError: topological_sort.<locals>.dfs() missing 1 required positional argument: 'visiting'
+
+graphlib\toposort.py:26: TypeError
+__________________________ test_actual_cycle_raises ___________________________
+
+    def test_actual_cycle_raises():
+        graph = {"A": ["B"], "B": ["C"], "C": ["A"]}
+        with pytest.raises(CycleError):
+>           topological_sort(graph)
+
+tests\test_toposort.py:18: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+graph = {'A': ['B'], 'B': ['C'], 'C': ['A']}
+
+    def topological_sort(graph: dict) -> list:
+        """Perform topological sort on DAG {node: [dependencies]}.
+        Dependencies must appear before dependents in the returned order.
+        """
+        visited = set()
+        order = []
+    
+        # BUG: Fails to distinguish recursion stack nodes from completed nodes,
+        # falsely raising CycleError on diamond/convergent dependencies.
+        def dfs(node, visiting):
+            if node in visiting and node not in visited:
+                raise CycleError(f"Cycle detected involving {node}")
+            visiting.add(node)
+            for dep in graph.get(node, []):
+                dfs(dep)
+            order.append(node)
+            visiting.remove(node)
+    
+        for n in sorted(graph.keys()):
+            if n not in visited:
+>               dfs(n)
+E               TypeError: topological_sort.<locals>.dfs() missing 1 required positional argument: 'visiting'
+
+graphlib\toposort.py:26: TypeError
+=========================== short test summary info ===========================
+FAILED tests\test_toposort.py::test_linear_dependency - TypeError: topologica...
+FAILED tests\test_toposort.py::test_diamond_dependency - TypeError: topologic...
+FAILED tests\test_toposort.py::test_actual_cycle_raises - TypeError: topologi...
+3 failed in 0.09s
+
+
+STDERR:

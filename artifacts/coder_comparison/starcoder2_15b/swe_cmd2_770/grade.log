@@ -1,0 +1,24 @@
+Returncode: 1
+
+STDOUT:
+.F                                                                       [100%]
+================================== FAILURES ===================================
+__________________________ test_no_color_environment __________________________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x0000017EC01736D0>
+
+    def test_no_color_environment(monkeypatch):
+        monkeypatch.setenv('NO_COLOR', '1')
+>       assert colorize('ok', '32') == 'ok'
+E       AssertionError: assert '\x1b[32mok\x1b[0m' == 'ok'
+E         
+E         - ok
+E         + [32mok[0m
+
+tests\test_ansi.py:10: AssertionError
+=========================== short test summary info ===========================
+FAILED tests\test_ansi.py::test_no_color_environment - AssertionError: assert...
+1 failed, 1 passed in 0.07s
+
+
+STDERR:

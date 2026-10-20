@@ -1,0 +1,13 @@
+{
+  "trial_id": "arm2_selective_repo_constant_time_compare",
+  "arm": "arm2_selective",
+  "task_id": "repo_constant_time_compare",
+  "resolved": true,
+  "elapsed_seconds": 8.78,
+  "total_events": 4,
+  "verified_decisions": 0,
+  "blocked_actions": 0,
+  "steps_completed": 0,
+  "policy_tokens": 6429,
+  "verifier_spent": 0.0
+}

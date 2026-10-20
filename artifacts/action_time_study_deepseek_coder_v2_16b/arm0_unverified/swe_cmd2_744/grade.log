@@ -1,0 +1,32 @@
+Exit code: 1
+
+STDOUT:
+F                                                                        [100%]
+================================== FAILURES ===================================
+_________________________ test_history_in_nested_dir __________________________
+
+tmp_path = WindowsPath('C:/Users/UseR/AppData/Local/Temp/pytest-of-UseR/pytest-55/test_history_in_nested_dir0')
+
+    def test_history_in_nested_dir(tmp_path):
+        nested = tmp_path / 'nonexistent' / 'nested' / 'hist.txt'
+        cmd = Cmd(history_file=str(nested))
+>       cmd._write_history(['hello', 'world'])
+
+tests\test_history.py:8: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <cmd2.cmd2.Cmd object at 0x000001A707905A50>, lines = ['hello', 'world']
+
+    def _write_history(self, lines):
+        # BUG: Crashes if directory does not exist
+>       with open(self.history_file, 'w', encoding='utf-8') as f:
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       FileNotFoundError: [Errno 2] No such file or directory: 'C:\\Users\\UseR\\AppData\\Local\\Temp\\pytest-of-UseR\\pytest-55\\test_history_in_nested_dir0\\nonexistent\\nested\\hist.txt'
+
+cmd2\cmd2.py:16: FileNotFoundError
+=========================== short test summary info ===========================
+FAILED tests\test_history.py::test_history_in_nested_dir - FileNotFoundError:...
+1 failed in 0.09s
+
+
+STDERR:

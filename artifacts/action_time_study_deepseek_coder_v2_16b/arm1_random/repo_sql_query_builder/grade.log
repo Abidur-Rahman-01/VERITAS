@@ -1,0 +1,30 @@
+Exit code: 1
+
+STDOUT:
+FF.                                                                      [100%]
+================================== FAILURES ===================================
+__________________________ test_parameterized_where ___________________________
+
+    def test_parameterized_where():
+        query, params = build_select_query("users", columns=["id", "name"], filters={"status": "active", "role": "admin"})
+>       assert "WHERE status = ? AND role = ?" in query
+E       assert 'WHERE status = ? AND role = ?' in "SELECT id, name FROM users WHERE status = 'active' AND role = 'admin'"
+
+tests\test_builder.py:6: AssertionError
+_________________________ test_limit_and_offset_order _________________________
+
+    def test_limit_and_offset_order():
+        query, params = build_select_query("products", limit=10, offset=20)
+>       assert query.endswith("LIMIT 10 OFFSET 20")
+E       AssertionError: assert False
+E        +  where False = <built-in method endswith of str object at 0x000001669486CA50>('LIMIT 10 OFFSET 20')
+E        +    where <built-in method endswith of str object at 0x000001669486CA50> = 'SELECT * FROM products OFFSET 20 LIMIT 10'.endswith
+
+tests\test_builder.py:11: AssertionError
+=========================== short test summary info ===========================
+FAILED tests\test_builder.py::test_parameterized_where - assert 'WHERE status...
+FAILED tests\test_builder.py::test_limit_and_offset_order - AssertionError: a...
+2 failed, 1 passed in 0.09s
+
+
+STDERR:

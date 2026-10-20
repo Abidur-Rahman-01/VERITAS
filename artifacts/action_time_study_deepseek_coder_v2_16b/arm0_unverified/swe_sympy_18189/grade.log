@@ -1,0 +1,30 @@
+Exit code: 1
+
+STDOUT:
+.F                                                                       [100%]
+================================== FAILURES ===================================
+__________________ test_negative_discriminant_returns_empty ___________________
+
+    def test_negative_discriminant_returns_empty():
+>       assert solve_diophantine_quadratic(1, 0, 1) == []
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests\test_diophantine.py:8: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+a = 1, b = 0, c = 1
+
+    def solve_diophantine_quadratic(a: int, b: int, c: int) -> list[int]:
+        # BUG: Crashes with ValueError on negative discriminant instead of returning empty list []
+        disc = b * b - 4 * a * c
+>       root = math.isqrt(disc)
+               ^^^^^^^^^^^^^^^^
+E       ValueError: isqrt() argument must be nonnegative
+
+sympy\diophantine.py:7: ValueError
+=========================== short test summary info ===========================
+FAILED tests\test_diophantine.py::test_negative_discriminant_returns_empty - ...
+1 failed, 1 passed in 0.06s
+
+
+STDERR:

@@ -1,0 +1,13 @@
+{
+  "trial_id": "arm2_selective_repo_csv_schema_validator",
+  "arm": "arm2_selective",
+  "task_id": "repo_csv_schema_validator",
+  "resolved": false,
+  "elapsed_seconds": 105.58,
+  "total_events": 30,
+  "verified_decisions": 0,
+  "blocked_actions": 0,
+  "steps_completed": 0,
+  "policy_tokens": 303186,
+  "verifier_spent": 0.0
+}

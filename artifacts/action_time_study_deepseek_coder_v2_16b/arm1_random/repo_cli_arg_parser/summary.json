@@ -1,0 +1,13 @@
+{
+  "trial_id": "arm1_random_repo_cli_arg_parser",
+  "arm": "arm1_random",
+  "task_id": "repo_cli_arg_parser",
+  "resolved": false,
+  "elapsed_seconds": 17.31,
+  "total_events": 5,
+  "verified_decisions": 1,
+  "blocked_actions": 0,
+  "steps_completed": 0,
+  "policy_tokens": 14923,
+  "verifier_spent": 0.02
+}

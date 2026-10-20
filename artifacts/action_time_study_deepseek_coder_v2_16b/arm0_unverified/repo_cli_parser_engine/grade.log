@@ -1,0 +1,67 @@
+Exit code: 1
+
+STDOUT:
+FFF                                                                      [100%]
+================================== FAILURES ===================================
+______________________________ test_single_flag _______________________________
+
+    def test_single_flag():
+>       assert parse_flags(['-v']) == {'v': True}
+               ^^^^^^^^^^^^^^^^^^^
+
+tests\test_flags.py:5: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+flags = ['-v']
+
+    def parse_flags(flags: str) -> dict[str, bool]:
+        import getopt
+>       opts, args = getopt.getopt(flags.split(), 'xvf')
+                                   ^^^^^^^^^^^
+E       AttributeError: 'list' object has no attribute 'split'
+
+cli_engine\parser.py:5: AttributeError
+_____________________________ test_combined_flags _____________________________
+
+    def test_combined_flags():
+>       assert parse_flags(['-xvf']) == {'x': True, 'v': True, 'f': True}
+               ^^^^^^^^^^^^^^^^^^^^^
+
+tests\test_flags.py:8: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+flags = ['-xvf']
+
+    def parse_flags(flags: str) -> dict[str, bool]:
+        import getopt
+>       opts, args = getopt.getopt(flags.split(), 'xvf')
+                                   ^^^^^^^^^^^
+E       AttributeError: 'list' object has no attribute 'split'
+
+cli_engine\parser.py:5: AttributeError
+_____________________________ test_multiple_args ______________________________
+
+    def test_multiple_args():
+>       assert parse_flags(['-a', '-bc']) == {'a': True, 'b': True, 'c': True}
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests\test_flags.py:11: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+flags = ['-a', '-bc']
+
+    def parse_flags(flags: str) -> dict[str, bool]:
+        import getopt
+>       opts, args = getopt.getopt(flags.split(), 'xvf')
+                                   ^^^^^^^^^^^
+E       AttributeError: 'list' object has no attribute 'split'
+
+cli_engine\parser.py:5: AttributeError
+=========================== short test summary info ===========================
+FAILED tests\test_flags.py::test_single_flag - AttributeError: 'list' object ...
+FAILED tests\test_flags.py::test_combined_flags - AttributeError: 'list' obje...
+FAILED tests\test_flags.py::test_multiple_args - AttributeError: 'list' objec...
+3 failed in 0.09s
+
+
+STDERR:

@@ -1,0 +1,13 @@
+{
+  "trial_id": "arm1_random_repo_template_formatter",
+  "arm": "arm1_random",
+  "task_id": "repo_template_formatter",
+  "resolved": true,
+  "elapsed_seconds": 31.33,
+  "total_events": 4,
+  "verified_decisions": 3,
+  "blocked_actions": 0,
+  "steps_completed": 0,
+  "policy_tokens": 8917,
+  "verifier_spent": 0.06
+}

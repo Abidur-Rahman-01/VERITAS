@@ -1,0 +1,13 @@
+{
+  "trial_id": "arm0_unverified_swe_cmd2_760",
+  "arm": "arm0_unverified",
+  "task_id": "swe_cmd2_760",
+  "resolved": false,
+  "elapsed_seconds": 53.62,
+  "total_events": 30,
+  "verified_decisions": 0,
+  "blocked_actions": 0,
+  "steps_completed": 0,
+  "policy_tokens": 220238,
+  "verifier_spent": 0.0
+}

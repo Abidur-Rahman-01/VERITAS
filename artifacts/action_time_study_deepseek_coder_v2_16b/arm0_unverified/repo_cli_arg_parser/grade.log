@@ -1,0 +1,42 @@
+Exit code: 1
+
+STDOUT:
+F.                                                                       [100%]
+================================== FAILURES ===================================
+_____________________________ test_parse_defaults _____________________________
+
+    def test_parse_defaults():
+        p = ArgumentParser()
+        p.add_argument("port", default=8080, required=False)
+        p.add_argument("host", default="localhost", required=False)
+>       res = p.parse(["--port", "9000"])
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests\test_parser.py:7: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <clitools.parser.ArgumentParser object at 0x0000022CF4AC81D0>
+args = ['--port', '9000']
+
+    def parse(self, args: list) -> dict:
+        result = {}
+        for i in range(len(args)):
+            if args[i].startswith("--"):
+                key = args[i][2:]
+                val = args[i+1] if i + 1 < len(args) and not args[i+1].startswith("--") else True
+                result[key] = val
+        # Check defaults and required
+        for name, spec in self.definitions.items():
+            if name not in result:
+                # BUG: Inverted logic crashes with KeyError on missing optional arguments
+                if not spec['required']:
+>                   raise KeyError(f"Optional argument has no assigned value: {name}")
+E                   KeyError: 'Optional argument has no assigned value: host'
+
+clitools\parser.py:21: KeyError
+=========================== short test summary info ===========================
+FAILED tests\test_parser.py::test_parse_defaults - KeyError: 'Optional argume...
+1 failed, 1 passed in 0.07s
+
+
+STDERR:

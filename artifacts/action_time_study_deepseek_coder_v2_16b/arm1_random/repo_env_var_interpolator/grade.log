@@ -1,0 +1,50 @@
+Exit code: 1
+
+STDOUT:
+...F                                                                     [100%]
+================================== FAILURES ===================================
+______________________ test_missing_var_without_default _______________________
+
+    def test_missing_var_without_default():
+>       assert interpolate_env("Hello ${NAME}!", {}) == "Hello !"
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests\test_interpolator.py:13: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+configkit\interpolator.py:29: in interpolate_env
+    return re.sub(r"\$\{([^}]+)\}", replace_var, template)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+C:\Users\UseR\AppData\Local\Programs\Python\Python311\Lib\re\__init__.py:185: in sub
+    return _compile(pattern, flags).sub(repl, string, count)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+match = <re.Match object; span=(6, 13), match='${NAME}'>
+
+    def replace_var(match):
+        expr = match.group(1).strip()
+        if ":-" in expr:
+            var_name, default_val = expr.split(":-", 1)
+        else:
+            var_name, default_val = expr, ""
+    
+        # BUG: Crashes with KeyError on missing variable when no default is given,
+        # instead of expanding to empty string. Also ignores default when env val is empty string.
+        if var_name in env:
+            val = env.get(var_name, "")
+            if val == "" and ":-" in expr:
+                return default_val
+            return str(val)
+        elif ":-" in expr:
+            return default_val
+        else:
+>           raise KeyError(f"Environment variable '{var_name}' not set")
+E           KeyError: "Environment variable 'NAME' not set"
+
+configkit\interpolator.py:27: KeyError
+=========================== short test summary info ===========================
+FAILED tests\test_interpolator.py::test_missing_var_without_default - KeyErro...
+1 failed, 3 passed in 0.08s
+
+
+STDERR:

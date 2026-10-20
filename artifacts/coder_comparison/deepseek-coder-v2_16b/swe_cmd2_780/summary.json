@@ -1,0 +1,12 @@
+{
+  "model": "deepseek-coder-v2:16b",
+  "task_id": "swe_cmd2_780",
+  "resolved": false,
+  "steps": 5,
+  "valid_tool_calls": 3,
+  "total_actions": 5,
+  "tool_adherence": 60.0,
+  "tokens_generated": 853,
+  "elapsed_seconds": 5.59,
+  "speed_tps": 152.5
+}

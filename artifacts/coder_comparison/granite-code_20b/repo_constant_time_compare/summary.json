@@ -1,0 +1,12 @@
+{
+  "model": "granite-code:20b",
+  "task_id": "repo_constant_time_compare",
+  "resolved": false,
+  "steps": 10,
+  "valid_tool_calls": 9,
+  "total_actions": 10,
+  "tool_adherence": 90.0,
+  "tokens_generated": 885,
+  "elapsed_seconds": 15.38,
+  "speed_tps": 57.6
+}
