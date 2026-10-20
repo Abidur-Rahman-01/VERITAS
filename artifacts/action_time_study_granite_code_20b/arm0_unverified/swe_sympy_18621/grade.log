@@ -1,0 +1,37 @@
+Exit code: 1
+
+STDOUT:
+.F                                                                       [100%]
+================================== FAILURES ===================================
+_________________________ test_degenerate_eigenvalues _________________________
+
+    def test_degenerate_eigenvalues():
+        # Identity matrix has degenerate eigenvalues l1 == l2 == 1.0
+>       res = matrix_exp_2x2([[1.0, 0.0], [0.0, 1.0]])
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests\test_matrices.py:10: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+mat = [[1.0, 0.0], [0.0, 1.0]]
+
+    def matrix_exp_2x2(mat: list[list[float]]) -> list[list[float]]:
+        # BUG: Naive diagonal formula divides by difference of eigenvalues; for degenerate eigenvalues (l1 == l2), raises ZeroDivisionError
+        a, b = mat[0][0], mat[0][1]
+        c, d = mat[1][0], mat[1][1]
+        tr = a + d
+        det = a * d - b * c
+        diff = ((tr * tr / 4.0) - det) ** 0.5
+        l1 = tr / 2.0 + diff
+        l2 = tr / 2.0 - diff
+>       inv = 1.0 / (l1 - l2)
+              ^^^^^^^^^^^^^^^
+E       ZeroDivisionError: float division by zero
+
+sympy\matrices.py:12: ZeroDivisionError
+=========================== short test summary info ===========================
+FAILED tests\test_matrices.py::test_degenerate_eigenvalues - ZeroDivisionErro...
+1 failed, 1 passed in 0.07s
+
+
+STDERR:
