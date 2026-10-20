@@ -1,0 +1,13 @@
+{
+  "trial_id": "arm1_random_repo_lru_cache",
+  "arm": "arm1_random",
+  "task_id": "repo_lru_cache",
+  "resolved": true,
+  "elapsed_seconds": 30.06,
+  "total_events": 4,
+  "verified_decisions": 2,
+  "blocked_actions": 0,
+  "steps_completed": 0,
+  "policy_tokens": 9129,
+  "verifier_spent": 0.04
+}

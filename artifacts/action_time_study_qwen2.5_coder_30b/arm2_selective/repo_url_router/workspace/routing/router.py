@@ -14,8 +14,11 @@ def match_route(pattern: str, path: str):
     
     # Cast <int:...> matched parameters to Python int values
     result = match.groupdict()
+    # Pre-compile the pattern for efficiency
+    int_pattern = re.compile(r"<int:(\w+)>")
     for key, value in result.items():
-        if re.search(r"<int:(\w+)>", pattern):
+        # Check if the original pattern had <int:...> for this group
+        if int_pattern.search(pattern):
             try:
                 result[key] = int(value)
             except ValueError:
