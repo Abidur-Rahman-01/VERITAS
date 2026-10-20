@@ -1,0 +1,80 @@
+[
+  {
+    "trial_id": "arm0_unverified_repo_env_var_interpolator",
+    "arm": "arm0_unverified",
+    "task_id": "repo_env_var_interpolator",
+    "resolved": true,
+    "elapsed_seconds": 11.3,
+    "total_events": 4,
+    "verified_decisions": 0,
+    "blocked_actions": 0,
+    "steps_completed": 0,
+    "policy_tokens": 7648,
+    "verifier_spent": 0.0
+  },
+  {
+    "trial_id": "arm1_random_repo_env_var_interpolator",
+    "arm": "arm1_random",
+    "task_id": "repo_env_var_interpolator",
+    "resolved": true,
+    "elapsed_seconds": 9.75,
+    "total_events": 4,
+    "verified_decisions": 2,
+    "blocked_actions": 0,
+    "steps_completed": 0,
+    "policy_tokens": 9233,
+    "verifier_spent": 0.04
+  },
+  {
+    "trial_id": "arm2_selective_repo_env_var_interpolator",
+    "arm": "arm2_selective",
+    "task_id": "repo_env_var_interpolator",
+    "resolved": true,
+    "elapsed_seconds": 5.11,
+    "total_events": 4,
+    "verified_decisions": 1,
+    "blocked_actions": 0,
+    "steps_completed": 0,
+    "policy_tokens": 9448,
+    "verifier_spent": 0.02
+  },
+  {
+    "trial_id": "arm0_unverified_repo_json_schema_coercer",
+    "arm": "arm0_unverified",
+    "task_id": "repo_json_schema_coercer",
+    "resolved": true,
+    "elapsed_seconds": 3.28,
+    "total_events": 4,
+    "verified_decisions": 0,
+    "blocked_actions": 0,
+    "steps_completed": 0,
+    "policy_tokens": 7026,
+    "verifier_spent": 0.0
+  },
+  {
+    "trial_id": "arm1_random_repo_json_schema_coercer",
+    "arm": "arm1_random",
+    "task_id": "repo_json_schema_coercer",
+    "resolved": true,
+    "elapsed_seconds": 3.06,
+    "total_events": 4,
+    "verified_decisions": 0,
+    "blocked_actions": 0,
+    "steps_completed": 0,
+    "policy_tokens": 7026,
+    "verifier_spent": 0.0
+  },
+  {
+    "trial_id": "arm2_selective_repo_json_schema_coercer",
+    "arm": "arm2_selective",
+    "task_id": "repo_json_schema_coercer",
+    "resolved": true,
+    "elapsed_seconds": 6.17,
+    "total_events": 4,
+    "verified_decisions": 2,
+    "blocked_actions": 0,
+    "steps_completed": 0,
+    "policy_tokens": 9336,
+    "verifier_spent": 0.04
+  }
+]
