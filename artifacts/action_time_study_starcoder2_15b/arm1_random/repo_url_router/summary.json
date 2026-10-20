@@ -1,0 +1,13 @@
+{
+  "trial_id": "arm1_random_repo_url_router",
+  "arm": "arm1_random",
+  "task_id": "repo_url_router",
+  "resolved": false,
+  "elapsed_seconds": 15.44,
+  "total_events": 4,
+  "verified_decisions": 0,
+  "blocked_actions": 4,
+  "steps_completed": 0,
+  "policy_tokens": 2360,
+  "verifier_spent": 0.0
+}
