@@ -1,0 +1,13 @@
+{
+  "trial_id": "arm2_selective_repo_diff_patch_parser",
+  "arm": "arm2_selective",
+  "task_id": "repo_diff_patch_parser",
+  "resolved": true,
+  "elapsed_seconds": 5.73,
+  "total_events": 6,
+  "verified_decisions": 0,
+  "blocked_actions": 0,
+  "steps_completed": 0,
+  "policy_tokens": 11445,
+  "verifier_spent": 0.0
+}

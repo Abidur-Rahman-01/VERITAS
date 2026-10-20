@@ -1,0 +1,13 @@
+{
+  "trial_id": "arm0_unverified_repo_diff_patch_parser",
+  "arm": "arm0_unverified",
+  "task_id": "repo_diff_patch_parser",
+  "resolved": true,
+  "elapsed_seconds": 5.12,
+  "total_events": 5,
+  "verified_decisions": 0,
+  "blocked_actions": 0,
+  "steps_completed": 0,
+  "policy_tokens": 9138,
+  "verifier_spent": 0.0
+}

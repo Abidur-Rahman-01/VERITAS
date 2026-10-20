@@ -1,0 +1,13 @@
+{
+  "trial_id": "arm1_random_repo_bloom_filter",
+  "arm": "arm1_random",
+  "task_id": "repo_bloom_filter",
+  "resolved": true,
+  "elapsed_seconds": 63.3,
+  "total_events": 5,
+  "verified_decisions": 5,
+  "blocked_actions": 0,
+  "steps_completed": 0,
+  "policy_tokens": 15463,
+  "verifier_spent": 0.1
+}
