@@ -1,0 +1,13 @@
+{
+  "trial_id": "arm1_random_repo_cron_expression_matcher",
+  "arm": "arm1_random",
+  "task_id": "repo_cron_expression_matcher",
+  "resolved": true,
+  "elapsed_seconds": 19.03,
+  "total_events": 5,
+  "verified_decisions": 1,
+  "blocked_actions": 0,
+  "steps_completed": 0,
+  "policy_tokens": 9627,
+  "verifier_spent": 0.02
+}
