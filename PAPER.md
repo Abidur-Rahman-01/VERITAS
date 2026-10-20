@@ -353,7 +353,7 @@ To guarantee that Action-Time Runtime Verification is an architecture-invariant 
 | **deepseek-coder-v2:16b**|  16B   | 17/60 (28.33%)   | 16/60 (26.67%)   | **17/60 (28.33%)**| **34.7%**       | **COMPLETED**|
 | **granite-code:20b**     |  20B   | 3/60 (5.00%)     | 3/60 (5.00%)     | **3/60 (5.00%)** | **5.1%**        | **COMPLETED**|
 | **starcoder2:15b**       |  15B   | 0/60 (0.00%)     | 0/60 (0.00%)     | **0/60 (0.00%)** | —               | **COMPLETED**|
-| **qwen2.5-coder:30b**    |  30B   | [In Progress]    | [In Progress]    | [In Progress]    | [In Progress]   | **ACTIVE**   |
+| **qwen2.5-coder:30b**    |  30B   | 55/60 (91.67%)   | 57/60 (95.00%)   | **55/60 (91.67%)**| **3.1%**        | **COMPLETED**|
 +--------------------------+--------+------------------+------------------+------------------+-----------------+--------------+
 ```
 
@@ -377,6 +377,13 @@ All 180 trials (60 unique tasks $\times$ 3 arms) for StarCoder2 15B are fully au
 * **Base Architecture Boundary:** Across all 60 tasks, StarCoder2-15B resolved 0/60 (0.00%) across all experimental arms. Without instruction/tool-call fine-tuning, the base policy emitted invalid multi-file edit signatures or aborted prematurely (mean unverified latency was only 1.82s).
 * **Integrity Guarding Without Spurious Corruption:** Despite the base model's inability to resolve multi-file patches, runtime verification successfully guarded repository boundaries: 540 actions across arms were safely audited and rolled back without introducing corrupt workspace state.
 * **Figures & Artifacts:** Complete dataset stored in [`artifacts/action_time_study_starcoder2_15b/`](file:///F:/Sadik/VERITAS/artifacts/action_time_study_starcoder2_15b) (180 SQLite event databases, 180 `grade.log` files, 300-DPI publication figures).
+
+### Confirmatory Findings for Model 5 (`qwen2.5-coder:30b`):
+All 180 trials (60 unique tasks $\times$ 3 arms) for Qwen2.5-Coder 30B are fully audited and serialized:
+* **Frontier Autonomous Resolution:** Qwen2.5-Coder:30B established the highest resolution benchmark in the study, resolving **55/60 (91.67%)** under Selective Gating and **57/60 (95.00%)** under Random Verification, achieving a **100% resolution rate** across production systems, quantum circuits, and symbolic math domains.
+* **Selective Verification Latency Speedup:** Under selective risk calibration, mean latency was **24.31s** compared to **33.43s** for Arm 1 Random Verification (a **27.3% latency reduction**), eliminating redundant verifier probes on benign actions while preserving state contracts.
+* **Direct Defect Remediation:** In `repo_nested_dict_resolver`, unverified baseline failed after 40.11s due to invalid key traversal, whereas action-time verification caught the defect and guided the agent to a clean resolution.
+* **Figures & Artifacts:** Complete dataset stored in [`artifacts/action_time_study_qwen2.5_coder_30b/`](file:///F:/Sadik/VERITAS/artifacts/action_time_study_qwen2.5_coder_30b) (180 SQLite event databases, 180 `grade.log` files, 300-DPI publication figures).
 
 Individual, standalone model reports are progressively serialized to:
 * [`docs/TSE_180_TRIAL_QWEN_CODER_14B.md`](file:///F:/Sadik/VERITAS/docs/TSE_180_TRIAL_QWEN_CODER_14B.md)

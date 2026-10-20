@@ -1,0 +1,54 @@
+{
+  "sample_size": {
+    "total_tasks": 60,
+    "total_trials": 180
+  },
+  "arm_summary": {
+    "arm0_unverified": {
+      "trials": 60,
+      "resolved": 55,
+      "resolution_rate": 91.67,
+      "ci_95": [
+        81.61,
+        97.24
+      ],
+      "mean_elapsed_seconds": 13.26,
+      "total_verified_decisions": 0,
+      "total_blocked_actions": 0,
+      "mean_tokens": 35888.75,
+      "total_verifier_spent": 0.0
+    },
+    "arm1_random": {
+      "trials": 60,
+      "resolved": 57,
+      "resolution_rate": 95.0,
+      "ci_95": [
+        86.08,
+        98.96
+      ],
+      "mean_elapsed_seconds": 33.43,
+      "total_verified_decisions": 125,
+      "total_blocked_actions": 8,
+      "mean_tokens": 28138.45,
+      "total_verifier_spent": 2.5
+    },
+    "arm2_selective": {
+      "trials": 60,
+      "resolved": 55,
+      "resolution_rate": 91.67,
+      "ci_95": [
+        81.61,
+        97.24
+      ],
+      "mean_elapsed_seconds": 24.31,
+      "total_verified_decisions": 50,
+      "total_blocked_actions": 16,
+      "mean_tokens": 34792.43,
+      "total_verifier_spent": 1.0
+    }
+  },
+  "contrasts": {
+    "selective_vs_random": -3.33,
+    "selective_vs_unverified": 0.0
+  }
+}
