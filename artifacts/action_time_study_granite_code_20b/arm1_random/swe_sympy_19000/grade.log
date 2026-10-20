@@ -1,0 +1,21 @@
+Exit code: 1
+
+STDOUT:
+F                                                                        [100%]
+================================== FAILURES ===================================
+_______________________________ test_conjugate ________________________________
+
+    def test_conjugate():
+>       assert conjugate(3.0, 4.0) == (3.0, -4.0)
+E       assert (-3.0, 4.0) == (3.0, -4.0)
+E         
+E         At index 0 diff: -3.0 != 3.0
+E         Use -v to get more diff
+
+tests\test_complex.py:4: AssertionError
+=========================== short test summary info ===========================
+FAILED tests\test_complex.py::test_conjugate - assert (-3.0, 4.0) == (3.0, -4.0)
+1 failed in 0.07s
+
+
+STDERR:
