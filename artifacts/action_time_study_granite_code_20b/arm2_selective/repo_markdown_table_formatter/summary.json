@@ -1,0 +1,13 @@
+{
+  "trial_id": "arm2_selective_repo_markdown_table_formatter",
+  "arm": "arm2_selective",
+  "task_id": "repo_markdown_table_formatter",
+  "resolved": false,
+  "elapsed_seconds": 131.31,
+  "total_events": 27,
+  "verified_decisions": 4,
+  "blocked_actions": 4,
+  "steps_completed": 0,
+  "policy_tokens": 161007,
+  "verifier_spent": 0.08
+}
