@@ -1,0 +1,22 @@
+Exit code: 1
+
+STDOUT:
+.F.                                                                      [100%]
+================================== FAILURES ===================================
+______________________________ test_list_params _______________________________
+
+    def test_list_params():
+        res = encode_query_params({"tag": ["python", "ai"], "sort": "date"})
+>       assert res == "tag=python&tag=ai&sort=date"
+E       AssertionError: assert 'tag=%5B%27py...%5D&sort=date' == 'tag=python&tag=ai&sort=date'
+E         
+E         - tag=python&tag=ai&sort=date
+E         + tag=%5B%27python%27%2C+%27ai%27%5D&sort=date
+
+tests\test_query.py:8: AssertionError
+=========================== short test summary info ===========================
+FAILED tests\test_query.py::test_list_params - AssertionError: assert 'tag=%5...
+1 failed, 2 passed in 0.08s
+
+
+STDERR:

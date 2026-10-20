@@ -1,0 +1,36 @@
+Exit code: 1
+
+STDOUT:
+..F                                                                      [100%]
+================================== FAILURES ===================================
+______________________________ test_missing_key _______________________________
+
+    def test_missing_key():
+>       assert render_template("Key: {{ missing }}", {}) == "Key: "
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests\test_engine.py:11: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+templating\engine.py:9: in render_template
+    return re.sub(r"\{\{\s*(\w+)\s*\}\}", replacer, template)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+C:\Users\UseR\AppData\Local\Programs\Python\Python311\Lib\re\__init__.py:185: in sub
+    return _compile(pattern, flags).sub(repl, string, count)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+match = <re.Match object; span=(5, 18), match='{{ missing }}'>
+
+    def replacer(match):
+        key = match.group(1).strip()
+>       return str(context[key])
+                   ^^^^^^^^^^^^
+E       KeyError: 'missing'
+
+templating\engine.py:8: KeyError
+=========================== short test summary info ===========================
+FAILED tests\test_engine.py::test_missing_key - KeyError: 'missing'
+1 failed, 2 passed in 0.07s
+
+
+STDERR:
