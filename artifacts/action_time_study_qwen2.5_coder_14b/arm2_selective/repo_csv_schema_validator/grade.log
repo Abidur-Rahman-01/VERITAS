@@ -1,0 +1,67 @@
+Exit code: 1
+
+STDOUT:
+FFF                                                                      [100%]
+================================== FAILURES ===================================
+______________________________ test_simple_split ______________________________
+
+    def test_simple_split():
+>       assert split_csv_line('a,b,c') == ['a', 'b', 'c']
+               ^^^^^^^^^^^^^^^^^^^^^^^
+
+tests\test_csv.py:5: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+line = 'a,b,c', delimiter = ','
+
+    def split_csv_line(line: str, delimiter: str = ',') -> list[str]:
+        # Use csv module to handle quoted fields with embedded delimiters
+>       reader = csv.reader(StringIO(line), delimiter=delimiter)
+                 ^^^
+E       NameError: name 'csv' is not defined
+
+csv_validator\validator.py:10: NameError
+______________________________ test_quoted_split ______________________________
+
+    def test_quoted_split():
+>       assert split_csv_line('"a,b",c') == ['"a,b"', 'c']
+               ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests\test_csv.py:8: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+line = '"a,b",c', delimiter = ','
+
+    def split_csv_line(line: str, delimiter: str = ',') -> list[str]:
+        # Use csv module to handle quoted fields with embedded delimiters
+>       reader = csv.reader(StringIO(line), delimiter=delimiter)
+                 ^^^
+E       NameError: name 'csv' is not defined
+
+csv_validator\validator.py:10: NameError
+____________________________ test_semicolon_split _____________________________
+
+    def test_semicolon_split():
+>       assert split_csv_line('1;2;3', delimiter=';') == ['1', '2', '3']
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests\test_csv.py:11: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+line = '1;2;3', delimiter = ';'
+
+    def split_csv_line(line: str, delimiter: str = ',') -> list[str]:
+        # Use csv module to handle quoted fields with embedded delimiters
+>       reader = csv.reader(StringIO(line), delimiter=delimiter)
+                 ^^^
+E       NameError: name 'csv' is not defined
+
+csv_validator\validator.py:10: NameError
+=========================== short test summary info ===========================
+FAILED tests\test_csv.py::test_simple_split - NameError: name 'csv' is not de...
+FAILED tests\test_csv.py::test_quoted_split - NameError: name 'csv' is not de...
+FAILED tests\test_csv.py::test_semicolon_split - NameError: name 'csv' is not...
+3 failed in 0.09s
+
+
+STDERR:

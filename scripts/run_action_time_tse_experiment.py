@@ -686,7 +686,9 @@ def setup_swe_pennylane_4512(ws: Path) -> tuple[str, str]:
     return "pennylane", prompt
 
 
-TASK_REGISTRY = {
+from scripts.tse_60_task_fixtures import EXTENDED_40_TASK_REGISTRY
+
+BASE_20_TASK_REGISTRY = {
     # 5 cmd2 tasks
     "swe_cmd2_744": setup_swe_cmd2_744,
     "swe_cmd2_755": setup_swe_cmd2_755,
@@ -713,6 +715,8 @@ TASK_REGISTRY = {
     "repo_sql_query_builder": setup_task_sql_builder,
 }
 
+TASK_REGISTRY = {**BASE_20_TASK_REGISTRY, **EXTENDED_40_TASK_REGISTRY}
+
 ARM_CONFIGS = {
     "arm0_unverified": REPO_ROOT / "configs" / "action_time_arm0_unverified.yaml",
     "arm1_random": REPO_ROOT / "configs" / "action_time_arm1_random.yaml",
@@ -726,6 +730,8 @@ def run_single_arm_task(
     setup_fn,
     output_root: Path,
     resume: bool = False,
+    actor_model_name: str = None,
+    verifier_model_name: str = None,
 ) -> dict:
     trial_id = f"{arm}_{task_id}"
     trial_dir = output_root / arm / task_id
@@ -751,6 +757,10 @@ def run_single_arm_task(
 
     cfg_file = ARM_CONFIGS[arm]
     cfg = load_config(cfg_file)
+    if actor_model_name:
+        cfg.model.name = actor_model_name
+    if verifier_model_name and cfg.verifier:
+        cfg.verifier.name = verifier_model_name
 
     actor_model = LocalModel(cfg.model)
     verifier_model = LocalModel(cfg.verifier) if arm != "arm0_unverified" else None
@@ -779,19 +789,26 @@ def run_single_arm_task(
     }
 
     start_time = time.monotonic()
-    runtime_summary = run_task(
-        task=task_obj,
-        assignment=assignment,
-        config=cfg,
-        policy=actor_model,
-        critic=critic,
-        verifier=verifier,
-        sandbox=sandbox,
-        store=store,
-        output=trial_dir,
-    )
+    try:
+        runtime_summary = run_task(
+            task=task_obj,
+            assignment=assignment,
+            config=cfg,
+            policy=actor_model,
+            critic=critic,
+            verifier=verifier,
+            sandbox=sandbox,
+            store=store,
+            output=trial_dir,
+        )
+    except Exception as exc:
+        print(f'  [ERROR in run_task] {exc}')
+        runtime_summary = None
     elapsed = time.monotonic() - start_time
-    store.close()
+    try:
+        store.close()
+    except Exception:
+        pass
 
     # Independent grading via pytest execution
     grade_log_file = trial_dir / "grade.log"
@@ -826,9 +843,9 @@ def run_single_arm_task(
         "total_events": total_events,
         "verified_decisions": verified_decisions,
         "blocked_actions": blocked_actions,
-        "steps_completed": runtime_summary.get("steps_completed", 0),
-        "policy_tokens": runtime_summary.get("total_online_tokens", 0),
-        "verifier_spent": runtime_summary.get("verification_spent", 0.0),
+        "steps_completed": runtime_summary.get("steps_completed", 0) if runtime_summary else 0,
+        "policy_tokens": runtime_summary.get("total_online_tokens", 0) if runtime_summary else 0,
+        "verifier_spent": runtime_summary.get("verification_spent", 0.0) if runtime_summary else 0.0,
     }
 
     summary_file.write_text(json.dumps(result, indent=2))
@@ -841,6 +858,8 @@ def main():
     parser.add_argument("--tasks", type=int, default=len(TASK_REGISTRY), help="Number of tasks to run")
     parser.add_argument("--output", default="artifacts/action_time_study", help="Output directory")
     parser.add_argument("--resume", action="store_true", help="Resume from existing trial summary if already completed")
+    parser.add_argument("--actor-model", default=None, help="Override actor model name")
+    parser.add_argument("--verifier-model", default=None, help="Override verifier model name")
     args = parser.parse_args()
 
     out_dir = REPO_ROOT / args.output
@@ -852,6 +871,8 @@ def main():
     print(f"=== Starting IEEE TSE Action-Time Verification Experiment ===")
     print(f"Arms ({len(arms)}): {arms}")
     print(f"Tasks ({len(task_keys)}): {task_keys}")
+    print(f"Actor Model Override: {args.actor_model}")
+    print(f"Verifier Model Override: {args.verifier_model}")
     print(f"Total Trials to Run: {len(arms) * len(task_keys)}")
     print(f"Output Directory: {out_dir}\n")
 
@@ -865,7 +886,15 @@ def main():
         for arm in arms:
             completed_count += 1
             print(f"[{completed_count}/{total_trials}] Running [{arm}] on [{task_id}]...")
-            res = run_single_arm_task(arm, task_id, setup_fn, out_dir, resume=args.resume)
+            res = run_single_arm_task(
+                arm,
+                task_id,
+                setup_fn,
+                out_dir,
+                resume=args.resume,
+                actor_model_name=args.actor_model,
+                verifier_model_name=args.verifier_model,
+            )
             print(f"  -> Resolved: {res['resolved']} | Verified Decisions: {res['verified_decisions']} | Blocked: {res['blocked_actions']} | Time: {res['elapsed_seconds']}s")
             results.append(res)
 

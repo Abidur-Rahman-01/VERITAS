@@ -9,7 +9,8 @@ htmlcov/
 data/
 runs/
 artifacts/*
-!artifacts/action_time_study/
+!artifacts/action_time_study*/
+!artifacts/coder_comparison/
 dist/
 *.egg-info/
 .env

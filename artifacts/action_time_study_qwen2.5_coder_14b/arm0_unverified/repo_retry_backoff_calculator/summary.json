@@ -1,0 +1,13 @@
+{
+  "trial_id": "arm0_unverified_repo_retry_backoff_calculator",
+  "arm": "arm0_unverified",
+  "task_id": "repo_retry_backoff_calculator",
+  "resolved": true,
+  "elapsed_seconds": 5.86,
+  "total_events": 4,
+  "verified_decisions": 0,
+  "blocked_actions": 0,
+  "steps_completed": 0,
+  "policy_tokens": 6459,
+  "verifier_spent": 0.0
+}

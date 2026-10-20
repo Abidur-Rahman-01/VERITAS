@@ -1,0 +1,50 @@
+Exit code: 1
+
+STDOUT:
+FF                                                                       [100%]
+================================== FAILURES ===================================
+______________________________ test_full_header _______________________________
+
+    def test_full_header():
+>       assert parse_hunk_header('@@ -10,5 +20,6 @@') == (10, 20)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests\test_diff.py:4: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+line = '@@ -10,5 +20,6 @@'
+
+    def parse_hunk_header(line: str) -> tuple[int, int]:
+        # BUG: Fails when hunk count is omitted, e.g. @@ -1 +1 @@ (implies count=1)
+        m = re.match(r'@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@', line)
+>       return int(m.group(1)), int(m.group(2) if m.group(2) else 1), int(m.group(3)), int(m.group(4) if m.group(4) else 1)
+                                                                          ^^^^^^^^^^
+E       IndexError: no such group
+
+patcher\diff.py:7: IndexError
+___________________________ test_single_line_header ___________________________
+
+    def test_single_line_header():
+>       assert parse_hunk_header('@@ -1 +1 @@') == (1, 1)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests\test_diff.py:7: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+line = '@@ -1 +1 @@'
+
+    def parse_hunk_header(line: str) -> tuple[int, int]:
+        # BUG: Fails when hunk count is omitted, e.g. @@ -1 +1 @@ (implies count=1)
+        m = re.match(r'@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@', line)
+>       return int(m.group(1)), int(m.group(2) if m.group(2) else 1), int(m.group(3)), int(m.group(4) if m.group(4) else 1)
+                                                                          ^^^^^^^^^^
+E       IndexError: no such group
+
+patcher\diff.py:7: IndexError
+=========================== short test summary info ===========================
+FAILED tests\test_diff.py::test_full_header - IndexError: no such group
+FAILED tests\test_diff.py::test_single_line_header - IndexError: no such group
+2 failed in 0.07s
+
+
+STDERR:

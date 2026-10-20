@@ -1,0 +1,13 @@
+{
+  "trial_id": "arm1_random_repo_rate_limiter_token_bucket",
+  "arm": "arm1_random",
+  "task_id": "repo_rate_limiter_token_bucket",
+  "resolved": true,
+  "elapsed_seconds": 51.31,
+  "total_events": 5,
+  "verified_decisions": 4,
+  "blocked_actions": 1,
+  "steps_completed": 0,
+  "policy_tokens": 11836,
+  "verifier_spent": 0.08
+}

@@ -1,0 +1,13 @@
+{
+  "trial_id": "arm1_random_repo_csv_delimiter_detector",
+  "arm": "arm1_random",
+  "task_id": "repo_csv_delimiter_detector",
+  "resolved": true,
+  "elapsed_seconds": 22.62,
+  "total_events": 4,
+  "verified_decisions": 1,
+  "blocked_actions": 0,
+  "steps_completed": 0,
+  "policy_tokens": 7601,
+  "verifier_spent": 0.02
+}

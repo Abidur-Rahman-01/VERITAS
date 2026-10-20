@@ -1,0 +1,13 @@
+{
+  "trial_id": "arm2_selective_swe_cmd2_790",
+  "arm": "arm2_selective",
+  "task_id": "swe_cmd2_790",
+  "resolved": false,
+  "elapsed_seconds": 63.22,
+  "total_events": 11,
+  "verified_decisions": 7,
+  "blocked_actions": 4,
+  "steps_completed": 0,
+  "policy_tokens": 49232,
+  "verifier_spent": 0.14
+}

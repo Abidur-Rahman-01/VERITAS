@@ -1,0 +1,13 @@
+{
+  "trial_id": "arm0_unverified_swe_sympy_18900",
+  "arm": "arm0_unverified",
+  "task_id": "swe_sympy_18900",
+  "resolved": true,
+  "elapsed_seconds": 5.26,
+  "total_events": 4,
+  "verified_decisions": 0,
+  "blocked_actions": 0,
+  "steps_completed": 0,
+  "policy_tokens": 5623,
+  "verifier_spent": 0.0
+}

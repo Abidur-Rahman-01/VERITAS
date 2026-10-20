@@ -1,0 +1,13 @@
+{
+  "trial_id": "arm0_unverified_repo_iso_duration",
+  "arm": "arm0_unverified",
+  "task_id": "repo_iso_duration",
+  "resolved": false,
+  "elapsed_seconds": 78.92,
+  "total_events": 27,
+  "verified_decisions": 0,
+  "blocked_actions": 0,
+  "steps_completed": 0,
+  "policy_tokens": 237018,
+  "verifier_spent": 0.0
+}

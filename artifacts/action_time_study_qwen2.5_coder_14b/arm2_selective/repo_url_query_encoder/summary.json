@@ -1,0 +1,13 @@
+{
+  "trial_id": "arm2_selective_repo_url_query_encoder",
+  "arm": "arm2_selective",
+  "task_id": "repo_url_query_encoder",
+  "resolved": false,
+  "elapsed_seconds": 29.83,
+  "total_events": 9,
+  "verified_decisions": 5,
+  "blocked_actions": 4,
+  "steps_completed": 0,
+  "policy_tokens": 28608,
+  "verifier_spent": 0.1
+}

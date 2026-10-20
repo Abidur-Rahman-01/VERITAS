@@ -28,8 +28,19 @@ def clopper_pearson(k, n, alpha=0.05):
 
 
 def analyze_study(report_path: Path, output_dir: Path):
-    with open(report_path, "r", encoding="utf-8") as f:
-        records = json.load(f)
+    records = []
+    if report_path.exists():
+        with open(report_path, "r", encoding="utf-8") as f:
+            records = json.load(f)
+
+    summaries = list(output_dir.glob("*/*/summary.json"))
+    if len(summaries) > len(records):
+        records = []
+        for s in sorted(summaries):
+            try:
+                records.append(json.loads(s.read_text(encoding="utf-8")))
+            except Exception:
+                pass
 
     df = pd.DataFrame(records)
     print(f"Loaded {len(df)} trial records across {df['arm'].nunique()} arms.")
@@ -66,6 +77,10 @@ def analyze_study(report_path: Path, output_dir: Path):
         contrasts["selective_vs_unverified"] = round(y_sel - y_unv, 2)
 
     output = {
+        "sample_size": {
+            "total_tasks": int(df["task_id"].nunique()),
+            "total_trials": int(len(df)),
+        },
         "arm_summary": arm_summary,
         "contrasts": contrasts,
     }

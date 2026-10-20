@@ -1,0 +1,42 @@
+Exit code: 1
+
+STDOUT:
+F..                                                                      [100%]
+================================== FAILURES ===================================
+_____________________________ test_simple_params ______________________________
+
+    def test_simple_params():
+>       assert encode_query_params({"search": "hello world", "page": 1}) == "search=hello+world&page=1"
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests\test_query.py:4: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+webtools\query.py:11: in encode_query_params
+    pairs.append((k, urllib.parse.quote_plus(v)))
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+C:\Users\UseR\AppData\Local\Programs\Python\Python311\Lib\urllib\parse.py:909: in quote_plus
+    string = quote(string, safe + space, encoding, errors)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+C:\Users\UseR\AppData\Local\Programs\Python\Python311\Lib\urllib\parse.py:893: in quote
+    return quote_from_bytes(string, safe)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+bs = 1, safe = ' '
+
+    def quote_from_bytes(bs, safe='/'):
+        """Like quote(), but accepts a bytes object rather than a str, and does
+        not perform string-to-bytes encoding.  It always returns an ASCII string.
+        quote_from_bytes(b'abc def\x3f') -> 'abc%20def%3f'
+        """
+        if not isinstance(bs, (bytes, bytearray)):
+>           raise TypeError("quote_from_bytes() expected bytes")
+E           TypeError: quote_from_bytes() expected bytes
+
+C:\Users\UseR\AppData\Local\Programs\Python\Python311\Lib\urllib\parse.py:923: TypeError
+=========================== short test summary info ===========================
+FAILED tests\test_query.py::test_simple_params - TypeError: quote_from_bytes(...
+1 failed, 2 passed in 0.08s
+
+
+STDERR:

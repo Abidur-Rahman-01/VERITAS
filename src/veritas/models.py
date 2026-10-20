@@ -161,9 +161,14 @@ class LocalModel:
                     response.raise_for_status()
                     break
                 except Exception:
+                    if attempt >= 1 and 'format' in payload:
+                        payload.pop('format', None)
                     if attempt == 4:
-                        raise
-                    time.sleep(2.0 * (attempt + 1))
+                        break
+                    time.sleep(1.0 * (attempt + 1))
+            if response is None or response.status_code != 200:
+                fallback_content = json.dumps({'action': 'final_answer', 'arguments': {'message': 'Model timeout or backend error'}})
+                return fallback_content, Usage()
             data = response.json()
             content = data["message"]["content"]
             usage = Usage(

@@ -44,6 +44,8 @@ colors = ["#7f7f7f", "#1f77b4", "#2ca02c"]
 rates = [summary["arm_summary"][a]["resolution_rate"] for a in arms]
 ci_lows = [summary["arm_summary"][a]["ci_95"][0] for a in arms]
 ci_highs = [summary["arm_summary"][a]["ci_95"][1] for a in arms]
+total_tasks = summary["sample_size"]["total_tasks"]
+total_trials = summary["sample_size"]["total_trials"]
 
 yerr = [
     [rates[i] - ci_lows[i] for i in range(len(arms))],
@@ -60,7 +62,7 @@ for bar, r in zip(bars, rates):
 ax.set_ylabel("Independently Graded Resolution Rate (%)")
 ax.set_ylim(0, 105)
 ax.axhline(50.0, color="gray", linestyle="--", linewidth=1.0, alpha=0.7)
-ax.set_title("Figure 1: Benchmark Resolution by Verification Condition (N = 60)")
+ax.set_title(f"Figure 1: Benchmark Resolution by Verification Condition (N = {total_trials} Trials, {total_tasks} Tasks)")
 ax.grid(axis="y", linestyle=":", alpha=0.6)
 
 plt.tight_layout()
@@ -70,31 +72,59 @@ plt.close()
 print(f"Saved {fig1_path}")
 
 # Figure 2: Domain-Level Resolution
-domains = ["cmd2\n(CLI Framework)", "pennylane\n(Quantum Circuits)", "sympy\n(Symbolic Math)", "repo_maintenance\n(Multi-file Utils)"]
-unverified_domain = [40.0, 20.0, 80.0, 60.0]
-verified_domain = [60.0, 60.0, 100.0, 60.0]
+# Dynamically aggregate from action_time_report.json
+with open(STUDY_DIR / "action_time_report.json", "r", encoding="utf-8") as f:
+    records = json.load(f)
+
+def get_domain(task_id: str) -> str:
+    if "cmd2" in task_id: return "cmd2\n(CLI Framework)"
+    if "sympy" in task_id: return "sympy\n(Symbolic Math)"
+    if "pennylane" in task_id: return "pennylane\n(Quantum Circuits)"
+    if any(k in task_id for k in ["interpolator", "coercer", "csv", "cli", "sql"]):
+        return "maintenance\n(Multi-file Utils)"
+    if any(k in task_id for k in ["topological", "router", "constant_time", "iso_duration"]):
+        return "algorithms\n(Core Algorithms)"
+    if any(k in task_id for k in ["lru", "nested", "query", "links", "headers", "semver", "retry"]):
+        return "calibration\n(Calibration Utils)"
+    return "production\n(Production Systems)"
+
+import collections
+domain_arm_res = collections.defaultdict(lambda: collections.defaultdict(list))
+for r in records:
+    dom = get_domain(r["task_id"])
+    domain_arm_res[dom][r["arm"]].append(r["resolved"])
+
+domains = sorted(domain_arm_res.keys())
+unverified_rates = [
+    (sum(domain_arm_res[d]["arm0_unverified"]) / max(1, len(domain_arm_res[d]["arm0_unverified"]))) * 100
+    for d in domains
+]
+selective_rates = [
+    (sum(domain_arm_res[d]["arm2_selective"]) / max(1, len(domain_arm_res[d]["arm2_selective"]))) * 100
+    for d in domains
+]
 
 x = np.arange(len(domains))
 width = 0.35
 
-fig, ax = plt.subplots(figsize=(8.0, 4.5))
-rects1 = ax.bar(x - width/2, unverified_domain, width, label="Arm 0: Unverified Baseline", color="#7f7f7f", edgecolor="black")
-rects2 = ax.bar(x + width/2, verified_domain, width, label="Arms 1 & 2: Action-Time Verification", color="#2ca02c", edgecolor="black")
+fig, ax = plt.subplots(figsize=(10.0, 5.0))
+rects1 = ax.bar(x - width/2, unverified_rates, width, label="Arm 0: Unverified Baseline", color="#7f7f7f", edgecolor="black")
+rects2 = ax.bar(x + width/2, selective_rates, width, label="Arm 2: Selective Quality Gate (VERITAS)", color="#2ca02c", edgecolor="black")
 
 ax.set_ylabel("Resolved Tasks (%)")
-ax.set_title("Figure 2: Resolution by Software Repository Domain (5 Tasks / Domain)")
+ax.set_title(f"Figure 2: Resolution by Software Repository Domain ({total_tasks} Tasks Across {len(domains)} Domains)")
 ax.set_xticks(x)
-ax.set_xticklabels(domains)
+ax.set_xticklabels(domains, fontsize=9)
 ax.set_ylim(0, 115)
 ax.legend(loc="upper left", frameon=True)
 ax.grid(axis="y", linestyle=":", alpha=0.6)
 
 for rect in rects1:
     h = rect.get_height()
-    ax.annotate(f"{h:.0f}%", xy=(rect.get_x() + rect.get_width()/2, h), xytext=(0, 3), textcoords="offset points", ha="center", va="bottom")
+    ax.annotate(f"{h:.0f}%", xy=(rect.get_x() + rect.get_width()/2, h), xytext=(0, 3), textcoords="offset points", ha="center", va="bottom", fontsize=8)
 for rect in rects2:
     h = rect.get_height()
-    ax.annotate(f"{h:.0f}%", xy=(rect.get_x() + rect.get_width()/2, h), xytext=(0, 3), textcoords="offset points", ha="center", va="bottom", fontweight="bold")
+    ax.annotate(f"{h:.0f}%", xy=(rect.get_x() + rect.get_width()/2, h), xytext=(0, 3), textcoords="offset points", ha="center", va="bottom", fontweight="bold", fontsize=8)
 
 plt.tight_layout()
 fig2_path = FIG_DIR / "fig2_domain_resolution.png"
@@ -113,10 +143,10 @@ w = 0.32
 b1 = ax1.bar(x - w/2, verified_counts, w, label="Verified Decisions (decision='verify')", color="#1f77b4", edgecolor="black")
 b2 = ax1.bar(x + w/2, blocked_counts, w, label="Blocked Faulty Actions (blocked=True)", color="#d62728", edgecolor="black")
 
-ax1.set_ylabel("Total Action Count Across 20 Tasks")
+ax1.set_ylabel(f"Total Action Count Across {total_tasks} Tasks")
 ax1.set_xticks(x)
 ax1.set_xticklabels(labels)
-ax1.set_title("Figure 3: Runtime Quality-Gate Interceptions and Blocked Actions")
+ax1.set_title(f"Figure 3: Runtime Quality-Gate Interceptions and Blocked Actions (N = {total_trials})")
 ax1.legend(loc="upper left")
 ax1.grid(axis="y", linestyle=":", alpha=0.6)
 
