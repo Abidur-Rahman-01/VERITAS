@@ -2,7 +2,7 @@
 
 **Target Model:** `granite-code:20b` (20B Parameters, Ollama Local Execution)  
 **Frozen Verifier Model:** `llama3.1:8b` (Greedy Decoding $T=0.0$, Localhost)  
-**Sample Size:** 53 Unique Multi-File Repository Tasks $\times$ 3 Arms = **159 Independent Trials**  
+**Sample Size:** 54 Unique Multi-File Repository Tasks $\times$ 3 Arms = **162 Independent Trials**  
 **Standardized Limit:** Strictly **30 steps** per trial across all arms  
 **Output Directory:** [`action_time_study_granite_code_20b`](file:///F:/Sadik/VERITAS/artifacts/action_time_study_granite_code_20b)  
 
@@ -12,14 +12,14 @@
 
 | Experimental Arm | Completed Trials | Resolved | Success Rate (%) | Exact 95% Clopper-Pearson CI | Verified Decisions | Blocked Actions | Mean Latency | Total Policy Tokens |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| **arm0_unverified** | 53 | 2 | **3.77%** | [0.46%, 12.98%] | 0 | 13 | 102.02s | 10,043,724 |
-| **arm1_random** | 53 | 3 | **5.66%** | [1.18%, 15.66%] | 210 | 208 | 27.50s | 2,144,589 |
-| **arm2_selective** | 53 | 3 | **5.66%** | [1.18%, 15.66%] | 52 | 76 | 84.11s | 9,718,302 |
+| **arm0_unverified** | 54 | 2 | **3.70%** | [0.45%, 12.75%] | 0 | 13 | 101.13s | 10,248,156 |
+| **arm1_random** | 54 | 3 | **5.56%** | [1.16%, 15.39%] | 214 | 212 | 27.10s | 2,150,500 |
+| **arm2_selective** | 54 | 3 | **5.56%** | [1.16%, 15.39%] | 52 | 76 | 83.54s | 9,922,734 |
 
 ### Causal Contrasts & Statistical Estimates
 
-* **Selective Gate vs. Unverified Baseline:** $\Delta = +1.89\%$
-* **Random Verification Control vs. Unverified Baseline:** $\Delta = +1.89\%$
+* **Selective Gate vs. Unverified Baseline:** $\Delta = +1.85\%$
+* **Random Verification Control vs. Unverified Baseline:** $\Delta = +1.85\%$
 * **Selective Gate vs. Random Control:** $\Delta = +0.00\%$
 * **Net Policy Token Reduction:** **3.2%** token savings under selective quality gating
 
@@ -33,7 +33,7 @@
 | **coding_calibration (Calibration Utilities)** | 5 | 0/5 (0.0%) | 0/5 (0.0%) | **0/5 (0.0%)** |
 | **core_algorithms (Core Algorithms)** | 4 | 0/4 (0.0%) | 0/4 (0.0%) | **0/4 (0.0%)** |
 | **pennylane (Quantum Circuits)** | 10 | 2/10 (20.0%) | 2/10 (20.0%) | **2/10 (20.0%)** |
-| **production_systems (Production Systems)** | 7 | 0/7 (0.0%) | 1/7 (14.3%) | **1/7 (14.3%)** |
+| **production_systems (Production Systems)** | 8 | 0/8 (0.0%) | 1/8 (12.5%) | **1/8 (12.5%)** |
 | **repo_maintenance (Maintenance)** | 7 | 0/7 (0.0%) | 0/7 (0.0%) | **0/7 (0.0%)** |
 | **sympy (Symbolic Math)** | 10 | 0/10 (0.0%) | 0/10 (0.0%) | **0/10 (0.0%)** |
 
@@ -41,11 +41,11 @@
 
 ## 3. Audited Action-Level Telemetry Across SQLite Databases
 
-* **Total SQLite Databases Audited:** 159
-* **Total Action Event Rows:** 3,377
-* **Total Action-Time Verified Decisions (`decision='verify'`):** 262
-* **Total Blocked Actions (`blocked=True`, Rollback Executed):** 297
-* **Containerized Pytest Grading Logs:** 159 raw `grade.log` files recorded
+* **Total SQLite Databases Audited:** 162
+* **Total Action Event Rows:** 3,441
+* **Total Action-Time Verified Decisions (`decision='verify'`):** 266
+* **Total Blocked Actions (`blocked=True`, Rollback Executed):** 301
+* **Containerized Pytest Grading Logs:** 162 raw `grade.log` files recorded
 
 ---
 
@@ -69,6 +69,7 @@
 | `repo_markdown_link_extractor` | production_systems | FAIL | FAIL | **FAIL** | Hard Defect (Unsolved) | [`A0`](file:///F:/Sadik/VERITAS/artifacts/action_time_study_granite_code_20b/arm0_unverified/repo_markdown_link_extractor/grade.log) / [`A1`](file:///F:/Sadik/VERITAS/artifacts/action_time_study_granite_code_20b/arm1_random/repo_markdown_link_extractor/grade.log) / [`A2`](file:///F:/Sadik/VERITAS/artifacts/action_time_study_granite_code_20b/arm2_selective/repo_markdown_link_extractor/grade.log) |
 | `repo_markdown_table_formatter` | production_systems | FAIL | FAIL | **FAIL** | Hard Defect (Unsolved) | [`A0`](file:///F:/Sadik/VERITAS/artifacts/action_time_study_granite_code_20b/arm0_unverified/repo_markdown_table_formatter/grade.log) / [`A1`](file:///F:/Sadik/VERITAS/artifacts/action_time_study_granite_code_20b/arm1_random/repo_markdown_table_formatter/grade.log) / [`A2`](file:///F:/Sadik/VERITAS/artifacts/action_time_study_granite_code_20b/arm2_selective/repo_markdown_table_formatter/grade.log) |
 | `repo_nested_dict_resolver` | coding_calibration | FAIL | FAIL | **FAIL** | Hard Defect (Unsolved) | [`A0`](file:///F:/Sadik/VERITAS/artifacts/action_time_study_granite_code_20b/arm0_unverified/repo_nested_dict_resolver/grade.log) / [`A1`](file:///F:/Sadik/VERITAS/artifacts/action_time_study_granite_code_20b/arm1_random/repo_nested_dict_resolver/grade.log) / [`A2`](file:///F:/Sadik/VERITAS/artifacts/action_time_study_granite_code_20b/arm2_selective/repo_nested_dict_resolver/grade.log) |
+| `repo_rate_limiter_token_bucket` | production_systems | FAIL | FAIL | **FAIL** | Hard Defect (Unsolved) | [`A0`](file:///F:/Sadik/VERITAS/artifacts/action_time_study_granite_code_20b/arm0_unverified/repo_rate_limiter_token_bucket/grade.log) / [`A1`](file:///F:/Sadik/VERITAS/artifacts/action_time_study_granite_code_20b/arm1_random/repo_rate_limiter_token_bucket/grade.log) / [`A2`](file:///F:/Sadik/VERITAS/artifacts/action_time_study_granite_code_20b/arm2_selective/repo_rate_limiter_token_bucket/grade.log) |
 | `repo_retry_backoff_calculator` | coding_calibration | FAIL | FAIL | **FAIL** | Hard Defect (Unsolved) | [`A0`](file:///F:/Sadik/VERITAS/artifacts/action_time_study_granite_code_20b/arm0_unverified/repo_retry_backoff_calculator/grade.log) / [`A1`](file:///F:/Sadik/VERITAS/artifacts/action_time_study_granite_code_20b/arm1_random/repo_retry_backoff_calculator/grade.log) / [`A2`](file:///F:/Sadik/VERITAS/artifacts/action_time_study_granite_code_20b/arm2_selective/repo_retry_backoff_calculator/grade.log) |
 | `repo_semver_comparator` | coding_calibration | FAIL | FAIL | **FAIL** | Hard Defect (Unsolved) | [`A0`](file:///F:/Sadik/VERITAS/artifacts/action_time_study_granite_code_20b/arm0_unverified/repo_semver_comparator/grade.log) / [`A1`](file:///F:/Sadik/VERITAS/artifacts/action_time_study_granite_code_20b/arm1_random/repo_semver_comparator/grade.log) / [`A2`](file:///F:/Sadik/VERITAS/artifacts/action_time_study_granite_code_20b/arm2_selective/repo_semver_comparator/grade.log) |
 | `repo_sql_query_builder` | repo_maintenance | FAIL | FAIL | **FAIL** | Hard Defect (Unsolved) | [`A0`](file:///F:/Sadik/VERITAS/artifacts/action_time_study_granite_code_20b/arm0_unverified/repo_sql_query_builder/grade.log) / [`A1`](file:///F:/Sadik/VERITAS/artifacts/action_time_study_granite_code_20b/arm1_random/repo_sql_query_builder/grade.log) / [`A2`](file:///F:/Sadik/VERITAS/artifacts/action_time_study_granite_code_20b/arm2_selective/repo_sql_query_builder/grade.log) |

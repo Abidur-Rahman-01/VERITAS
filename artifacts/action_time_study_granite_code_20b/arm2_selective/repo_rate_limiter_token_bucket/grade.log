@@ -1,0 +1,23 @@
+Exit code: 1
+
+STDOUT:
+F                                                                        [100%]
+================================== FAILURES ===================================
+________________________________ test_consume _________________________________
+
+    def test_consume():
+        b = TokenBucket(2, 1.0)
+        assert b.consume(1) is True
+        assert b.consume(1) is True
+>       assert b.consume(1) is False
+E       assert True is False
+E        +  where True = consume(1)
+E        +    where consume = <ratelimit.bucket.TokenBucket object at 0x0000020642AF3A50>.consume
+
+tests\test_bucket.py:7: AssertionError
+=========================== short test summary info ===========================
+FAILED tests\test_bucket.py::test_consume - assert True is False
+1 failed in 0.07s
+
+
+STDERR:
