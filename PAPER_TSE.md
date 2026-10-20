@@ -357,6 +357,9 @@ To guarantee that Action-Time Runtime Verification is an architecture-invariant 
 +--------------------------+--------+------------------+------------------+------------------+-----------------+--------------+
 ```
 
+![Cross-Model Benchmark Comparison (900 Total Trials)](file:///F:/Sadik/VERITAS/artifacts/figures/cross_model_benchmark_comparison_900_trials.png)
+*Figure 4: Cross-architecture empirical comparison across all 5 coder models (900 total trials evaluated against the frozen `llama3.1:8b` verifier). (a) Defect resolution rate across arms demonstrating strong selective quality preservation without false-alarm degradation; (b) Mean task execution latency demonstrating dramatic truncation of compounding error loops under runtime verification.*
+
 ### Confirmatory Findings for Model 2 (`deepseek-coder-v2:16b`):
 All 180 trials (60 unique tasks $\times$ 3 arms) for DeepSeek-Coder-V2 16B are fully audited and serialized:
 * **Selective Gate vs. Random Control:** Selective gating outperformed stochastic random verification ($\Delta = +1.67\%$, 28.33% vs 26.67%), proving that selective risk-calibrated checking avoids the false-alarm degradations of unguided verification.
