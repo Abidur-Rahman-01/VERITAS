@@ -7,13 +7,19 @@ Generates publication-quality figures for the IEEE TSE Action-Time Verification 
 - Figure 3: Action-Level Telemetry (Verified Decisions vs Blocked Actions vs Compute Overhead).
 """
 
+import argparse
+import collections
 import json
 from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 
+parser = argparse.ArgumentParser(description="Generate TSE Action-Time Figures")
+parser.add_argument("--study-dir", default="artifacts/action_time_study", help="Study directory")
+args = parser.parse_args()
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
-STUDY_DIR = REPO_ROOT / "artifacts" / "action_time_study"
+STUDY_DIR = REPO_ROOT / args.study_dir
 FIG_DIR = STUDY_DIR / "figures"
 FIG_DIR.mkdir(parents=True, exist_ok=True)
 

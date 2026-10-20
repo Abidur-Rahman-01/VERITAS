@@ -115,7 +115,12 @@ def analyze_study(report_path: Path, output_dir: Path):
 
 
 if __name__ == "__main__":
-    study_dir = Path("artifacts/action_time_study")
+    import argparse
+    parser = argparse.ArgumentParser(description="Analyze Action-Time Verification Study")
+    parser.add_argument("--study-dir", default="artifacts/action_time_study", help="Study directory path")
+    args = parser.parse_args()
+
+    study_dir = Path(args.study_dir)
     report = study_dir / "action_time_report.json"
     if report.exists():
         analyze_study(report, study_dir)
