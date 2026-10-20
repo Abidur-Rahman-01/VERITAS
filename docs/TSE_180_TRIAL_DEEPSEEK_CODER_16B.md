@@ -2,7 +2,7 @@
 
 **Target Model:** `deepseek-coder-v2:16b` (16B Parameters, Ollama Local Execution)  
 **Frozen Verifier Model:** `llama3.1:8b` (Greedy Decoding $T=0.0$, Localhost)  
-**Sample Size:** 49 Unique Multi-File Repository Tasks $\times$ 3 Arms = **147 Independent Trials**  
+**Sample Size:** 50 Unique Multi-File Repository Tasks $\times$ 3 Arms = **150 Independent Trials**  
 **Standardized Limit:** Strictly **30 steps** per trial across all arms  
 **Output Directory:** [`action_time_study_deepseek_coder_v2_16b`](file:///F:/Sadik/VERITAS/artifacts/action_time_study_deepseek_coder_v2_16b)  
 
@@ -12,16 +12,16 @@
 
 | Experimental Arm | Completed Trials | Resolved | Success Rate (%) | Exact 95% Clopper-Pearson CI | Verified Decisions | Blocked Actions | Mean Latency | Total Policy Tokens |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| **arm0_unverified** | 49 | 14 | **28.57%** | [16.58%, 43.26%] | 0 | 4 | 61.35s | 8,804,287 |
-| **arm1_random** | 49 | 12 | **24.49%** | [13.34%, 38.87%] | 186 | 146 | 29.10s | 2,337,104 |
-| **arm2_selective** | 49 | 12 | **24.49%** | [13.34%, 38.87%] | 87 | 92 | 47.66s | 6,465,558 |
+| **arm0_unverified** | 50 | 14 | **28.00%** | [16.23%, 42.49%] | 0 | 4 | 62.12s | 9,098,476 |
+| **arm1_random** | 50 | 12 | **24.00%** | [13.06%, 38.17%] | 190 | 150 | 28.70s | 2,351,988 |
+| **arm2_selective** | 50 | 12 | **24.00%** | [13.06%, 38.17%] | 91 | 96 | 48.25s | 6,689,025 |
 
 ### Causal Contrasts & Statistical Estimates
 
-* **Selective Gate vs. Unverified Baseline:** $\Delta = -4.08\%$
-* **Random Verification Control vs. Unverified Baseline:** $\Delta = -4.08\%$
+* **Selective Gate vs. Unverified Baseline:** $\Delta = -4.00\%$
+* **Random Verification Control vs. Unverified Baseline:** $\Delta = -4.00\%$
 * **Selective Gate vs. Random Control:** $\Delta = +0.00\%$
-* **Net Policy Token Reduction:** **26.6%** token savings under selective quality gating
+* **Net Policy Token Reduction:** **26.5%** token savings under selective quality gating
 
 ---
 
@@ -33,7 +33,7 @@
 | **coding_calibration (Calibration Utilities)** | 5 | 3/5 (60.0%) | 2/5 (40.0%) | **4/5 (80.0%)** |
 | **core_algorithms (Core Algorithms)** | 4 | 1/4 (25.0%) | 1/4 (25.0%) | **1/4 (25.0%)** |
 | **pennylane (Quantum Circuits)** | 10 | 4/10 (40.0%) | 2/10 (20.0%) | **3/10 (30.0%)** |
-| **production_systems (Production Systems)** | 3 | 2/3 (66.7%) | 2/3 (66.7%) | **1/3 (33.3%)** |
+| **production_systems (Production Systems)** | 4 | 2/4 (50.0%) | 2/4 (50.0%) | **1/4 (25.0%)** |
 | **repo_maintenance (Maintenance)** | 7 | 2/7 (28.6%) | 2/7 (28.6%) | **1/7 (14.3%)** |
 | **sympy (Symbolic Math)** | 10 | 1/10 (10.0%) | 2/10 (20.0%) | **2/10 (20.0%)** |
 
@@ -41,11 +41,11 @@
 
 ## 3. Audited Action-Level Telemetry Across SQLite Databases
 
-* **Total SQLite Databases Audited:** 147
-* **Total Action Event Rows:** 2,329
-* **Total Action-Time Verified Decisions (`decision='verify'`):** 273
-* **Total Blocked Actions (`blocked=True`, Rollback Executed):** 242
-* **Containerized Pytest Grading Logs:** 147 raw `grade.log` files recorded
+* **Total SQLite Databases Audited:** 150
+* **Total Action Event Rows:** 2,391
+* **Total Action-Time Verified Decisions (`decision='verify'`):** 281
+* **Total Blocked Actions (`blocked=True`, Rollback Executed):** 250
+* **Containerized Pytest Grading Logs:** 150 raw `grade.log` files recorded
 
 ---
 
@@ -62,6 +62,7 @@
 | `repo_http_header_normalizer` | production_systems | PASS | PASS | **FAIL** | False Block / Regressed | [`A0`](file:///F:/Sadik/VERITAS/artifacts/action_time_study_deepseek_coder_v2_16b/arm0_unverified/repo_http_header_normalizer/grade.log) / [`A1`](file:///F:/Sadik/VERITAS/artifacts/action_time_study_deepseek_coder_v2_16b/arm1_random/repo_http_header_normalizer/grade.log) / [`A2`](file:///F:/Sadik/VERITAS/artifacts/action_time_study_deepseek_coder_v2_16b/arm2_selective/repo_http_header_normalizer/grade.log) |
 | `repo_iso_duration` | core_algorithms | FAIL | FAIL | **FAIL** | Hard Defect (Unsolved) | [`A0`](file:///F:/Sadik/VERITAS/artifacts/action_time_study_deepseek_coder_v2_16b/arm0_unverified/repo_iso_duration/grade.log) / [`A1`](file:///F:/Sadik/VERITAS/artifacts/action_time_study_deepseek_coder_v2_16b/arm1_random/repo_iso_duration/grade.log) / [`A2`](file:///F:/Sadik/VERITAS/artifacts/action_time_study_deepseek_coder_v2_16b/arm2_selective/repo_iso_duration/grade.log) |
 | `repo_json_schema_coercer` | repo_maintenance | PASS | PASS | **PASS** | Consistently Solved | [`A0`](file:///F:/Sadik/VERITAS/artifacts/action_time_study_deepseek_coder_v2_16b/arm0_unverified/repo_json_schema_coercer/grade.log) / [`A1`](file:///F:/Sadik/VERITAS/artifacts/action_time_study_deepseek_coder_v2_16b/arm1_random/repo_json_schema_coercer/grade.log) / [`A2`](file:///F:/Sadik/VERITAS/artifacts/action_time_study_deepseek_coder_v2_16b/arm2_selective/repo_json_schema_coercer/grade.log) |
+| `repo_jwt_token_parser` | production_systems | FAIL | FAIL | **FAIL** | Hard Defect (Unsolved) | [`A0`](file:///F:/Sadik/VERITAS/artifacts/action_time_study_deepseek_coder_v2_16b/arm0_unverified/repo_jwt_token_parser/grade.log) / [`A1`](file:///F:/Sadik/VERITAS/artifacts/action_time_study_deepseek_coder_v2_16b/arm1_random/repo_jwt_token_parser/grade.log) / [`A2`](file:///F:/Sadik/VERITAS/artifacts/action_time_study_deepseek_coder_v2_16b/arm2_selective/repo_jwt_token_parser/grade.log) |
 | `repo_lru_cache` | coding_calibration | FAIL | FAIL | **PASS** | **REGRESSION PREVENTED** | [`A0`](file:///F:/Sadik/VERITAS/artifacts/action_time_study_deepseek_coder_v2_16b/arm0_unverified/repo_lru_cache/grade.log) / [`A1`](file:///F:/Sadik/VERITAS/artifacts/action_time_study_deepseek_coder_v2_16b/arm1_random/repo_lru_cache/grade.log) / [`A2`](file:///F:/Sadik/VERITAS/artifacts/action_time_study_deepseek_coder_v2_16b/arm2_selective/repo_lru_cache/grade.log) |
 | `repo_markdown_link_extractor` | production_systems | FAIL | FAIL | **FAIL** | Hard Defect (Unsolved) | [`A0`](file:///F:/Sadik/VERITAS/artifacts/action_time_study_deepseek_coder_v2_16b/arm0_unverified/repo_markdown_link_extractor/grade.log) / [`A1`](file:///F:/Sadik/VERITAS/artifacts/action_time_study_deepseek_coder_v2_16b/arm1_random/repo_markdown_link_extractor/grade.log) / [`A2`](file:///F:/Sadik/VERITAS/artifacts/action_time_study_deepseek_coder_v2_16b/arm2_selective/repo_markdown_link_extractor/grade.log) |
 | `repo_nested_dict_resolver` | coding_calibration | FAIL | FAIL | **FAIL** | Hard Defect (Unsolved) | [`A0`](file:///F:/Sadik/VERITAS/artifacts/action_time_study_deepseek_coder_v2_16b/arm0_unverified/repo_nested_dict_resolver/grade.log) / [`A1`](file:///F:/Sadik/VERITAS/artifacts/action_time_study_deepseek_coder_v2_16b/arm1_random/repo_nested_dict_resolver/grade.log) / [`A2`](file:///F:/Sadik/VERITAS/artifacts/action_time_study_deepseek_coder_v2_16b/arm2_selective/repo_nested_dict_resolver/grade.log) |
