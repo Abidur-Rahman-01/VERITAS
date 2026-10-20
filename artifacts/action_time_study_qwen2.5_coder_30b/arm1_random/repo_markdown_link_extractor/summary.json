@@ -1,0 +1,13 @@
+{
+  "trial_id": "arm1_random_repo_markdown_link_extractor",
+  "arm": "arm1_random",
+  "task_id": "repo_markdown_link_extractor",
+  "resolved": true,
+  "elapsed_seconds": 9.91,
+  "total_events": 4,
+  "verified_decisions": 1,
+  "blocked_actions": 0,
+  "steps_completed": 0,
+  "policy_tokens": 8124,
+  "verifier_spent": 0.02
+}
