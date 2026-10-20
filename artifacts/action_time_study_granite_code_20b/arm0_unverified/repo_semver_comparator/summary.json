@@ -1,0 +1,13 @@
+{
+  "trial_id": "arm0_unverified_repo_semver_comparator",
+  "arm": "arm0_unverified",
+  "task_id": "repo_semver_comparator",
+  "resolved": false,
+  "elapsed_seconds": 251.05,
+  "total_events": 22,
+  "verified_decisions": 0,
+  "blocked_actions": 1,
+  "steps_completed": 0,
+  "policy_tokens": 151442,
+  "verifier_spent": 0.0
+}
