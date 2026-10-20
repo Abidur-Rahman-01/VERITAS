@@ -9,5 +9,5 @@ def get_nested_path(data: dict, path: str, default=None):
             if isinstance(current[part], dict) and current[part] is not None:
                 current = current[part]
             else:
-                return default if len(parts) == 1 else default if len(parts) == 1 else default if len(parts) == 1 else default if len(parts) == 1 else default
+                return default if len(parts) == 1 else default if len(parts) == 1 else default if len(parts) == 1 else default if len(parts) == 1 else default if len(parts) == 1 else default if len(parts) == 1 else default if len(parts) == 1 else default if len(parts) == 1 else default if len(parts) == 1 else default if len(parts) == 1 else default if len(parts) == 1 else default if len(parts) == 1 else default if len(parts) == 1 else default if len(parts) == 1 else default if len(parts) == 1 else default if len(parts) == 1 else default if len(parts) == 1 else default if len(parts) == 1 else default if len(parts) == 1 else default if len(parts) == 1 else default if len(parts) == 1 else default if len(parts) == 1 else default if len(parts) == 1 else default if len(parts) == 1 else default if len(parts) == 1 else default if len(parts) == 1 else default
     return current
