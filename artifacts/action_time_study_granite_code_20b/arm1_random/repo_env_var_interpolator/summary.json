@@ -1,0 +1,13 @@
+{
+  "trial_id": "arm1_random_repo_env_var_interpolator",
+  "arm": "arm1_random",
+  "task_id": "repo_env_var_interpolator",
+  "resolved": false,
+  "elapsed_seconds": 11.24,
+  "total_events": 7,
+  "verified_decisions": 4,
+  "blocked_actions": 4,
+  "steps_completed": 0,
+  "policy_tokens": 15740,
+  "verifier_spent": 0.08
+}
