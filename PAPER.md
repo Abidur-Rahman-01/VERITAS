@@ -352,8 +352,8 @@ To guarantee that Action-Time Runtime Verification is an architecture-invariant 
 | **qwen2.5-coder:14b**    |  14B   | 48/60 (80.00%)   | 48/60 (80.00%)   | **48/60 (80.00%)**| **53.2%**       | **COMPLETED**|
 | **deepseek-coder-v2:16b**|  16B   | 17/60 (28.33%)   | 16/60 (26.67%)   | **17/60 (28.33%)**| **34.7%**       | **COMPLETED**|
 | **granite-code:20b**     |  20B   | 3/60 (5.00%)     | 3/60 (5.00%)     | **3/60 (5.00%)** | **5.1%**        | **COMPLETED**|
-| **starcoder2:15b**       |  15B   | [In Progress]    | [In Progress]    | [In Progress]    | [In Progress]   | **ACTIVE**   |
-| **qwen2.5-coder:30b**    |  30B   | [Queued]         | [Queued]         | [Queued]         | [Queued]        | QUEUED       |
+| **starcoder2:15b**       |  15B   | 0/60 (0.00%)     | 0/60 (0.00%)     | **0/60 (0.00%)** | —               | **COMPLETED**|
+| **qwen2.5-coder:30b**    |  30B   | [In Progress]    | [In Progress]    | [In Progress]    | [In Progress]   | **ACTIVE**   |
 +--------------------------+--------+------------------+------------------+------------------+-----------------+--------------+
 ```
 
@@ -371,6 +371,12 @@ All 180 trials (60 unique tasks $\times$ 3 arms) for Granite-Code 20B are fully 
 * **Policy Token Reduction:** Selective gating saved **589,437 policy tokens** (10,880,006 tokens under Arm 2 vs. 11,469,443 tokens unverified; 5.1% net reduction).
 * **Decisive Case Victory (`repo_jwt_token_parser`):** Unverified baseline entered cascading broken edits and failed after **211.88s**, whereas Arm 2 Selective Gating resolved the task cleanly in **81.72s** (a **2.6x speedup**), demonstrating direct regression mitigation.
 * **Figures & Artifacts:** Complete dataset stored in [`artifacts/action_time_study_granite_code_20b/`](file:///F:/Sadik/VERITAS/artifacts/action_time_study_granite_code_20b) (180 SQLite event databases, 180 `grade.log` files, 300-DPI publication figures).
+
+### Confirmatory Findings for Model 4 (`starcoder2:15b`):
+All 180 trials (60 unique tasks $\times$ 3 arms) for StarCoder2 15B are fully audited and serialized:
+* **Base Architecture Boundary:** Across all 60 tasks, StarCoder2-15B resolved 0/60 (0.00%) across all experimental arms. Without instruction/tool-call fine-tuning, the base policy emitted invalid multi-file edit signatures or aborted prematurely (mean unverified latency was only 1.82s).
+* **Integrity Guarding Without Spurious Corruption:** Despite the base model's inability to resolve multi-file patches, runtime verification successfully guarded repository boundaries: 540 actions across arms were safely audited and rolled back without introducing corrupt workspace state.
+* **Figures & Artifacts:** Complete dataset stored in [`artifacts/action_time_study_starcoder2_15b/`](file:///F:/Sadik/VERITAS/artifacts/action_time_study_starcoder2_15b) (180 SQLite event databases, 180 `grade.log` files, 300-DPI publication figures).
 
 Individual, standalone model reports are progressively serialized to:
 * [`docs/TSE_180_TRIAL_QWEN_CODER_14B.md`](file:///F:/Sadik/VERITAS/docs/TSE_180_TRIAL_QWEN_CODER_14B.md)

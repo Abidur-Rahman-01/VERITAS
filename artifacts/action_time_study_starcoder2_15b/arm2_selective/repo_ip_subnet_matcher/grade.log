@@ -1,0 +1,28 @@
+Exit code: 1
+
+STDOUT:
+FF                                                                       [100%]
+================================== FAILURES ===================================
+_____________________________ test_inside_subnet ______________________________
+
+    def test_inside_subnet():
+>       assert is_ip_in_network('192.168.1.5', '192.168.1.0/24') is True
+E       AssertionError: assert False is True
+E        +  where False = is_ip_in_network('192.168.1.5', '192.168.1.0/24')
+
+tests\test_cidr.py:4: AssertionError
+_____________________________ test_outside_subnet _____________________________
+
+    def test_outside_subnet():
+>       assert is_ip_in_network('10.0.0.1', '192.168.1.0/24') is False
+E       AssertionError: assert True is False
+E        +  where True = is_ip_in_network('10.0.0.1', '192.168.1.0/24')
+
+tests\test_cidr.py:7: AssertionError
+=========================== short test summary info ===========================
+FAILED tests\test_cidr.py::test_inside_subnet - AssertionError: assert False ...
+FAILED tests\test_cidr.py::test_outside_subnet - AssertionError: assert True ...
+2 failed in 0.08s
+
+
+STDERR:
