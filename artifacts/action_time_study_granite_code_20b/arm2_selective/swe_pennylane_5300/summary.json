@@ -1,0 +1,13 @@
+{
+  "trial_id": "arm2_selective_swe_pennylane_5300",
+  "arm": "arm2_selective",
+  "task_id": "swe_pennylane_5300",
+  "resolved": false,
+  "elapsed_seconds": 104.31,
+  "total_events": 30,
+  "verified_decisions": 2,
+  "blocked_actions": 2,
+  "steps_completed": 0,
+  "policy_tokens": 219600,
+  "verifier_spent": 0.04
+}
