@@ -1,0 +1,30 @@
+Exit code: 1
+
+STDOUT:
+.F                                                                       [100%]
+================================== FAILURES ===================================
+____________________________ test_adjoint_dispatch ____________________________
+
+    def test_adjoint_dispatch():
+>       assert dispatch_adjoint('Adjoint_PauliX') == 'kernel_x_adjoint'
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests\test_devices.py:8: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+op_name = 'Adjoint_PauliX'
+
+    def dispatch_adjoint(op_name: str) -> str:
+        supported = {'PauliX': 'kernel_x', 'PauliY': 'kernel_y', 'Hadamard': 'kernel_h'}
+        # BUG: Fails on 'Adjoint_' prefix instead of stripping it and returning kernel with adjoint suffix
+>       return supported[op_name]
+               ^^^^^^^^^^^^^^^^^^
+E       KeyError: 'Adjoint_PauliX'
+
+pennylane\devices.py:6: KeyError
+=========================== short test summary info ===========================
+FAILED tests\test_devices.py::test_adjoint_dispatch - KeyError: 'Adjoint_PauliX'
+1 failed, 1 passed in 0.07s
+
+
+STDERR:
