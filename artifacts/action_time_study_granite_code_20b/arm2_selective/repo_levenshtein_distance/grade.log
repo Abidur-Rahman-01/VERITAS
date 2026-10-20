@@ -1,0 +1,19 @@
+Exit code: 1
+
+STDOUT:
+.F                                                                       [100%]
+================================== FAILURES ===================================
+__________________________ test_single_substitution ___________________________
+
+    def test_single_substitution():
+>       assert levenshtein('cat', 'bat') == 1
+E       AssertionError: assert 0 == 1
+E        +  where 0 = levenshtein('cat', 'bat')
+
+tests\test_lev.py:7: AssertionError
+=========================== short test summary info ===========================
+FAILED tests\test_lev.py::test_single_substitution - AssertionError: assert 0...
+1 failed, 1 passed in 0.08s
+
+
+STDERR:
