@@ -1,0 +1,21 @@
+Exit code: 1
+
+STDOUT:
+.F                                                                       [100%]
+================================== FAILURES ===================================
+____________________________ test_adjoint_dispatch ____________________________
+
+    def test_adjoint_dispatch():
+>       assert dispatch_adjoint('Adjoint_PauliX') == 'kernel_x_adjoint'
+E       AssertionError: assert 'PauliX_adjoint' == 'kernel_x_adjoint'
+E         
+E         - kernel_x_adjoint
+E         + PauliX_adjoint
+
+tests\test_devices.py:8: AssertionError
+=========================== short test summary info ===========================
+FAILED tests\test_devices.py::test_adjoint_dispatch - AssertionError: assert ...
+1 failed, 1 passed in 0.07s
+
+
+STDERR:

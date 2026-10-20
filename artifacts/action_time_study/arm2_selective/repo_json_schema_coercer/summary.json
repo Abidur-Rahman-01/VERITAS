@@ -3,11 +3,11 @@
   "arm": "arm2_selective",
   "task_id": "repo_json_schema_coercer",
   "resolved": true,
-  "elapsed_seconds": 6.17,
-  "total_events": 4,
-  "verified_decisions": 2,
-  "blocked_actions": 0,
+  "elapsed_seconds": 12.97,
+  "total_events": 8,
+  "verified_decisions": 5,
+  "blocked_actions": 4,
   "steps_completed": 0,
-  "policy_tokens": 9336,
-  "verifier_spent": 0.04
+  "policy_tokens": 25389,
+  "verifier_spent": 0.1
 }

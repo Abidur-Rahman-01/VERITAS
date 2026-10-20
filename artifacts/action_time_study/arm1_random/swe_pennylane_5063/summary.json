@@ -1,0 +1,13 @@
+{
+  "trial_id": "arm1_random_swe_pennylane_5063",
+  "arm": "arm1_random",
+  "task_id": "swe_pennylane_5063",
+  "resolved": true,
+  "elapsed_seconds": 4.06,
+  "total_events": 4,
+  "verified_decisions": 1,
+  "blocked_actions": 0,
+  "steps_completed": 0,
+  "policy_tokens": 6519,
+  "verifier_spent": 0.02
+}

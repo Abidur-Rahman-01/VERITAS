@@ -8,7 +8,8 @@ __pycache__/
 htmlcov/
 data/
 runs/
-artifacts/
+artifacts/*
+!artifacts/action_time_study/
 dist/
 *.egg-info/
 .env

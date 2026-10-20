@@ -1,50 +1,50 @@
 {
   "arm_summary": {
     "arm0_unverified": {
-      "trials": 2,
-      "resolved": 2,
-      "resolution_rate": 100.0,
+      "trials": 20,
+      "resolved": 10,
+      "resolution_rate": 50.0,
       "ci_95": [
-        15.81,
-        100.0
+        27.2,
+        72.8
       ],
-      "mean_elapsed_seconds": 7.29,
+      "mean_elapsed_seconds": 7.11,
       "total_verified_decisions": 0,
-      "total_blocked_actions": 0,
-      "mean_tokens": 7337.0,
+      "total_blocked_actions": 7,
+      "mean_tokens": 26919.55,
       "total_verifier_spent": 0.0
     },
     "arm1_random": {
-      "trials": 2,
-      "resolved": 2,
-      "resolution_rate": 100.0,
+      "trials": 20,
+      "resolved": 14,
+      "resolution_rate": 70.0,
       "ci_95": [
-        15.81,
-        100.0
+        45.72,
+        88.11
       ],
-      "mean_elapsed_seconds": 6.4,
-      "total_verified_decisions": 2,
-      "total_blocked_actions": 0,
-      "mean_tokens": 8129.5,
-      "total_verifier_spent": 0.04
+      "mean_elapsed_seconds": 8.47,
+      "total_verified_decisions": 45,
+      "total_blocked_actions": 30,
+      "mean_tokens": 17298.4,
+      "total_verifier_spent": 0.9
     },
     "arm2_selective": {
-      "trials": 2,
-      "resolved": 2,
-      "resolution_rate": 100.0,
+      "trials": 20,
+      "resolved": 14,
+      "resolution_rate": 70.0,
       "ci_95": [
-        15.81,
-        100.0
+        45.72,
+        88.11
       ],
-      "mean_elapsed_seconds": 5.64,
-      "total_verified_decisions": 3,
-      "total_blocked_actions": 0,
-      "mean_tokens": 9392.0,
-      "total_verifier_spent": 0.06
+      "mean_elapsed_seconds": 10.91,
+      "total_verified_decisions": 65,
+      "total_blocked_actions": 38,
+      "mean_tokens": 23218.2,
+      "total_verifier_spent": 1.3
     }
   },
   "contrasts": {
     "selective_vs_random": 0.0,
-    "selective_vs_unverified": 0.0
+    "selective_vs_unverified": 20.0
   }
 }

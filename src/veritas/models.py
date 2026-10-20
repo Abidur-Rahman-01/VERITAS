@@ -150,12 +150,20 @@ class LocalModel:
                                                        "num_predict": cap}}
             if cfg.sampling_seed is not None:
                 payload["options"]["seed"] = cfg.sampling_seed
-            response = self.client.post(
-                cfg.base_url.rstrip("/") + "/api/chat",
-                headers=headers, json=payload,
-                timeout=deadline,
-            )
-            response.raise_for_status()
+            response = None
+            for attempt in range(5):
+                try:
+                    response = self.client.post(
+                        cfg.base_url.rstrip('/') + '/api/chat',
+                        headers=headers, json=payload,
+                        timeout=deadline,
+                    )
+                    response.raise_for_status()
+                    break
+                except Exception:
+                    if attempt == 4:
+                        raise
+                    time.sleep(2.0 * (attempt + 1))
             data = response.json()
             content = data["message"]["content"]
             usage = Usage(

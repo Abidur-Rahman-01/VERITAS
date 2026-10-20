@@ -1,0 +1,37 @@
+Exit code: 1
+
+STDOUT:
+FFF                                                                      [100%]
+================================== FAILURES ===================================
+______________________________ test_simple_split ______________________________
+
+    def test_simple_split():
+>       assert split_csv_line('a,b,c') == ['a', 'b', 'c']
+E       AssertionError: assert None == ['a', 'b', 'c']
+E        +  where None = split_csv_line('a,b,c')
+
+tests\test_csv.py:5: AssertionError
+______________________________ test_quoted_split ______________________________
+
+    def test_quoted_split():
+>       assert split_csv_line('"a,b",c') == ['"a,b"', 'c']
+E       assert None == ['"a,b"', 'c']
+E        +  where None = split_csv_line('"a,b",c')
+
+tests\test_csv.py:8: AssertionError
+____________________________ test_semicolon_split _____________________________
+
+    def test_semicolon_split():
+>       assert split_csv_line('1;2;3', delimiter=';') == ['1', '2', '3']
+E       AssertionError: assert None == ['1', '2', '3']
+E        +  where None = split_csv_line('1;2;3', delimiter=';')
+
+tests\test_csv.py:11: AssertionError
+=========================== short test summary info ===========================
+FAILED tests\test_csv.py::test_simple_split - AssertionError: assert None == ...
+FAILED tests\test_csv.py::test_quoted_split - assert None == ['"a,b"', 'c']
+FAILED tests\test_csv.py::test_semicolon_split - AssertionError: assert None ...
+3 failed in 0.08s
+
+
+STDERR:
