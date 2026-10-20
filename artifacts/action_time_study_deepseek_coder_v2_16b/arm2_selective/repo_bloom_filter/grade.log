@@ -1,0 +1,22 @@
+Exit code: 1
+
+STDOUT:
+F                                                                        [100%]
+================================== FAILURES ===================================
+_____________________________ test_two_hash_bits ______________________________
+
+    def test_two_hash_bits():
+        bf = BloomFilter(64)
+        bf.add('hello')
+>       assert sum(bf.bits) == 2
+E       assert 1 == 2
+E        +  where 1 = sum([0, 0, 0, 0, 0, 0, ...])
+E        +    where [0, 0, 0, 0, 0, 0, ...] = <bloom.filter.BloomFilter object at 0x000001A99CE53A50>.bits
+
+tests\test_bloom.py:6: AssertionError
+=========================== short test summary info ===========================
+FAILED tests\test_bloom.py::test_two_hash_bits - assert 1 == 2
+1 failed in 0.08s
+
+
+STDERR:
