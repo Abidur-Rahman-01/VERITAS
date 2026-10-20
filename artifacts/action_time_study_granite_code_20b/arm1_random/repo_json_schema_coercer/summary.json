@@ -1,0 +1,13 @@
+{
+  "trial_id": "arm1_random_repo_json_schema_coercer",
+  "arm": "arm1_random",
+  "task_id": "repo_json_schema_coercer",
+  "resolved": false,
+  "elapsed_seconds": 54.02,
+  "total_events": 17,
+  "verified_decisions": 4,
+  "blocked_actions": 4,
+  "steps_completed": 0,
+  "policy_tokens": 95826,
+  "verifier_spent": 0.08
+}
