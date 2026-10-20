@@ -1,0 +1,22 @@
+Exit code: 1
+
+STDOUT:
+F                                                                        [100%]
+================================== FAILURES ===================================
+________________________________ test_l2_norm _________________________________
+
+    def test_l2_norm():
+        vec = [3.0, 4.0]
+        res = normalize_state(vec)
+>       assert math.isclose(res[0], 0.6)
+E       assert False
+E        +  where False = <built-in function isclose>(0.42857142857142855, 0.6)
+E        +    where <built-in function isclose> = math.isclose
+
+tests\test_state.py:7: AssertionError
+=========================== short test summary info ===========================
+FAILED tests\test_state.py::test_l2_norm - assert False
+1 failed in 0.08s
+
+
+STDERR:
