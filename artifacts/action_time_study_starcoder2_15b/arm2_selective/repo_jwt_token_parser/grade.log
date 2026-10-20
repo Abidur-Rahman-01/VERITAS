@@ -1,0 +1,59 @@
+Exit code: 1
+
+STDOUT:
+F                                                                        [100%]
+================================== FAILURES ===================================
+____________________________ test_unpadded_payload ____________________________
+
+    def test_unpadded_payload():
+        # JSON: {'sub': '123'}
+        token = 'header.eyJzdWIiOiIxMjMifQ.sig'
+>       assert parse_jwt_payload(token) == {'sub': '123'}
+               ^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests\test_jwt.py:7: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+jwtsimple\jwt.py:8: in parse_jwt_payload
+    decoded = base64.urlsafe_b64decode(payload_b64)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+C:\Users\UseR\AppData\Local\Programs\Python\Python311\Lib\base64.py:134: in urlsafe_b64decode
+    return b64decode(s)
+           ^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+s = b'eyJzdWIiOiIxMjMifQ', altchars = None, validate = False
+
+    def b64decode(s, altchars=None, validate=False):
+        """Decode the Base64 encoded bytes-like object or ASCII string s.
+    
+        Optional altchars must be a bytes-like object or ASCII string of length 2
+        which specifies the alternative alphabet used instead of the '+' and '/'
+        characters.
+    
+        The result is returned as a bytes object.  A binascii.Error is raised if
+        s is incorrectly padded.
+    
+        If validate is False (the default), characters that are neither in the
+        normal base-64 alphabet nor the alternative alphabet are discarded prior
+        to the padding check.  If validate is True, these non-alphabet characters
+        in the input result in a binascii.Error.
+        For more information about the strict base64 check, see:
+    
+        https://docs.python.org/3.11/library/binascii.html#binascii.a2b_base64
+        """
+        s = _bytes_from_decode_data(s)
+        if altchars is not None:
+            altchars = _bytes_from_decode_data(altchars)
+            assert len(altchars) == 2, repr(altchars)
+            s = s.translate(bytes.maketrans(altchars, b'+/'))
+>       return binascii.a2b_base64(s, strict_mode=validate)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       binascii.Error: Incorrect padding
+
+C:\Users\UseR\AppData\Local\Programs\Python\Python311\Lib\base64.py:88: Error
+=========================== short test summary info ===========================
+FAILED tests\test_jwt.py::test_unpadded_payload - binascii.Error: Incorrect p...
+1 failed in 0.09s
+
+
+STDERR:

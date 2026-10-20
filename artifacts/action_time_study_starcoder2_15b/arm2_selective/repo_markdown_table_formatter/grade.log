@@ -1,0 +1,21 @@
+Exit code: 1
+
+STDOUT:
+F                                                                        [100%]
+================================== FAILURES ===================================
+__________________________________ test_row ___________________________________
+
+    def test_row():
+>       assert format_row(['A', 'B']) == '| A | B |'
+E       AssertionError: assert 'A | B' == '| A | B |'
+E         
+E         - | A | B |
+E         + A | B
+
+tests\test_table.py:4: AssertionError
+=========================== short test summary info ===========================
+FAILED tests\test_table.py::test_row - AssertionError: assert 'A | B' == '| A...
+1 failed in 0.07s
+
+
+STDERR:
