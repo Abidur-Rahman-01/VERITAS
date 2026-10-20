@@ -1,0 +1,13 @@
+{
+  "trial_id": "arm1_random_repo_http_header_normalizer",
+  "arm": "arm1_random",
+  "task_id": "repo_http_header_normalizer",
+  "resolved": false,
+  "elapsed_seconds": 16.8,
+  "total_events": 4,
+  "verified_decisions": 0,
+  "blocked_actions": 4,
+  "steps_completed": 0,
+  "policy_tokens": 2473,
+  "verifier_spent": 0.0
+}

@@ -1,0 +1,23 @@
+Exit code: 1
+
+STDOUT:
+.F                                                                       [100%]
+================================== FAILURES ===================================
+___________________________ test_duplicate_headers ____________________________
+
+    def test_duplicate_headers():
+        raw = [("Accept", "text/html"), ("accept", "application/json"), ("ACCEPT", "image/webp")]
+>       assert normalize_headers(raw) == {"accept": "text/html, application/json, image/webp"}
+E       AssertionError: assert {'accept': 'image/webp'} == {'accept': 't..., image/webp'}
+E         
+E         Differing items:
+E         {'accept': 'image/webp'} != {'accept': 'text/html, application/json, image/webp'}
+E         Use -v to get more diff
+
+tests\test_headers.py:9: AssertionError
+=========================== short test summary info ===========================
+FAILED tests\test_headers.py::test_duplicate_headers - AssertionError: assert...
+1 failed, 1 passed in 0.08s
+
+
+STDERR:
