@@ -16,3 +16,4 @@ dist/
 .env
 .cache/
 logs/
+SWE-rebench-V2/
