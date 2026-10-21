@@ -322,29 +322,25 @@ Run these on development data first and confirm only prespecified contrasts with
 | Remove evidence freshness filtering | Whether stale evidence changes decisions; never treat this unsafe variant as a deployable policy. |
 | Remove novelty/deduplication features | Whether repeated findings waste packet budget. |
 
-## 7. Implementation plan in this repository
+## 7. Implementation status in this repository
 
-| Existing asset | Reuse | Required extension |
+| Component | Status | Remaining work |
 |---|---|---|
-| [`runtime.py`](../src/veritas/runtime.py) `AgentSession` / `run_phase()` | Actor history, phase limits, tool execution, usage events. | Add a study runner with multiple checkpoint cycles and exact branch replay. The existing phase seam is for a separate study. |
-| [`state.py`](../src/veritas/state.py) `Checkpoint` / `tree_hash()` | Workspace snapshots and state identity. | Persist versioned checkpoint IDs and environment hashes for each evidence item. |
-| [`patch_review.py`](../src/veritas/patch_review.py) | Bounded public-only reviewer packet and finding parser. | Produce source-linked reviewer cards and record unsupported claims as model opinions. |
-| [`schema.py`](../src/veritas/schema.py) `StepRecord` / `Usage` | Typed telemetry and measured resource use. | Add study-specific `PatchVersion`, `EvidenceItem`, `FeedbackDecision`, and branch records. |
-| [`awareness_store.py`](../src/veritas/awareness_store.py) | Durable trial/event storage patterns. | Separate append-only tables and immutable IDs for this study; no reuse of awareness assignments. |
-| [`comparison.py`](../src/veritas/comparison.py) / [`swe.py`](../src/veritas/swe.py) | Existing SWE grading and harness integration. | Build a blinded outcome adapter that grades frozen parent and final patches and preserves raw status. |
-| [`controller.py`](../src/veritas/controller.py) | Reference for budget charging. | Create a distinct feedback selector; the current controller decides whether to verify an action and does not implement this policy. |
-
-Suggested new modules are `feedback_evidence.py` (records and validity),
-`feedback_policy.py` (candidate packets and selection), `feedback_study.py` (paired branch
-orchestration), and `feedback_analysis.py` (audit and estimates). These names describe planned
-work, not implemented features.
+| [`feedback_evidence.py`](../src/veritas/feedback_evidence.py) | Implemented: typed checkpoint/evidence records, provenance checks, exact tree/environment invalidation, and tool-observation conversion. | Connect all fixed test/build/reviewer producers and durably append every item to each branch ledger. |
+| [`feedback_policy.py`](../src/veritas/feedback_policy.py) | Implemented: neutral, raw, fixed actionable, fixed combined, and deterministic adaptive packet policies with a shared character cap. | Tune/freeze the primary fixed comparator and adaptive weights on development repositories. |
+| [`runtime.py`](../src/veritas/runtime.py) `run_phase()` and [`feedback_runtime.py`](../src/veritas/feedback_runtime.py) | Implemented hook: detect workspace-changing tool actions, advance a patch checkpoint, invalidate old evidence, invoke a shared evidence producer, select a policy packet, and expose it before the next actor request. | Supply fixed test/reviewer producers and durable branch event sinks in the study executor. |
+| [`feedback_study.py`](../src/veritas/feedback_study.py) | Implemented: prepared SWE-rebench cohort planning, repository-disjoint partitioning, five paired branch assignments, plan hashing/verification, and descriptive paired summaries. | Implement the executor: one common draft, private parent grading, exact workspace/history replay, durable branch state, resume, and inference-time cost accounting. |
+| [`awareness_runtime.py`](../src/veritas/awareness_runtime.py) | Existing separate draft/review/revision experiment; not the proposed study runner. | Do not use its four factorial assignments as substitutes for the five paired feedback arms. |
+| [`awareness_grading.py`](../src/veritas/awareness_grading.py) / [`swe.py`](../src/veritas/swe.py) | Existing pinned SWE grading and harness contracts. | Reuse to grade frozen parent/final patches, preserving infrastructure and grader errors as unknown outcomes. |
+| [`controller.py`](../src/veritas/controller.py) | Existing action-time verifier controller; distinct from feedback selection. | No reuse as the proposed selector. |
 
 ## 8. Completion criteria
 
 The architecture is ready for a confirmatory study when one pinned repository task can be run from
 initial draft through all five branches, with exact parent-state replay, multiple feedback
 checkpoints, traceable evidence, enforced budgets, independent parent/final grades, and a report
-recomputed from the ledger. The pilot must establish a nontrivial number of initially incorrect
+recomputed from the ledger. The current implementation has cohort planning and policy primitives;
+it is not yet ready to execute the experiment end to end. The pilot must establish a nontrivial number of initially incorrect
 drafts that the chosen actor can sometimes recover from; a floor or ceiling actor cannot identify
 the policy effect well.
 

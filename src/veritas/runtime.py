@@ -30,7 +30,8 @@ class AgentSession:
 
 
 def run_phase(task, session, model, sandbox, store, output, *, trial_id, actor_name,
-              phase, limits, protocol, cue="", boundary=None, on_step=None):
+              phase, limits, protocol, cue="", boundary=None, on_step=None,
+              feedback_provider=None):
     """Baseline execution with equal phase caps; reuse contracts, sandbox and event writer.
 
     The legacy action-gate runner below keeps its existing policy semantics. This
@@ -52,7 +53,12 @@ def run_phase(task, session, model, sandbox, store, output, *, trial_id, actor_n
         if remaining <= 0 or tokens >= limits.completion_tokens:
             status = "time_limit" if remaining <= 0 else "token_limit"
             break
-        context = phase_context(task, session.history, phase=phase, cue=cue, boundary=boundary,
+        current_boundary = boundary
+        if feedback_provider is not None:
+            # Provider is called immediately before each actor request. It can expose
+            # evidence produced after the previous edit without changing tool policy.
+            current_boundary = feedback_provider(session)
+        context = phase_context(task, session.history, phase=phase, cue=cue, boundary=current_boundary,
             history_chars=protocol.history_chars, observation_chars=protocol.observation_chars,
             compact=protocol.compact, steps_remaining=limits.steps-phase_step,
             input_chars=protocol.input_chars)

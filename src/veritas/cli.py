@@ -19,6 +19,21 @@ def parser():
     from .awareness_cli import add_parser
 
     add_parser(commands)
+    feedback = commands.add_parser(
+        "feedback-study", help="Plan and audit the paired SWE-rebench feedback-selection study"
+    ).add_subparsers(dest="action", required=True)
+    fp = feedback.add_parser("plan", help="Freeze a repository-disjoint five-arm task cohort")
+    fp.add_argument("--tasks", default="data/prepared")
+    fp.add_argument("--source", default="swe_rebench")
+    fp.add_argument("--output", required=True)
+    fp.add_argument("--limit", type=int)
+    fp.add_argument("--seed", type=int, default=42)
+    fp.add_argument("--confirmation-fraction", type=float, default=0.2)
+    fv = feedback.add_parser("verify", help="Verify frozen feedback-study plan integrity")
+    fv.add_argument("--study", required=True)
+    fa = feedback.add_parser("analyze", help="Analyze paired branch outcomes from results.jsonl")
+    fa.add_argument("--study", required=True)
+    fa.add_argument("--results")
     scope = commands.add_parser(
         "dependency-scope", help="Create public-only development interface/caller review queue"
     )
@@ -360,6 +375,15 @@ def dispatch(a):
         from .awareness_cli import dispatch as dispatch_awareness
 
         return dispatch_awareness(a)
+    if a.command == "feedback-study":
+        from .feedback_study import analyze_results, create_plan, verify_plan
+
+        if a.action == "plan":
+            return create_plan(a.tasks, a.output, source=a.source, task_limit=a.limit,
+                seed=a.seed, confirmation_fraction=a.confirmation_fraction)
+        if a.action == "verify":
+            return verify_plan(a.study)
+        return analyze_results(a.study, a.results)
     if a.command == "dependencies":
         from .dependencies import write_dependencies
 
