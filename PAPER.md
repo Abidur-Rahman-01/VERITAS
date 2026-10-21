@@ -94,6 +94,35 @@ To address this bottleneck, we investigate **action-time runtime verification**:
 * **RQ3 (Regression Prevention & Safety):** What specific classes of harmful mutations (broken syntax, probe regressions, contract violations) are intercepted by runtime gates?
 * **RQ4 (Domain & Cross-Architecture Heterogeneity):** How does quality gate efficacy vary across software domains and model architectures (Qwen, DeepSeek, Granite, StarCoder)?
 
+### 2.3 Related Work & Comparative Taxonomy
+
+Runtime monitoring, agent mediation, and software quality gates have been explored from distinct software engineering and systems perspectives:
+
+1. **Declarative Runtime Specifications (e.g., AgentSpec):** Focuses on temporal logic constraints, precondition/postcondition contracts, and formal state-machine monitoring for interactive agents interfacing with web or OS APIs. While powerful for ensuring safety invariants, declarative formal contracts require heavy upfront domain modeling and cannot evaluate complex, multi-file code AST mutations, dynamic execution errors, or test-suite regressions.
+2. **Interactive Control-Flow Mediation (e.g., Comfrey):** Enforces execution mediation and permission bounds during interactive agent trajectories, intercepting unauthorized commands or out-of-bounds agent operations. Comfrey guards system permissions rather than semantic code correctness or software regression prevention.
+3. **System-Call Runtime Mediation (SSE Studies):** Traditional systems and software engineering (SSE) runtime mediation operates at the OS/kernel boundary (e.g., seccomp, eBPF, ptrace) to intercept destructive syscalls, privilege escalation, or unauthorized disk writes. These approaches enforce isolation, but treat software source mutations as opaque bytes without semantic domain insight.
+4. **Standard Commit-Time Quality Gates (CI/CD & IST 2026):** Classical software quality gates (e.g., SonarQube, commit-time CI/CD, and recent empirical studies such as the 2026 *Information and Software Technology* benchmark on quality gates) operate *post-hoc* at the commit, draft, or pull-request boundary. They evaluate fully completed candidate patches after whole-task execution. While useful for filtering finished patches, they fail to prevent the cascading, multi-step error spirals that occur *during* multi-turn agent exploration.
+
+```
++------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| TABLE 0: MULTI-DIMENSIONAL COMPARISON WITH CLOSEST PRIOR WORK                                                                                                                      |
++------------------------------+---------------------------+-----------------------------------+---------------------------+-------------------------+-------------------------------+---------------------------------+
+| System / Paradigm            | Intervention Timing       | Checked Evidence                  | Policy / Decision Rule    | Target Domain           | Primary Outcome Evaluated     | Compute & Overhead Profile      |
++------------------------------+---------------------------+-----------------------------------+---------------------------+-------------------------+-------------------------------+---------------------------------+
+| **AgentSpec**                | Pre/post action hook      | Formal temporal logic contracts   | Declarative invariants    | Web / OS agent API      | Policy violation avoidance    | Negligible (formal check)       |
+| **Comfrey**                  | Mid-execution mediation   | Trajectory & permission contracts | Privilege boundary rules  | General agent workflows | Unauthorized access prevention| Moderate (control-flow monitor) |
+| **SSE Runtime Mediation**    | Syscall boundary          | Kernel calls & disk I/O arguments | Access control policies   | Host OS & container     | System isolation & security   | Minimal (kernel hooks)          |
+| **Standard Quality Gates**   | Post-hoc (patch terminus) | Full repository test suites       | Acceptance thresholds     | APR / Whole patches     | Patch regression filtering    | Heavy (full test suite runs)    |
+| **VERITAS (This Study)**     | **Action-Time (pre-exec)**| **AST syntax, diffs, & sub-tests**| **Risk-calibrated ($S\ge\tau$)**| **Multi-file repo repair**| **Loop truncation & savings** | **53.2% Token cut; +30.7% speed**|
++------------------------------+---------------------------+-----------------------------------+---------------------------+-------------------------+-------------------------------+---------------------------------+
+```
+
+### 2.4 The Narrow Empirical Thesis Tested by VERITAS
+Rather than advancing broad claims regarding general agent intelligence or unconstrained feedback superiority, this study isolates and tests a precise software engineering thesis:
+> **On multi-file repository defect repair tasks under strictly budget-matched search caps, does intercepting proposed in-tree mutations *before* execution with atomic rollback truncate compounding error cascades, and does selective risk-calibrated gating outperform budget-matched random verification and unverified execution?**
+
+Our empirical findings establish that the primary real-world contribution of action-time verification is **operational efficiency and loop truncation**: while capable frontier models eventually find solutions if given unlimited retries, in-loop gates cut net policy token expenditure by **53.2% (saving 1.43M tokens)** and accelerate completion latency by **30.7%**, while completely preventing catastrophic workspace corruptions (e.g., test buffer wipes and broken ASTs) that derail unverified agents.
+
 ---
 
 ## 3. Architecture of Action-Time Runtime Verification
@@ -148,6 +177,36 @@ Before executing any verified mutation, VERITAS computes a SHA-256 tree hash of 
 2. The sandbox workspace is restored using an atomic snapshot rollback to `state_before`.
 3. The specific critique is injected into the agent observation channel, enforcing replanning.
 
+### 3.4 What the Pre-Execution Verifier Checks
+When a candidate mutation triggers verification ($S \ge \tau$), the verifier runs three sequential validation probes inside an isolated clone sandbox:
+1. **AST & Syntax Integrity Probe:** Confirms the patched file parses cleanly without syntax errors, unterminated strings, or indentation faults.
+2. **Static Contract & Dependency Probe:** Validates that modified functions, imports, and symbol references exist within the repository namespace.
+3. **Localized Test Regression Probe:** Executes affected in-tree test files to verify that existing passing assertions have not regressed.
+If any probe fails, the verifier emits `verdict = "FAIL"` with structured failure diagnostics.
+
+### 3.5 Operational Lifecycle, Budget Exhaustion, & Failure State Contracts
+To ensure rigorous reproducibility, all runtime contingencies operate under explicit contracts:
+* **Verifier Timeout (30s):** If verification exceeds 30.0 seconds, the verifier process is terminated via `SIGKILL`. The event is logged as `verdict = "TIMEOUT"`, the candidate mutation is blocked (`blocked = True`, `executed = False`), the workspace is restored to `state_before`, and a timeout notification is delivered to the agent.
+* **Verifier Errors & Exceptions:** If the verifier encounters unhandled exceptions, execution is suppressed (`blocked = True`), recorded in SQLite, and charged 0.02 credits against the budget.
+* **Missing Evidence / Inconclusive Probes:** If localized test fixtures are unavailable, the verifier evaluates AST and contract probes. If evidence remains inconclusive, safety-first rejection is applied for high-impact mutations ($\mu \ge 0.80$).
+* **Exhausted Credit Budget ($B \le 0$):** When the budget of $B = 0.40$ credits (20 verifications) is depleted, the controller automatically falls back to `decision = "skip"` for all remaining turns up to the 30-step cap.
+
+### 3.6 Diagnostic Feedback & Replan Channel
+When an action is blocked, the mutation is prevented from altering the workspace disk. The pre-action state is restored via SHA-256 tree rollback, and the agent's observation channel receives structured diagnostic feedback:
+```json
+{
+  "gate": "VERITAS_ACTION_TIME_GATE",
+  "status": "BLOCKED",
+  "action": "edit_file",
+  "target": "cmd2/cmd2.py",
+  "verdict": "FAIL",
+  "reason": "AST parsing failed: SyntaxError on line 412 due to unmatched parentheses.",
+  "workspace_state": "RESTORED_TO_PRE_ACTION_CHECKPOINT",
+  "replan_directive": "Modify proposal to correct the syntax error before attempting re-application."
+}
+```
+This forces the agent to replan without suffering from the corrupted workspace state that derails unverified runs.
+
 ---
 
 ## 4. Empirical Evaluation Setup
@@ -171,6 +230,15 @@ Every task initializes from an unmodified baseline state with verified failing p
 * **Verification Budget:** Fixed credit budget $B = 0.40$ (allowing up to 20 verification checks at 0.02 credits/check).
 * **Failure Handling:** Atomic SHA-256 tree state rollback to `state_before`, marking `blocked=True` and `executed=False`, with diagnostic replan feedback injected into the agent's observation context.
 * **Independent Grading:** Evaluated via containerized `pytest` execution inside each post-run workspace, recording objective exit codes and full test logs to `grade.log`.
+
+### 4.3 Formal Definitions of Evaluation Outcomes & Analysis Unit
+To eliminate ambiguity, all benchmark outcomes and analytical units are predefined:
+* **Task Resolution ($Y \in \{0, 1\}$):** Evaluated strictly via independent containerized `pytest` execution return code on the finalized repository workspace:
+  $$Y_i = \begin{cases} 1 & \text{if } \text{pytest returncode} = 0 \\ 0 & \text{otherwise} \end{cases}$$
+* **Harmful Action ($H$):** A candidate tool mutation that, if executed, introduces a syntax crash, breaks passing tests, or wipes persistent repository state.
+* **Prevented Harm ($TP$):** A harmful action correctly intercepted by the quality gate ($S \ge \tau, \text{verdict} = \text{"FAIL"}$) resulting in atomic rollback, where the unverified baseline succumbed to compounding failure.
+* **False Block ($FP$):** A benign, valid candidate edit incorrectly rejected by the verifier, forcing unnecessary replanning and discarding a valid repair (audited in `swe_cmd2_810` under random checking).
+* **Unit of Analysis:** Every task/condition pair is treated as a single, paired unit of analysis ($N = 60$ tasks $\times$ 3 arms = 180 runs per model; $N = 900$ total trials across 5 models). Uncertainty is reported using exact Clopper-Pearson 95% confidence intervals, and causal contrasts are estimated using paired bootstrap resampling clustered by software domain.
 
 ---
 
