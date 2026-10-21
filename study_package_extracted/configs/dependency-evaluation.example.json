@@ -1,0 +1,15 @@
+{
+  "baseline": "rcvov",
+  "primary_method": "dependency_interaction_graph",
+  "methods": [
+    {"method_id": "rcvov", "family": "established_baseline"},
+    {"method_id": "dependency_interaction_graph", "family": "primary_candidate"},
+    {"method_id": "individual_benefit", "family": "benefit_baseline"},
+    {"method_id": "interaction_no_graph", "family": "graph_ablation"},
+    {"method_id": "uniform_allocation", "family": "allocation_baseline"},
+    {"method_id": "sequential_learner", "family": "sequential_baseline"},
+    {"method_id": "periodic", "family": "verification_baseline"},
+    {"method_id": "random", "family": "verification_baseline"}
+  ],
+  "warning": "Registry for freezing intended comparisons only. Each method must have a verified executable implementation before collection."
+}

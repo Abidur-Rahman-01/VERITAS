@@ -1,0 +1,74 @@
+# Paths are resolved from the directory in which `awareness plan` runs.
+# Development smoke configuration. Prepare the task images before running.
+version: 2
+name: veritas-v2-development
+tasks: data/prepared
+splits: artifacts/awareness-splits.json
+partition: development
+design: factorial
+source: swe_rebench
+allow_research_pool: true
+task_limit: 4
+actors:
+  - id: actor-qwen
+    family: qwen
+    revision: 845dbda0ea48ed749caafd9e6037047aa19acfcfd82e704d7ca97d631a0b697e
+    model:
+      backend: ollama
+      base_url: http://127.0.0.1:11434
+      name: qwen2.5:7b
+      max_tokens: 2048
+      temperature: 0
+reviewer:
+  id: reviewer
+  family: gemma3
+  revision: a2af6cc3eb7fa8be8504abaf9b04e88f17a119ec3f04a3addf55f92841195f5a
+  model:
+    backend: ollama
+    base_url: http://127.0.0.1:11434
+    name: gemma3:4b
+    max_tokens: 768
+    temperature: 0
+# Map each selected private instance_id to its prepared Docker image.
+# Use the output of `veritas swe image-map`; pin digests for confirmation.
+images: {}
+image_digests: {}
+# Optional independently recorded base-tree hashes, keyed by instance_id. All arms
+# are also checked against the first prepared base for each task.
+base_tree_hashes: {}
+sandbox:
+  memory: 4g
+  cpus: 2
+  timeout_seconds: 60
+grader:
+  python: .venv-rebench/bin/python
+  identity: d307ff9f2168a0448843c0d5881d2cd498d9f73f
+  namespace: none
+  timeout_seconds: 1800
+  max_attempts: 2
+  # package_sha256 is filled from installed files by `awareness plan`.
+draft: {steps: 24, completion_tokens: 24000, seconds: 900}
+revision: {steps: 8, completion_tokens: 8000, seconds: 300}
+review: {input_chars: 32000, output_tokens: 768, seconds: 180, findings: 5}
+repetitions: 1
+seed: 42
+disclosure_probability: 0.5
+assignment_probability: 0.5
+shadow_sample_probability: 0.2
+compact: true
+input_chars: 60000
+history_chars: 30000
+observation_chars: 2000
+# Hard reservation limits for all actor, reviewer, audit and cue-check calls combined.
+# Unknown usage retains the full reservation. These are token/call caps, not dollar caps.
+max_model_calls: 1000
+max_completion_tokens: 1000000
+bootstrap_samples: 4000
+meaningful_effect: 0.05
+alpha: 0.05
+# Fixed cohorts support descriptive gate evidence; change this only when the
+# repository sampling design supports independent population inference.
+repository_sampling: fixed_cohort
+actor_retry: never
+attempt_selection: first
+task_weighting: equal_tasks_equal_actors

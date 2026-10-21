@@ -1,0 +1,89 @@
+\documentclass[journal]{IEEEtran}
+
+\usepackage{amsmath}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{url}
+\usepackage{cite}
+\usepackage{xcolor}
+
+% Replace every TODO marker and remove this command before submission.
+\newcommand{\TODO}[1]{\textcolor{red}{[TODO: #1]}}
+
+\begin{document}
+
+\title{Evaluation Disclosure and Persistence in Repository-Level Coding Agents: A Controlled Study}
+
+\author{\TODO{Author names}\thanks{\TODO{Affiliations, contact information, and any funding statement.}}}
+
+\maketitle
+
+\begin{abstract}
+Coding-agent benchmarks measure task outcomes, but the evaluation context presented to an agent may also affect how it behaves during a task. We study whether an explicit evaluation-disclosure cue changes persistence and resource use in tool-using agents performing repository-level software repair. In a controlled experiment, we vary disclosure and verifier-feedback conditions while holding task environments and execution budgets fixed. We measure early task termination, tool-use trajectories, model calls, token consumption, patch production, and independently graded repair outcomes. The study includes \TODO{final confirmatory sample size and cohort accounting} trials across \TODO{models} and \TODO{repository tasks}. We find \TODO{primary effect estimates with confidence intervals}. Repair completion is analyzed separately from persistence because additional effort does not necessarily produce a correct patch. We release \TODO{artifact availability statement} to support replication.\end{abstract}
+
+\begin{IEEEkeywords}
+automated program repair, coding agents, empirical software engineering, evaluation awareness, software benchmarks
+\end{IEEEkeywords}
+
+\section{Introduction}
+Repository-level coding agents operate through repeated tool interactions: they inspect files, edit code, run commands, and decide whether to continue. Their benchmark performance is therefore a function of both repair capability and the trajectory taken through the repository. Prior work shows that models can recognize evaluation contexts and that test awareness can alter some model behaviors \cite{needham2025,abdelnabi2025,vanDerWeij2025,hua2026}. Whether an explicit evaluation cue changes persistence and resource use during repository-level software repair remains a narrower empirical question.
+
+This paper studies the effect of an evaluation-disclosure prompt on the operational behavior of coding agents. We do not treat greater persistence as equivalent to greater capability or improved repair quality. We report trajectory outcomes and independently graded task outcomes separately.
+
+\textbf{Research question.} When a tool-using coding agent is explicitly told that its work may be evaluated, does that disclosure change its persistence and resource use during repository-level software repair, and do those behavioral changes improve task completion?
+
+\textbf{Contributions.} Subject to final data and protocol verification, the paper contributes: (1) a controlled comparison of evaluation disclosure conditions in repository-level repair; (2) trajectory-level measurements of persistence, tool use, and compute; and (3) an analysis separating behavioral effort from independently graded repair success.\TODO{Revise contributions to match only outcomes established by the final analysis.}
+
+\section{Background and Related Work}
+\subsection{Evaluation Awareness and Test Awareness}
+Research has examined models' ability to identify evaluation contexts and how test awareness affects behavior in safety and capability evaluations \cite{needham2025,abdelnabi2025,vanDerWeij2025,hua2026}. Our study focuses on tool-using repository repair and operational outcomes such as task continuation and tool use. The distinction is one of setting and measured outcome; we do not claim to introduce evaluation awareness as a construct.
+
+\subsection{Repository-Level Repair and Agent Evaluation}
+SWE-bench established repository issue resolution as an evaluation setting for language models \cite{jimenez2024}. Program repair research has long identified localization and patch validation as consequential components of repair \cite{afzal2021}. In this work, repair success is a separate outcome from effort and persistence.
+
+\section{Research Design}
+\subsection{Experimental Conditions}
+We use a \TODO{factorial design specification}. The disclosure condition compares an explicit statement that work may be externally evaluated with a control prompt that omits that statement. The verifier-feedback condition is \TODO{define precisely, including timing, content, and whether feedback is delivered}. All other prompt content, model settings, tool access, task environments, and resource limits are documented in the replication package.
+
+\subsection{Tasks, Models, and Assignment}
+The study uses \TODO{repository names, issue identifiers, base commits, model names and versions}. We report the assignment unit, randomization procedure, blocking variables, run order, exclusions, repeated runs, and overlap among cohorts. The primary confirmatory cohort is identified separately from exploratory and replication cohorts.
+
+\subsection{Measures}
+Primary behavioral outcomes are \TODO{pre-specified persistence outcome(s)}. Secondary outcomes include tool calls, model calls, tokens, wall-clock duration, code-edit attempts, and trajectory length. Repair success is determined using \TODO{independent grading protocol, tests, and grader version}. We define early termination before analysis and report regressions as well as recoveries where relevant.
+
+\subsection{Statistical Analysis}
+We estimate condition effects at the assignment unit and account for repeated tasks, models, and repository clusters as required by the design. We report effect sizes and uncertainty intervals, pre-specified hypothesis direction, multiplicity correction, and sensitivity analyses. \TODO{Insert exact model/test, clustering, confidence interval, and adjustment specification after rerunning from raw records.}
+
+\section{Results}
+\subsection{Cohort Accounting}
+\TODO{Insert a cohort-flow table: assigned, attempted, completed, graded, excluded, and reason; distinguish confirmatory from exploratory cohorts.}
+
+\subsection{Persistence and Resource Use}
+\TODO{Insert primary effect estimate, uncertainty interval, raw counts, and trajectory summaries. Do not pool cohorts unless protocol, assignment, and dependence justify it.}
+
+\subsection{Repair Outcomes}
+\TODO{Report resolved counts and rates by randomized condition. If the primary cohort has zero resolved issues, state the floor result and do not claim improved repair success.}
+
+\section{Discussion}
+The results should be interpreted as effects of the evaluation-disclosure prompt in the tested settings. They do not by themselves establish a general psychological Hawthorne mechanism, endogenous awareness, or a production-versus-benchmark performance gap. We discuss whether additional persistence was productive, neutral, or wasteful using independently graded outcomes and resource costs.
+
+\section{Threats to Validity}
+\subsection{Internal Validity}
+We document prompt differences, assignment, run order, model nondeterminism, infrastructure failures, and any deviations from the frozen protocol. A post-task cue-comprehension check is evidence about reported comprehension, not direct proof of the model's internal state during execution.
+
+\subsection{Construct Validity}
+Persistence, tool use, token consumption, and repair success are distinct constructs. Early stopping criteria and tool-call accounting are specified before interpreting outcomes.
+
+\subsection{External Validity}
+Findings are limited to the models, repositories, tasks, prompts, and budgets studied. Generalization across model families, task types, and harnesses requires replication.
+
+\subsection{Conclusion Validity}
+We report uncertainty intervals and account for dependence and multiple testing. Small cells and floor outcomes limit the precision of estimates.
+
+\section{Conclusion}
+\TODO{Write only after final analyses. State the bounded empirical finding, its uncertainty, and the settings to which it applies.}
+
+\bibliographystyle{IEEEtran}
+\bibliography{references}
+
+\end{document}

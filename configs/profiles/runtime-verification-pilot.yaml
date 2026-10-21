@@ -1,0 +1,13 @@
+# Exploratory action-level runtime-verification pilot only.
+# Use the same model/task/step caps in every policy arm.
+run:
+  max_steps: 30
+  verification_budget: 0.2   # 10 calls at verification_cost=0.02
+  verification_cost: 0.02
+  false_alarm_cost: 0.1
+  budget_unit: verifier_call_credit
+  threshold: 0.33            # random policy selection probability; budget remains a hard cap
+  dynamic_lambda: 0.0
+  audit_all: false
+  allow_uncalibrated: true
+  score_critic: false

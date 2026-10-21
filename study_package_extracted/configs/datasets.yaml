@@ -1,0 +1,61 @@
+# Pinned upstream snapshots verified 2026-09-24. No generated tasks or fault seeds.
+sources:
+  swe_train:
+    repo: princeton-nlp/SWE-bench
+    revision: e48e2bd1e9fecd5bbd641e9414ac59da9f2e69f6
+    split: train
+    adapter: swe
+    expected_rows: 19008
+    official_holdout: false
+  swe_dev:
+    repo: princeton-nlp/SWE-bench
+    revision: e48e2bd1e9fecd5bbd641e9414ac59da9f2e69f6
+    split: dev
+    adapter: swe
+    expected_rows: 225
+    official_holdout: false
+  swe_test:
+    repo: princeton-nlp/SWE-bench
+    revision: e48e2bd1e9fecd5bbd641e9414ac59da9f2e69f6
+    split: test
+    adapter: swe
+    expected_rows: 2294
+    official_holdout: true
+  swe_verified:
+    repo: princeton-nlp/SWE-bench_Verified
+    revision: c104f840cc67f8b6eec6f759ebc8b2693d585d4a
+    split: test
+    adapter: swe
+    expected_rows: 500
+    official_holdout: true
+  swe_rebench:
+    repo: nebius/SWE-rebench
+    revision: 89cdfbab4ab1bd8f5a658bb212d1b63624f4f881
+    split: test
+    adapter: swe
+    expected_rows: 21336
+    # This entire release is an additional holdout unless a new protocol is declared.
+    official_holdout: true
+  gsm8k_train:
+    repo: openai/gsm8k
+    revision: 740312add88f781978c0658806c59bc2815b9866
+    config: main
+    split: train
+    adapter: gsm8k
+    expected_rows: 7473
+    official_holdout: false
+  gsm8k_test:
+    repo: openai/gsm8k
+    revision: 740312add88f781978c0658806c59bc2815b9866
+    config: main
+    split: test
+    adapter: gsm8k
+    expected_rows: 1319
+    official_holdout: true
+  math500:
+    repo: HuggingFaceH4/MATH-500
+    revision: 6e4ed1a2a79af7d8630a6b768ec859cb5af4d3be
+    split: test
+    adapter: math
+    expected_rows: 500
+    official_holdout: true

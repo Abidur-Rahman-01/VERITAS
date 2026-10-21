@@ -1,0 +1,4 @@
+# Optional deterministic-only ablation; use collect --override with efficient.yaml.
+graph:
+  semantic_final_review: false
+  max_semantic_calls: 0

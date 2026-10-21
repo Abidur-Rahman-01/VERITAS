@@ -1,0 +1,40 @@
+# Empty model/source lists select all served generation models/prepared sources.
+# Run from the repository root. Start on dev; freeze settings before test evaluation.
+comparison:
+  tasks: data/prepared
+  base_config: configs/efficient.yaml
+  server:
+    backend: ollama
+    base_url: http://127.0.0.1:11434
+  models: []
+  max_parameters_b: 14  # Exact total count; unknown sizes are excluded.
+  original_dataset_registry: configs/datasets.yaml
+  raw_tasks: data/raw
+  sources: []
+  split: dev
+  limit: 5  # Set null for every task in the selected split.
+  policies: [never, always, graph]
+  verification_budget: 0.04
+  overrides:
+    swe_verified: configs/profiles/efficient-swe.yaml
+    swe_test: configs/profiles/efficient-swe.yaml
+    swe_train: configs/profiles/efficient-swe.yaml
+    swe_dev: configs/profiles/efficient-swe.yaml
+    swe_rebench: configs/profiles/efficient-swe.yaml
+  swe:
+    swe_verified: {images: artifacts/graph/swe_verified.json}
+    swe_test: {images: artifacts/graph/swe_test.json}
+    swe_train: {images: artifacts/graph/swe_train.json}
+    swe_dev: {images: artifacts/graph/swe_dev.json}
+    swe_rebench:
+      images: artifacts/graph/swe_rebench.json
+      namespace: ''
+      python: .venv-rebench/bin/python
+# Cartesian product; adjust to your compute budget.
+grid:
+  model.max_tokens: [512, 1024]
+  run.max_steps: [8, 12]
+max_variants: 128
+
+# Use the largest eligible installed model for semantic verification.
+verifier_model: auto

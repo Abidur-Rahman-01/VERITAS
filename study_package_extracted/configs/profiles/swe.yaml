@@ -1,0 +1,9 @@
+# Fixed for every policy in a paired SWE experiment, including collection.
+model:
+  max_tokens: 4096
+  timeout_seconds: 300
+sandbox:
+  timeout_seconds: 180
+run:
+  max_steps: 60
+  history_chars: 50000

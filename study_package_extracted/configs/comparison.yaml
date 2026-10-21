@@ -1,0 +1,30 @@
+# Run commands from the repository root. Planning reads model metadata only.
+tasks: data/prepared
+base_config: configs/experiment.yaml
+server:
+  backend: ollama
+  base_url: http://127.0.0.1:11434
+  name: discovered-at-planning
+  max_tokens: 4096
+  timeout_seconds: 300
+  temperature: 0
+models: []  # Discover all installed text-generation models. No model downloads.
+sources: [] # Every source in the prepared manifest (eight in the default release).
+split: null # Includes held-out sources: exploratory model selection consumes this sample.
+limit: 5    # Per source, paired across models. --all-tasks removes the limit.
+seed: 42
+swe:
+  swe_verified:
+    images: artifacts/comparison/swe_verified.json
+  swe_test:
+    images: artifacts/comparison/swe_test.json
+  swe_train:
+    images: artifacts/comparison/swe_train.json
+  swe_dev:
+    images: artifacts/comparison/swe_dev.json
+  swe_rebench:
+    images: artifacts/comparison/swe_rebench.json
+    namespace: ""
+    # Linux/macOS: .venv-rebench/bin/python
+    # Windows: .venv-rebench/Scripts/python.exe
+    python: .venv-rebench/Scripts/python.exe

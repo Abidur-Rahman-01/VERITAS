@@ -1,0 +1,30 @@
+# EXPLORATORY SWE-REPAIR / RUNTIME-PLUMBING PILOT ONLY.
+# Exploratory SWE-repair/runtime-plumbing pilot for the planned TSE study.
+# Do not cite as confirmatory causal evidence for action-time runtime verification.
+# Never use this pilot as confirmatory evidence. Generate the task-specific image map
+# from the frozen plan before starting inference.
+tasks: data/prepared
+base_config: configs/experiment.yaml
+server:
+  backend: ollama
+  base_url: http://127.0.0.1:11434
+models:
+  - qwen2.5-coder:7b
+max_parameters_b: 14
+sources:
+  - swe_rebench
+split: test
+limit: 60
+seed: 42
+policies:
+  - never
+  - random
+  - always
+verification_budget: 0.2
+overrides:
+  swe_rebench: configs/profiles/runtime-verification-pilot.yaml
+swe:
+  swe_rebench:
+    images: artifacts/runtime-verification-pilot/swe-images.json
+    namespace: ""
+    timeout_seconds: 1800

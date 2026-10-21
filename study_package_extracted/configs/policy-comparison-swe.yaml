@@ -1,0 +1,24 @@
+# Begin with policies: [never, always] and remove calibration until new SWE labels exist.
+tasks: data/prepared
+base_config: configs/experiment.yaml
+server:
+  backend: ollama
+  base_url: http://127.0.0.1:11434
+models: ["qwen2.5-coder:7b"]
+sources: [swe_test]
+split: dev
+limit: 2
+seed: 42
+policies: [never, always, error_impact, rcvov]
+verification_budget: 0.2
+overrides:
+  swe_test: configs/profiles/swe.yaml
+calibration:
+  swe_test:
+    artifact: artifacts/swe-v2.json
+    tuning: artifacts/swe-tuning-v2.json
+swe:
+  swe_test:
+    images: artifacts/swe-policy-dev-map.json
+    namespace: swebench
+    timeout_seconds: 1800

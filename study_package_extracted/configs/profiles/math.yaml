@@ -1,0 +1,5 @@
+# Apply this before collection.yaml during data collection.
+model:
+  max_tokens: 1024
+run:
+  max_steps: 12

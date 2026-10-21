@@ -1,0 +1,42 @@
+[build-system]
+requires = ["hatchling>=1.27,<2"]
+build-backend = "hatchling.build"
+
+[project]
+name = "veritas-research"
+version = "0.1.0"
+description = "Real-data, local-model experiments for risk-calibrated value of verification"
+requires-python = ">=3.11,<3.14"
+dependencies = [
+  "pydantic>=2.10,<3", "PyYAML>=6.0,<7", "httpx>=0.28,<1",
+  "numpy>=2.1,<3", "scipy>=1.14,<2", "scikit-learn>=1.6,<2",
+  "pyarrow>=19,<24", "datasets>=3.3,<5", "huggingface-hub>=0.28,<2",
+  "matplotlib>=3.9,<4", "cryptography>=44,<49", "joblib>=1.4,<2",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.3,<10", "pytest-cov>=6,<8", "ruff>=0.11,<1", "build>=1.2,<2"]
+train = ["torch>=2.5,<3", "transformers>=4.48,<5", "peft>=0.14,<1", "accelerate>=1.3,<2"]
+swe = ["swebench>=4,<5"]
+
+[project.scripts]
+veritas = "veritas.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/veritas"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src", "tests", "configs", "docs", "scripts", "README.md", "pyproject.toml", "uv.lock", "Dockerfile.sandbox", ".github"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+markers = ["integration: requires a working Docker daemon (no model)"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+extend-exclude = [".venv-rebench", "data", "runs", "artifacts"]
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I"]

@@ -1,0 +1,33 @@
+# Full matrix template. Planning is metadata-only; execution needs prepared SWE images.
+# Empty lists discover installed generation models and all prepared sources.
+tasks: data/prepared
+base_config: configs/efficient.yaml
+server:
+  backend: ollama
+  base_url: http://127.0.0.1:11434
+models: []
+sources: []
+split: null  # Includes official holdouts; do not use these results for further tuning.
+limit: 5
+seed: 42
+policies: [never, always, graph]
+verification_budget: 0.04
+overrides:
+  swe_verified: configs/profiles/efficient-swe.yaml
+  swe_test: configs/profiles/efficient-swe.yaml
+  swe_train: configs/profiles/efficient-swe.yaml
+  swe_dev: configs/profiles/efficient-swe.yaml
+  swe_rebench: configs/profiles/efficient-swe.yaml
+swe:
+  swe_verified:
+    images: artifacts/graph/swe_verified.json
+  swe_test:
+    images: artifacts/graph/swe_test.json
+  swe_train:
+    images: artifacts/graph/swe_train.json
+  swe_dev:
+    images: artifacts/graph/swe_dev.json
+  swe_rebench:
+    images: artifacts/graph/swe_rebench.json
+    namespace: ""
+    python: .venv-rebench/bin/python

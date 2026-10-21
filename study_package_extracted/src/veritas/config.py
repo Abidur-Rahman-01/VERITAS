@@ -1,0 +1,135 @@
+from pathlib import Path, PurePosixPath
+from typing import Literal
+
+import yaml
+from pydantic import Field, StrictInt, model_validator
+
+from .schema import ActionClass, StrictModel
+
+
+class ServerAttestation(StrictModel):
+    public_key_hex: str = Field(pattern=r"^[0-9a-fA-F]{64}$")
+    revision: str = Field(min_length=1)
+
+
+class ModelConfig(StrictModel):
+    backend: Literal["openai_compatible", "ollama", "transformers"] = "openai_compatible"
+    base_url: str = "http://127.0.0.1:8000/v1"
+    name: str = "local-policy"
+    api_key_env: str = "VERITAS_API_KEY"
+    max_tokens: int = Field(default=2048, gt=0)
+    timeout_seconds: float = Field(default=180, gt=0)
+    temperature: float = Field(default=0, ge=0, le=2)
+    prompt_style: Literal["standard", "compact"] = "standard"
+    sampling_seed: StrictInt | None = Field(default=None, ge=0, le=2**63 - 1)
+    attestation: ServerAttestation | None = None
+
+    @model_validator(mode="after")
+    def supported_provenance(self):
+        if self.backend == "transformers" and (
+            self.sampling_seed is not None or self.attestation is not None
+        ):
+            raise ValueError("Sampling seeds/server attestations require an HTTP backend")
+        return self
+
+
+class SandboxConfig(StrictModel):
+    image: str = "veritas-sandbox:local"
+    platform: str | None = None
+    memory: str = "4g"
+    cpus: float = Field(default=2, gt=0)
+    timeout_seconds: int = Field(default=60, gt=0)
+    max_output_chars: int = Field(default=16000, ge=100)
+
+
+class RunConfig(StrictModel):
+    max_steps: int = Field(default=30, gt=0)
+    history_chars: int = Field(default=30000, gt=1000)
+    verification_budget: float = Field(default=10, ge=0)
+    verification_cost: float = Field(default=0.02, gt=0)
+    false_alarm_cost: float = Field(default=0.1, ge=0)
+    budget_unit: str = "verifier_call_credit"
+    policy: str = "rcvov"
+    threshold: float = 0
+    dynamic_lambda: float = Field(default=0.0, ge=0)
+    audit_all: bool = False
+    allow_uncalibrated: bool = False
+    score_critic: bool = True
+    recovery_mode: Literal["checkpoint", "restart"] = "checkpoint"
+    compact_history: bool = False
+    observation_chars: int = Field(default=2000, ge=200)
+    max_replans: int | None = Field(default=None, ge=0)
+    max_online_tokens: int | None = Field(default=None, gt=0)
+
+
+class GraphConfig(StrictModel):
+    # One optional final review, never an LLM critic on every tool action.
+    semantic_final_review: bool = True
+    max_semantic_calls: int = Field(default=1, ge=0)
+    max_probes: int = Field(default=1, ge=0)
+    cache_entries: int = Field(default=128, ge=0)
+    max_file_bytes: int = Field(default=1_000_000, gt=0)
+
+
+class OpportunityConfig(StrictModel):
+    mode: Literal["disabled", "shadow"] = "disabled"
+    import_root: str = "."
+    target_identity: str | None = None
+    caller_identity: str | None = None
+    final_fallback: bool = True
+
+    @model_validator(mode="after")
+    def identities(self):
+        root = PurePosixPath(self.import_root)
+        if root.is_absolute() or ".." in root.parts or "\\" in self.import_root or ":" in self.import_root:
+            raise ValueError("Opportunity import root must remain inside the workspace")
+        if self.mode == "shadow" and (
+            not self.target_identity or not self.caller_identity
+            or self.target_identity == self.caller_identity
+        ):
+            raise ValueError("Shadow opportunities require distinct target and caller identities")
+        return self
+
+
+class Config(StrictModel):
+    seed: int = 42
+    model: ModelConfig = Field(default_factory=ModelConfig)
+    critic: ModelConfig = Field(default_factory=ModelConfig)
+    verifier: ModelConfig = Field(default_factory=ModelConfig)
+    sandbox: SandboxConfig = Field(default_factory=SandboxConfig)
+    run: RunConfig = Field(default_factory=RunConfig)
+    graph: GraphConfig = Field(default_factory=GraphConfig)
+    opportunities: OpportunityConfig = Field(default_factory=OpportunityConfig)
+    probes: list[list[str]] = Field(default_factory=list)
+    impact: dict[ActionClass, float] = Field(
+        default_factory=lambda: {
+            ActionClass.READ: 0.1,
+            ActionClass.EDIT: 0.4,
+            ActionClass.ENV: 0.75,
+            ActionClass.DB: 0.9,
+            ActionClass.API: 1.0,
+            ActionClass.FINAL: 0.6,
+        }
+    )
+
+
+def load_config(path, override=None):
+    def merge(a, b):
+        for k, v in b.items():
+            if isinstance(v, dict) and isinstance(a.get(k), dict):
+                merge(a[k], v)
+            else:
+                a[k] = v
+        return a
+
+    obj = yaml.safe_load(Path(path).read_text())
+    for extra in [override] if isinstance(override, (str, Path)) else override or []:
+        obj = merge(obj, yaml.safe_load(Path(extra).read_text()))
+    config = Config.model_validate(obj)
+    if set(config.impact) != set(ActionClass) or any(
+        not 0 <= v <= 1 for v in config.impact.values()
+    ):
+        raise ValueError("impact must define all action classes with weights in [0,1]")
+    if config.run.budget_unit != "verifier_call_credit":
+        raise ValueError("Only fixed verifier-call credit budgets are implemented")
+    return config

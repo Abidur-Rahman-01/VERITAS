@@ -1,0 +1,13 @@
+# Same original task IDs, actor settings and context compression for every policy.
+tasks: data/prepared
+base_config: configs/efficient.yaml
+server:
+  backend: ollama
+  base_url: http://127.0.0.1:11434
+models: ["qwen2.5-coder:7b"]
+sources: [gsm8k_train]
+split: dev
+limit: 10
+seed: 42
+policies: [never, always, graph]
+verification_budget: 0.04

@@ -1,0 +1,13 @@
+# Stage 6 four-arm dependency pilot schedule.
+# Planning is read-only; --execute starts local runtime collection.
+cohort: runs/dependency-cohort
+tasks: data/prepared
+base_config: configs/experiment.yaml
+partition: discovery
+limit: 20
+# Optional: override protocol repetitions for smoke runs.
+# repetitions: 1
+# Optional: explicit randomization seed; defaults to protocol partition_seed.
+# order_seed: 42
+# SWE source -> image map produced by `veritas swe image-map`.
+images: {}

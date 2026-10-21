@@ -1,0 +1,15 @@
+# Start here: a paired development smoke test; no calibration needed.
+tasks: data/prepared
+base_config: configs/experiment.yaml
+server:
+  backend: ollama
+  base_url: http://127.0.0.1:11434
+models: ["qwen2.5-coder:7b"]
+sources: [gsm8k_train]
+split: dev
+limit: 10
+seed: 42
+policies: [never, always]
+verification_budget: 0.2
+overrides:
+  gsm8k_train: configs/profiles/math.yaml
