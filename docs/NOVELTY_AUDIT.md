@@ -4,7 +4,46 @@
 **Purpose:** Check the paper's candidate contributions against directly related Transactions and A* work and define a defensible next study.  
 **Scope:** Targeted first-pass review of IEEE/ACM Transactions outlets and recent ICSE/ASE/ICLR/NeurIPS work found through publisher, conference, and arXiv records. This is not an exhaustive systematic review and cannot support a universal “first” claim. A formal review needs reproducible database queries, inclusion criteria, citation chaining, and ideally a second reviewer.
 
+**Current direction:** [ARCHITECTURE.md](ARCHITECTURE.md) now specifies an evidence-selection
+controller evaluated against the strongest fixed feedback policy on matched repository repair
+branches. The feedback-versus-generic-retry question below is a prior candidate. This audit's
+overlap findings remain relevant, but it has not established novelty for the current controller.
+Two distinct 2026 preprints use the name “VeriHarness”: [Structured Feedback Improves Repair in
+an LLM Agent Loop](https://arxiv.org/abs/2607.14167) names its prototype VeriHarness, while
+[VeriHarness: Scaling Agentic Verification for Long-Horizon Tasks](https://arxiv.org/abs/2610.00972)
+is a separate October paper.
+
 ## Executive verdict
+
+### Revised answer after checking the cited 2026 papers
+
+No broad question about LLM verification, adaptive verification effort, repository-specific
+criteria, test-time scaling, or active test generation is novel on its own. The cited papers already
+cover these components: [LLM-as-a-Verifier](https://arxiv.org/abs/2607.05391) supplies continuous,
+decomposed verification scores and candidate ranking; [Agentic Rubrics (ACL 2026)](https://aclanthology.org/2026.acl-long.697/)
+constructs repository-grounded patch criteria; [EGSS (ACL 2026)](https://aclanthology.org/2026.acl-long.1359/)
+uses entropy-guided adaptive search and test-suite augmentation; and [Scaling Agentic Verifier
+(ICML 2026)](https://proceedings.mlr.press/v306/ma26av.html) actively searches for discriminative
+execution inputs. [SWE-Bench Pro (ICML 2026)](https://proceedings.mlr.press/v306/deng26f.html)
+also means a benchmark claim should be about verification outcomes, not merely a larger or harder
+repository task set. Benchmark integrity must account for the concerns in [SWE-Bench Pro
+Verified](https://arxiv.org/abs/2609.08149).
+
+The earlier primary candidate question was:
+
+> **On independently graded repository-level bug fixes, what is the incremental effect of
+> actionable verifier feedback over a generic retry under the same total compute budget, and how
+> does that effect vary with initial patch correctness, fault-localization difficulty, model family,
+> and task difficulty?**
+
+This was a **defensible candidate gap, not a verified novelty claim**. Its novelty would be the causal
+measurement in real repository repairs, including recovery/regression outcomes and prespecified
+heterogeneity, if an exhaustive search confirms that this exact population and outcome have not
+already been studied. It is more supportable than claiming a new generic evidence-aware adaptive
+controller: the named papers already occupy key pieces of that controller, and the local audit found
+direct overlap for generic verifier-feedback-versus-retry comparisons. The current architecture
+therefore makes evidence selection the primary intervention and requires a held-out randomized
+comparison against strong fixed feedback before claiming a policy contribution.
 
 The broad question—whether verifier feedback improves success beyond giving a model another attempt at equal cost—is **not novel as stated**. A close 2026 *Information and Software Technology* paper explicitly separates gate diagnostics from retry opportunity with a matched generic-retry control across 458 paired TAM-Eval tasks and five Qwen2.5-Coder sizes. An ASE APR 2026 paper separately isolates feedback representation on 540 HumanEval+/MBPP+-derived tasks with token-matched and redundant-feedback controls. Other 2026 work directly studies iterative repair and agentic verification over long-horizon tasks.
 
