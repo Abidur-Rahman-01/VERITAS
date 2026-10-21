@@ -56,46 +56,15 @@ if str(REPO_ROOT) not in sys.path:
 
 
 def get_task_setup_fn(task_id: str) -> Callable[[Path], tuple[str, str]]:
-    """Resolve task setup function from task_id or private metadata."""
+    """Resolve task setup function from task_id across all 60 benchmark tasks."""
     clean_id = task_id.replace("swe:", "")
-    from scripts.tse_60_task_fixtures import (
-        setup_swe_cmd2_790,
-        setup_swe_cmd2_800,
-        setup_swe_cmd2_810,
-        setup_swe_pennylane_5100,
-        setup_swe_pennylane_5200,
-        setup_swe_pennylane_5300,
-        setup_swe_sympy_18800,
-        setup_swe_sympy_18900,
-        setup_swe_sympy_19000,
-    )
-    from scripts.run_action_time_tse_experiment import setup_swe_cmd2_744
-
-    registry = {
-        "cmd2_744": setup_swe_cmd2_744,
-        "swe_cmd2_744": setup_swe_cmd2_744,
-        "cmd2_790": setup_swe_cmd2_790,
-        "swe_cmd2_790": setup_swe_cmd2_790,
-        "cmd2_800": setup_swe_cmd2_800,
-        "swe_cmd2_800": setup_swe_cmd2_800,
-        "cmd2_810": setup_swe_cmd2_810,
-        "swe_cmd2_810": setup_swe_cmd2_810,
-        "sympy_18800": setup_swe_sympy_18800,
-        "swe_sympy_18800": setup_swe_sympy_18800,
-        "sympy_18900": setup_swe_sympy_18900,
-        "swe_sympy_18900": setup_swe_sympy_18900,
-        "sympy_19000": setup_swe_sympy_19000,
-        "swe_sympy_19000": setup_swe_sympy_19000,
-        "pennylane_5100": setup_swe_pennylane_5100,
-        "swe_pennylane_5100": setup_swe_pennylane_5100,
-        "pennylane_5200": setup_swe_pennylane_5200,
-        "swe_pennylane_5200": setup_swe_pennylane_5200,
-        "pennylane_5300": setup_swe_pennylane_5300,
-        "swe_pennylane_5300": setup_swe_pennylane_5300,
-    }
-    if clean_id not in registry:
-        raise ValueError(f"No setup function registered for task: {task_id}")
-    return registry[clean_id]
+    from scripts.run_action_time_tse_experiment import TASK_REGISTRY
+    if clean_id in TASK_REGISTRY:
+        return TASK_REGISTRY[clean_id]
+    for candidate in [clean_id, f"swe_{clean_id}", f"repo_{clean_id}"]:
+        if candidate in TASK_REGISTRY:
+            return TASK_REGISTRY[candidate]
+    raise ValueError(f"No setup function registered for task: {task_id}")
 
 
 def evaluate_workspace(ws: Path) -> tuple[bool, str]:
