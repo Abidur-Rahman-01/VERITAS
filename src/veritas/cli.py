@@ -34,6 +34,14 @@ def parser():
     fa = feedback.add_parser("analyze", help="Analyze paired branch outcomes from results.jsonl")
     fa.add_argument("--study", required=True)
     fa.add_argument("--results")
+    fr = feedback.add_parser("run", help="Execute the paired feedback-selection study end-to-end")
+    fr.add_argument("--study", required=True)
+    fr.add_argument("--actor", default="qwen2.5-coder:7b")
+    fr.add_argument("--draft-steps", type=int, default=4)
+    fr.add_argument("--revision-steps", type=int, default=6)
+    fr.add_argument("--budget", type=float, default=30.0)
+    fr.add_argument("--task-limit", type=int)
+    fr.add_argument("--no-resume", action="store_true")
     scope = commands.add_parser(
         "dependency-scope", help="Create public-only development interface/caller review queue"
     )
@@ -383,6 +391,17 @@ def dispatch(a):
                 seed=a.seed, confirmation_fraction=a.confirmation_fraction)
         if a.action == "verify":
             return verify_plan(a.study)
+        if a.action == "run":
+            from .feedback_runner import execute_study
+            return execute_study(
+                a.study,
+                actor_model_name=a.actor,
+                draft_steps=a.draft_steps,
+                revision_steps=a.revision_steps,
+                budget_credits=a.budget,
+                resume=not a.no_resume,
+                task_limit=a.task_limit,
+            )
         return analyze_results(a.study, a.results)
     if a.command == "dependencies":
         from .dependencies import write_dependencies

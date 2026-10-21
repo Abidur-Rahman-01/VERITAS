@@ -45,6 +45,53 @@ class FeedbackCheckpointController:
         self._delivered: set[str] = set()
         self._last_tree_hash: str | None = None
 
+    def create_initial_checkpoint(self, session):
+        """Create checkpoint 0 following the frozen draft before revision actions."""
+        tree = tree_hash(self.workspace)
+        patch = self.patch_fn(self.baseline, self.workspace)
+        checkpoint_id = len(self.decisions)
+        changed_files = _changed_paths(patch)
+        remaining_credits = self.remaining_credits_fn()
+        checkpoint = PatchCheckpoint(
+            task_id=self.task_id, branch_id=self.branch_id, checkpoint_id=checkpoint_id,
+            patch_hash=digest(patch), tree_hash=tree, environment_hash=self.environment_hash,
+            changed_files=changed_files, actor_history_hash=digest(session.history),
+            remaining_credits=(None if remaining_credits is None else
+                               max(0.0, float(remaining_credits))),
+        )
+        expired = self.bank.advance(checkpoint)
+        producer_error = None
+        try:
+            produced = list(self.evidence_producer(checkpoint, self.workspace, None, session) or [])
+        except Exception as exc:
+            produced = []
+            producer_error = f"{type(exc).__name__}: {exc}"
+        for item in produced:
+            if not isinstance(item, EvidenceItem):
+                raise TypeError("evidence_producer must return EvidenceItem records")
+            self.bank.add(item)
+        decision = select_feedback(
+            arm=self.arm, branch_id=self.branch_id, checkpoint_id=checkpoint_id,
+            evidence=self.bank.current(), changed_files=changed_files,
+            previously_delivered=self._delivered, packet_char_cap=self.packet_char_cap,
+            adaptive_weights=self.adaptive_weights,
+            selector_credits=float(self.selector_credit_fn()),
+        )
+        self.decisions.append(decision)
+        self._delivered.update(decision.selected_evidence_ids)
+        self._packet = decision.packet
+        self._last_tree_hash = tree
+        event = {
+            "checkpoint": checkpoint.model_dump(mode="json"),
+            "expired_evidence_ids": expired,
+            "produced_evidence": [item.model_dump(mode="json") for item in produced],
+            "evidence_producer_error": producer_error,
+            "decision": decision.model_dump(mode="json"),
+        }
+        if self.event_sink:
+            self.event_sink(event)
+        return event
+
     def on_step(self, record, session):
         if not record.executed or record.state_before == record.state_after:
             return None
