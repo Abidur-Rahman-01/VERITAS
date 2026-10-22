@@ -2,7 +2,7 @@
 """
 VERITAS Live Experiment Monitor & Web Dashboard
 Serves an auto-refreshing real-time UI on http://localhost:8765
-Supports SWE-bench Lite (runs/langgraph-swe-lite) with Llama 8B Verifier and Paired Study.
+Supports OpenHands SWE-bench Lite runs and the paired feedback study.
 """
 
 import http.server
@@ -15,7 +15,7 @@ from pathlib import Path
 
 PORT = 8765
 
-SWE_LITE_DIR = Path("runs/langgraph-swe-lite")
+SWE_LITE_DIR = Path(os.environ.get("SWE_LITE_DIR", "runs/openhands-swe-lite"))
 FEEDBACK_DIR = Path("runs/feedback_study_v2_500")
 
 
@@ -38,8 +38,22 @@ def get_swe_lite_stats():
         except Exception:
             pass
 
-    verified_count = sum(1 for r in records if r.get("verification", {}).get("pass"))
-    applicable_count = sum(1 for r in records if r.get("verification", {}).get("patch_applicable"))
+    completed_count = sum(1 for r in records if r.get("openhands_exit_code") == 0)
+    patch_count = sum(1 for r in records if r.get("model_patch"))
+
+    logs_dir = SWE_LITE_DIR / "openhands-logs"
+    latest_log = None
+    live_log_tail = ""
+    if logs_dir.is_dir():
+        log_files = list(logs_dir.glob("*.jsonl"))
+        if log_files:
+            latest_log = max(log_files, key=lambda p: p.stat().st_mtime)
+            try:
+                live_log_tail = "\n".join(
+                    latest_log.read_text(encoding="utf-8", errors="replace").splitlines()[-20:]
+                )
+            except OSError:
+                live_log_tail = ""
 
     repos_dir = SWE_LITE_DIR / "repos"
     active_repo = "Initializing..."
@@ -49,6 +63,15 @@ def get_swe_lite_stats():
         if subdirs:
             active_task = subdirs[0].name
             active_repo = active_task.split("__")[0] if "__" in active_task else active_task
+
+    recorded_ids = {r.get("instance_id") for r in records}
+    if latest_log:
+        if latest_log.stem not in recorded_ids:
+            active_task = latest_log.stem
+            active_repo = active_task.split("__")[0] if "__" in active_task else active_task
+        else:
+            active_task = "-"
+            active_repo = "No active task"
 
     last_record = records[-1] if records else {}
     if not records and active_task != "-":
@@ -60,36 +83,31 @@ def get_swe_lite_stats():
     for r in records[-15:]:
         inst = r.get("instance_id", "unknown")
         model = r.get("model_name_or_path", "codestral:22b")
-        v = r.get("verification", {})
-        passed = v.get("pass", False)
-        applicable = v.get("patch_applicable", False)
-        verdict = v.get("verdict", "PASS" if passed else "FAIL")
-        reason = v.get("reason", v.get("message", ""))
-        verifier = v.get("verifier_model", "llama3.1:8b")
-        loc_count = len(r.get("located_paths", []))
+        exit_code = r.get("openhands_exit_code")
+        completed = exit_code == 0
+        reason = r.get("error") or ("Agent exited successfully" if completed else "Agent did not complete")
         recent_feed.append({
             "task_id": inst,
             "model": model,
-            "verifier": verifier,
-            "pass": passed,
-            "applicable": applicable,
-            "verdict": verdict,
+            "agent": "OpenHands CLI",
+            "completed": completed,
+            "patch_present": bool(r.get("model_patch")),
+            "exit_code": exit_code,
             "reason": reason[:160],
-            "files_count": loc_count,
         })
 
     return {
         "mode": "swe_lite",
-        "benchmark_title": "SWE-bench Lite LangGraph Agent Benchmark",
-        "benchmark_subtitle": "Actor: Codestral 22B | Verifier: Llama 3.1 8B",
+        "benchmark_title": "SWE-bench Lite OpenHands Benchmark",
+        "benchmark_subtitle": "Agent: OpenHands CLI | Grader: official SWE-bench harness on Modal",
         "total_tasks": total_tasks,
         "completed_tasks": len(records),
-        "verified_tasks": verified_count,
-        "applicable_tasks": applicable_count,
-        "pass_rate": round(verified_count / len(records) * 100, 1) if records else 0.0,
+        "agent_finished": completed_count,
+        "patches_present": patch_count,
         "active_repo": active_repo,
         "active_task": active_task,
         "last_task": last_task,
+        "live_log_tail": live_log_tail,
         "recent_feed": recent_feed,
     }
 
@@ -340,9 +358,9 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             </div>
         </div>
         <div class="card">
-            <div class="card-label">Llama 8B Verified</div>
+            <div class="card-label">OpenHands finished</div>
             <div class="card-val" id="stat-verified">-</div>
-            <div style="font-size: 12px; color: #8b949e; margin-top: 6px;" id="stat-verified-sub">Semantic Pass Rate: -%</div>
+            <div style="font-size: 12px; color: #8b949e; margin-top: 6px;" id="stat-verified-sub">Patches produced: -</div>
         </div>
         <div class="card">
             <div class="card-label">Current Task</div>
@@ -350,27 +368,27 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             <div style="font-size: 12px; color: var(--accent); margin-top: 4px;" id="stat-repo">-</div>
         </div>
         <div class="card">
-            <div class="card-label">Actor Model</div>
-            <div class="card-val" style="font-size: 18px; color: var(--purple);">Codestral 22B</div>
-            <div style="font-size: 12px; color: #8b949e; margin-top: 4px;">Patch Generator</div>
+            <div class="card-label">Coding agent</div>
+            <div class="card-val" style="font-size: 18px; color: var(--purple);">OpenHands</div>
+            <div style="font-size: 12px; color: #8b949e; margin-top: 4px;">Repository navigation and repair</div>
         </div>
         <div class="card">
-            <div class="card-label">Verifier Model</div>
-            <div class="card-val" style="font-size: 18px; color: var(--orange);">Llama 3.1 8B</div>
-            <div style="font-size: 12px; color: #8b949e; margin-top: 4px;">Semantic Verifier Gate</div>
+            <div class="card-label">Benchmark verifier</div>
+            <div class="card-val" style="font-size: 18px; color: var(--orange);">Modal grader</div>
+            <div style="font-size: 12px; color: #8b949e; margin-top: 4px;">Official SWE-bench tests</div>
         </div>
     </div>
 
-    <h3 style="color: #f0f6fc; margin-bottom: 12px;">Completed Tasks & Verification Feedback</h3>
+    <h3 style="color: #f0f6fc; margin-bottom: 12px;">OpenHands Task Runs</h3>
     <table>
         <thead>
             <tr>
                 <th>Instance ID</th>
                 <th>Actor</th>
-                <th>Verifier</th>
-                <th>Applicable</th>
-                <th>Verdict</th>
-                <th>Verification Reason</th>
+                <th>Agent</th>
+                <th>Patch</th>
+                <th>Process status</th>
+                <th>Details</th>
             </tr>
         </thead>
         <tbody id="task-tbody">
@@ -397,8 +415,8 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                     const pct = data.total_tasks > 0 ? (data.completed_tasks / data.total_tasks * 100).toFixed(1) : 0;
                     document.getElementById('progress-bar').style.width = `${pct}%`;
                     
-                    document.getElementById('stat-verified').innerText = `${data.verified_tasks} Pass / ${data.applicable_tasks} Applicable`;
-                    document.getElementById('stat-verified-sub').innerText = `Semantic Pass Rate: ${data.pass_rate}%`;
+                    document.getElementById('stat-verified').innerText = `${data.agent_finished} exited successfully`;
+                    document.getElementById('stat-verified-sub').innerText = `Patches present: ${data.patches_present}`;
                     document.getElementById('stat-task').innerText = data.active_task || data.last_task;
                     document.getElementById('stat-repo').innerText = data.active_repo;
 
@@ -407,25 +425,29 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                         tbody.innerHTML = '';
                         data.recent_feed.slice().reverse().forEach(t => {
                             const row = document.createElement('tr');
-                            const passBadge = t.pass ? '<span class="badge badge-pass">PASS</span>' : '<span class="badge badge-fail">FAIL</span>';
-                            const appBadge = t.applicable ? '<span style="color: #3fb950;">YES</span>' : '<span style="color: #f85149;">NO</span>';
+                            const statusBadge = t.completed ? '<span class="badge badge-pass">EXIT 0</span>' : '<span class="badge badge-fail">INCOMPLETE</span>';
+                            const patchBadge = t.patch_present ? '<span style="color: #3fb950;">YES</span>' : '<span style="color: #f85149;">NO</span>';
                             row.innerHTML = `
                                 <td style="font-family: monospace; font-weight: bold; color: #58a6ff;">${t.task_id}</td>
                                 <td>${t.model}</td>
-                                <td><span style="color: #f0883e; font-weight: bold;">${t.verifier}</span></td>
-                                <td>${appBadge}</td>
-                                <td>${passBadge}</td>
+                                <td><span style="color: #f0883e; font-weight: bold;">${t.agent}</span></td>
+                                <td>${patchBadge}</td>
+                                <td>${statusBadge} (${t.exit_code ?? 'running'})</td>
                                 <td style="color: #c9d1d9; font-size: 12px;">${t.reason}</td>
                             `;
                             tbody.appendChild(row);
                         });
 
                         const term = document.getElementById('terminal-feed');
-                        term.innerHTML = data.recent_feed.map(t => {
-                            const status = t.pass ? '[VERIFIED PASS]' : '[VERIFY FAIL]';
-                            const color = t.pass ? '#3fb950' : '#f85149';
-                            return `<div style="margin-bottom: 4px;"><span style="color: ${color}; font-weight: bold;">${status}</span> <span style="color: #58a6ff;">${t.task_id}</span> | Verifier: <b>${t.verifier}</b> | ${t.reason}</div>`;
-                        }).join('');
+                        if (data.live_log_tail) {
+                            term.textContent = data.live_log_tail;
+                        } else {
+                            term.innerHTML = data.recent_feed.map(t => {
+                            const status = t.completed ? '[AGENT EXIT 0]' : '[AGENT INCOMPLETE]';
+                            const color = t.completed ? '#3fb950' : '#f85149';
+                            return `<div style="margin-bottom: 4px;"><span style="color: ${color}; font-weight: bold;">${status}</span> <span style="color: #58a6ff;">${t.task_id}</span> | Agent: <b>${t.agent}</b> | ${t.reason}</div>`;
+                            }).join('');
+                        }
                     }
                 }
             } catch (err) {

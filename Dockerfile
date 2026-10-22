@@ -38,7 +38,6 @@ COPY Dockerfile.sandbox ./
 
 # Sync project package in editable mode into /opt/venv
 RUN uv sync --frozen --extra dev --extra swe
-RUN uv pip install --python /opt/venv/bin/python 'langgraph>=0.2,<2'
 
 ENTRYPOINT ["veritas"]
 CMD ["--help"]

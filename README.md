@@ -52,76 +52,92 @@ The new feedback-selection primitives are in `src/veritas/feedback_evidence.py` 
 actions to evidence invalidation, selection, and the next actor prompt through `run_phase()`.
 The cohort planner and integrity checker are in `src/veritas/feedback_study.py`.
 
-## LangGraph SWE-bench Lite agent
+## OpenHands SWE-bench Lite agent
 
-The optional coding-agent path uses three LangGraph nodes: fault localization, patch generation,
-and a verifier. The verifier checks that a unified diff applies cleanly, changes repository files,
-passes `git diff --check`, and receives a valid `PASS` from the configured review model. Verifier
-errors and malformed responses fail closed and can trigger another repair attempt. This review
-does not run the task tests, and it cannot guarantee patch correctness. Final task success is
-measured separately with the official SWE-bench Docker evaluator.
+This workflow runs OpenHands CLI and the local model on the host, then uses SWE-bench's supported
+Modal evaluator for grading. It does not require a local Docker daemon. Modal runs the grading
+environments remotely and may incur cloud charges.
 
-Build the Docker image (it installs LangGraph and the SWE-bench harness), then download
-the pinned 300-task Lite test split:
+### 1. Install host tools
+
+Install Python 3.12, `uv`, Git, Ollama, and OpenHands CLI. Then install the project dependencies:
 
 ```sh
-docker compose build swe-langgraph
-docker compose run --rm --entrypoint python swe-langgraph -m veritas.langgraph_swe download
+uv tool install openhands --python 3.12
+uv sync --extra swe --extra dev
 ```
 
-Build the benchmark's isolated task environments before evaluation (this downloads/builds up to
-300 repository images and needs substantial disk space):
+Pull Qwen3-Coder 30B:
 
 ```sh
-docker compose run --rm --entrypoint veritas veritas swe build-images data/swebench_lite.jsonl --workers 2
+ollama pull qwen3-coder:30b
 ```
 
-Ollama must be running on the host with a coding model already pulled. Run a small pilot first:
+OpenHands requires a large context. Configure Ollama for at least 32K tokens, and leave it running
+while the agent runs. On macOS, set `OLLAMA_CONTEXT_LENGTH=32768` for the Ollama app with
+`launchctl setenv OLLAMA_CONTEXT_LENGTH 32768`, then quit and reopen Ollama. On Linux, set the
+variable in the Ollama service environment before restarting it, or start it in a terminal with
+`OLLAMA_CONTEXT_LENGTH=32768 ollama serve`. The default endpoint is
+`http://127.0.0.1:11434/v1`.
+
+### 2. Set up Modal once
+
+Create a Modal account, install its SWE-bench integration, and authenticate:
 
 ```sh
-OLLAMA_HOST=http://host.docker.internal:11434 docker compose run --rm swe-langgraph run \
-  --tasks data/swebench_lite.jsonl --model codestral:22b --limit 3 \
-  --output runs/langgraph-swe-lite-pilot
+uv run --extra swe modal setup
 ```
 
-`predictions.jsonl` is compatible with the official evaluator. On Linux with Docker available and
-SWE-bench task images built or pulled, evaluate the pilot with:
+### 3. Run a small pilot
 
 ```sh
-docker compose run --rm --entrypoint python swe-langgraph -m swebench.harness.run_evaluation \
-  --dataset_name data/swebench_lite.jsonl \
-  --predictions_path runs/langgraph-swe-lite-pilot/predictions.jsonl \
-  --max_workers 2 --run_id langgraph-lite-pilot --namespace swebench
+RUN_STAMP=qwen-pilot bash scripts/run_swebench_lite_end_to_end.sh
 ```
 
-For the full benchmark run, omit `--limit` and give the run a separate output directory. Build the
-task images once, then point the official evaluator at that run's `predictions.jsonl`.
+The script downloads the pinned dataset if needed, runs three tasks with normal repository
+navigation and three matched tasks with oracle gold-patch file paths, then evaluates both arms on
+Modal. Oracle paths are extra information, so keep those results separate from the normal score.
+Predictions, task records, and OpenHands logs are stored under `runs/`.
 
-To measure repair/verifier behavior when repository navigation is removed as a confound, run the
-same tasks with `--oracle-localization`. This supplies only paths parsed from each gold patch; it
-does not reveal patch contents. The output records `oracle_localization: true` and
-`localization_mode: oracle_gold_patch_paths`. Treat these scores as a separate oracle ablation,
-never as the ordinary SWE-bench score. The model-localized run is the normal benchmark setting.
+For a live view in a second terminal, point the dashboard at the run's normal-arm folder:
 
 ```sh
-docker compose run --rm swe-langgraph run --tasks data/swebench_lite.jsonl \
-  --model codestral:22b --limit 3 --oracle-localization \
-  --output runs/langgraph-swe-lite-oracle-pilot
+SWE_LITE_DIR=runs/openhands-swe-lite-qwen-pilot python scripts/veritas_live_dashboard.py
 ```
 
-To run both full 300-task arms and their official evaluations sequentially, use the guarded
-one-shot runner. It checks Docker, Ollama, and both model tags before it builds task images:
+Open `http://127.0.0.1:8765`. It refreshes every two seconds and shows the latest OpenHands JSONL
+events while a task is running, plus completed task records. To monitor the oracle arm, restart the
+dashboard with `SWE_LITE_DIR=runs/openhands-swe-lite-oracle-qwen-pilot`.
+
+After the pilot succeeds, use `LIMIT=300` to run all Lite tasks:
 
 ```sh
-bash scripts/run_swebench_lite_end_to_end.sh
+LIMIT=300 bash scripts/run_swebench_lite_end_to_end.sh
 ```
 
-Override `MODEL`, `VERIFIER_MODEL`, `IMAGE_WORKERS`, or `EVAL_WORKERS` in the environment to
-match the models and machine. The full run can take hours and needs substantial disk space.
+You can run an individual arm directly as well:
 
-The current verifier is a patch-integrity gate, not a per-step test runner. Only the official
-Docker evaluation outcome establishes SWE-bench task resolution. The agent checks out each task's
-declared `base_commit`; use the official evaluator's task images to run the benchmark tests.
+```sh
+uv run --extra swe python -m veritas.openhands_swe download
+uv run --extra swe python -m veritas.openhands_swe run \
+  --tasks data/swebench_lite.jsonl --limit 3 \
+  --model openai/qwen3-coder:30b --output runs/openhands-qwen-pilot
+```
+
+Then grade its predictions remotely, using a new run ID for every evaluation:
+
+```sh
+uv run --extra swe \
+  python -m swebench.harness.run_evaluation \
+  --dataset_name princeton-nlp/SWE-bench_Lite \
+  --predictions_path runs/openhands-qwen-pilot/predictions.jsonl \
+  --max_workers 2 --run_id openhands-qwen-pilot --modal true
+```
+
+The agent executes repository commands with the host user's permissions. For stronger isolation,
+run it inside a disposable Linux VM, with Ollama either inside that VM or reachable over a private
+network. Do not expose Ollama's API to the public internet. Set `MODEL`, `OPENHANDS_MODEL`,
+`LLM_BASE_URL`, `LIMIT`, `NORMAL_OUT`, and `ORACLE_OUT` to customize runs.
 
 ## Current implementation boundary
 
