@@ -42,6 +42,21 @@ from .sandbox import LocalSandbox, make_patch
 from .schema import Task
 from .state import tree_hash
 from .store import EventStore
+import stat
+from scripts.veritas_cloud_worker import evaluate_task_in_container, run_cmd, to_container_mount_path
+
+def safe_rmtree(p: Path | str):
+    p = Path(p)
+    if not p.exists():
+        return
+    def on_exc(func, path, exc_info):
+        try:
+            os.chmod(path, stat.S_IWRITE)
+            func(path)
+        except Exception:
+            pass
+    shutil.rmtree(p, onerror=on_exc)
+
 
 
 # Enforce local execution when Docker is unavailable
@@ -55,8 +70,29 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 
-def get_task_setup_fn(task_id: str) -> Callable[[Path], tuple[str, str]]:
-    """Resolve task setup function from task_id across all 60 benchmark tasks."""
+def get_task_setup_fn(task: Task | str) -> Callable[[Path], tuple[str, str]]:
+    """Resolve task setup function from task across SWE-rebench-V2 and fixtures."""
+    if isinstance(task, Task) and task.source == "swe_rebench" and task.private.get("image_name"):
+        image_name = task.private["image_name"]
+        def setup_container_task(ws: Path) -> tuple[str, str]:
+            ws.mkdir(parents=True, exist_ok=True)
+            mount_ws = to_container_mount_path(ws)
+            inspect_code, _, _ = run_cmd(["docker", "image", "inspect", image_name], timeout=15)
+            if inspect_code != 0:
+                print(f"    [Docker] Image {image_name} not local; pulling from registry...")
+                pull_code, _, pull_err = run_cmd(["docker", "pull", image_name], timeout=900)
+                if pull_code != 0:
+                    print(f"    [Docker] Warning: Pull returned code {pull_code}: {pull_err[:300]}")
+            run_cmd([
+                "docker", "run", "--rm",
+                "-v", f"{mount_ws}:/out_ws",
+                image_name,
+                "sh", "-c", "cp -a . /out_ws/ 2>/dev/null || true"
+            ], timeout=180)
+            return task.repo or "repo", task.prompt
+        return setup_container_task
+
+    task_id = task.task_id if isinstance(task, Task) else str(task)
     clean_id = task_id.replace("swe:", "")
     from scripts.run_action_time_tse_experiment import TASK_REGISTRY
     if clean_id in TASK_REGISTRY:
@@ -66,6 +102,21 @@ def get_task_setup_fn(task_id: str) -> Callable[[Path], tuple[str, str]]:
             return TASK_REGISTRY[candidate]
     raise ValueError(f"No setup function registered for task: {task_id}")
 
+def evaluate_task(task: Task, ws: Path, baseline: Path) -> tuple[bool, str]:
+    """Independent grading: evaluate via Docker container for SWE-rebench-V2 or pytest locally."""
+    if task.source == "swe_rebench" and task.private.get("image_name"):
+        patch = make_patch(baseline, ws)
+        res = evaluate_task_in_container(
+            image_name=task.private["image_name"],
+            patch=patch,
+            test_patch=task.private.get("test_patch"),
+            test_cmd=task.private.get("test_cmd", "pytest"),
+            fail_to_pass=task.private.get("FAIL_TO_PASS", []),
+            pass_to_pass=task.private.get("PASS_TO_PASS", []),
+            timeout_seconds=90,
+        )
+        return res.get("resolved", False), res.get("log", "")
+    return evaluate_workspace(ws)
 
 def evaluate_workspace(ws: Path) -> tuple[bool, str]:
     """Independent grading: execute pytest in the isolated workspace."""
@@ -85,16 +136,32 @@ def evaluate_workspace(ws: Path) -> tuple[bool, str]:
         return False, f"Evaluation error: {exc}"
 
 
-def make_evidence_producer(task: Task):
+def make_evidence_producer(task: Task, baseline: Path | None = None):
     """Factory creating an evidence producer for a repository task."""
     def produce(checkpoint: PatchCheckpoint, workspace: Path, record, session) -> list[EvidenceItem]:
         items: list[EvidenceItem] = []
 
-        # 1. Targeted test execution in a disposable copy of workspace
-        with tempfile.TemporaryDirectory(prefix="veritas-check-") as tmp:
-            tmp_ws = Path(tmp) / "check_ws"
-            shutil.copytree(workspace, tmp_ws)
-            passed, test_out = evaluate_workspace(tmp_ws)
+        # 1. Targeted test execution
+        cmd_str = "pytest tests/ -q"
+        if task.source == "swe_rebench" and task.private.get("image_name"):
+            patch = make_patch(baseline, workspace) if (baseline and baseline.exists()) else ""
+            res = evaluate_task_in_container(
+                image_name=task.private["image_name"],
+                patch=patch,
+                test_patch=task.private.get("test_patch"),
+                test_cmd=task.private.get("test_cmd", "pytest"),
+                fail_to_pass=task.private.get("FAIL_TO_PASS", []),
+                pass_to_pass=task.private.get("PASS_TO_PASS", []),
+                timeout_seconds=90,
+            )
+            passed = res.get("resolved", False)
+            test_out = res.get("log", "")
+            cmd_str = task.private.get("test_cmd", "pytest")
+        else:
+            with tempfile.TemporaryDirectory(prefix="veritas-check-") as tmp:
+                tmp_ws = Path(tmp) / "check_ws"
+                shutil.copytree(workspace, tmp_ws)
+                passed, test_out = evaluate_workspace(tmp_ws)
 
         if passed:
             items.append(EvidenceItem.create(
@@ -102,14 +169,14 @@ def make_evidence_producer(task: Task):
                 checkpoint_id=checkpoint.checkpoint_id, source="test", basis="observed",
                 patch_hash=checkpoint.patch_hash, tree_hash=checkpoint.tree_hash,
                 environment_hash=checkpoint.environment_hash,
-                command="pytest tests/ -q", raw_artifact_hash=digest(test_out),
+                command=cmd_str, raw_artifact_hash=digest(test_out),
                 claim="All repository unit tests passed successfully.",
                 affected_files=checkpoint.changed_files,
                 cost_credits=0.5,
             ))
         else:
             lines = test_out.splitlines()
-            summary_lines = [l for l in lines if l.startswith("FAILED ") or "AssertionError" in l or "Error:" in l]
+            summary_lines = [l for l in lines if l.startswith("FAILED ") or "AssertionError" in l or "Error:" in l or "ERROR " in l]
             claim = "\n".join(summary_lines[:3]) or test_out[-500:]
 
             location = None
@@ -122,6 +189,8 @@ def make_evidence_producer(task: Task):
                         if "::" in p:
                             location = p
                             break
+                elif not location and ("ImportError:" in l or "SyntaxError:" in l or "TypeError:" in l or "AttributeError:" in l):
+                    observed = l.strip()
                 if "assert " in l or "AssertionError" in l:
                     observed = l.strip()
                 if "== " in l or "!= " in l:
@@ -132,7 +201,7 @@ def make_evidence_producer(task: Task):
                 checkpoint_id=checkpoint.checkpoint_id, source="test", basis="observed",
                 patch_hash=checkpoint.patch_hash, tree_hash=checkpoint.tree_hash,
                 environment_hash=checkpoint.environment_hash,
-                command="pytest tests/ -q", raw_artifact_hash=digest(test_out),
+                command=cmd_str, raw_artifact_hash=digest(test_out),
                 claim=claim[:1500], location=location, observed=observed,
                 expected_if_observed=expected, affected_files=checkpoint.changed_files,
                 cost_credits=0.5,
@@ -246,7 +315,7 @@ def execute_study(
         block_id = block["block_id"]
         task_id = block["task_id"]
         task = tasks_by_id[task_id]
-        setup_fn = get_task_setup_fn(task_id)
+        setup_fn = get_task_setup_fn(task)
 
         block_dir = study_root / "blocks" / block_id
         block_dir.mkdir(parents=True, exist_ok=True)
@@ -269,9 +338,9 @@ def execute_study(
         if not (parent_workspace.exists() and parent_grade_file.exists()):
             # Run clean setup for common parent draft
             if parent_workspace.exists():
-                shutil.rmtree(parent_workspace)
+                safe_rmtree(parent_workspace)
             if parent_baseline.exists():
-                shutil.rmtree(parent_baseline)
+                safe_rmtree(parent_baseline)
 
             _, _ = setup_fn(parent_workspace)
             shutil.copytree(parent_workspace, parent_baseline)
@@ -301,7 +370,7 @@ def execute_study(
             write_text(block_dir / "parent.patch", parent_patch)
 
             # Private parent grading (hidden from all treatment arms)
-            parent_resolved, parent_grade_out = evaluate_workspace(parent_workspace)
+            parent_resolved, parent_grade_out = evaluate_task(task, parent_workspace, parent_baseline)
             parent_grade_data = {
                 "parent_resolved": parent_resolved,
                 "output": parent_grade_out[:1000],
@@ -325,7 +394,7 @@ def execute_study(
             parent_patch = (block_dir / "parent.patch").read_text(encoding="utf-8") if (block_dir / "parent.patch").exists() else ""
             print(f"  [Draft] Reused existing parent draft (parent_resolved={parent_resolved})")
 
-        evidence_producer = make_evidence_producer(task)
+        evidence_producer = make_evidence_producer(task, parent_baseline)
 
         # Execute the 5 treatment arms from the exact same parent state
         for branch in planned_branches:
@@ -339,7 +408,7 @@ def execute_study(
             print(f"    - Arm {arm:18s}: starting paired continuation from parent...")
             branch_dir = block_dir / arm
             if branch_dir.exists():
-                shutil.rmtree(branch_dir)
+                safe_rmtree(branch_dir)
             branch_dir.mkdir(parents=True, exist_ok=True)
 
             branch_workspace = branch_dir / "workspace"
@@ -419,7 +488,7 @@ def execute_study(
             write_text(branch_dir / "final.patch", final_patch)
 
             # Independent final grading
-            final_resolved, final_grade_out = evaluate_workspace(branch_workspace)
+            final_resolved, final_grade_out = evaluate_task(task, branch_workspace, branch_baseline)
             write_json(branch_dir / "grade.json", {
                 "resolved": final_resolved,
                 "output": final_grade_out[:1000],

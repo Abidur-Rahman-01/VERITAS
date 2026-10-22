@@ -4,19 +4,27 @@ Prepares a frozen 500-task SWE-rebench-V2 cohort directly from the downloaded Pa
 Enforces:
 - 100% genuine SWE-rebench-V2 tasks (zero synthetic fixtures)
 - Disjoint development vs confirmation repository partitions
+- Full compliance with VERITAS Task schema
 - Frozen task manifest with SHA256 hashes
 """
 
 import hashlib
 import json
 import random
+import sys
 from collections import defaultdict
 from pathlib import Path
 import pyarrow.parquet as pq
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(REPO_ROOT / "src") not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT / "src"))
+
+from veritas.schema import Task
+
 PARQUET_PATH = REPO_ROOT / "data" / "swe_rebench_v2" / "data" / "train-00000-of-00001.parquet"
 OUTPUT_DIR = REPO_ROOT / "data" / "v2_cohort_500"
+HF_REVISION = "10483de0f50fe5da545942705a76c6150171af7f"
 
 
 def compute_sha256(path: Path) -> str:
@@ -50,8 +58,9 @@ def select_500_cohort(seed: int = 42, target_count: int = 500):
         base_commit = table["base_commit"][i].as_py()
         ftp = table["FAIL_TO_PASS"][i].as_py() or []
         ptp = table["PASS_TO_PASS"][i].as_py() or []
+        problem_statement = table["problem_statement"][i].as_py()
 
-        if not (image and test_cmd and iid and base_commit):
+        if not (image and test_cmd and iid and base_commit and problem_statement):
             continue
 
         repos[repo].append({
@@ -62,7 +71,9 @@ def select_500_cohort(seed: int = 42, target_count: int = 500):
             "test_cmd": test_cmd,
             "FAIL_TO_PASS": ftp,
             "PASS_TO_PASS": ptp,
-            "problem_statement": table["problem_statement"][i].as_py(),
+            "test_patch": table["test_patch"][i].as_py() or "",
+            "gold_patch": table["patch"][i].as_py() or "",
+            "problem_statement": problem_statement,
         })
 
     # Sort repositories by task count to select balanced repositories
@@ -73,8 +84,8 @@ def select_500_cohort(seed: int = 42, target_count: int = 500):
     dev_repo_pool = eligible_repos[:half]
     conf_repo_pool = eligible_repos[half:]
 
-    dev_tasks = []
-    conf_tasks = []
+    dev_raw = []
+    conf_raw = []
 
     target_per_split = target_count // 2
 
@@ -82,40 +93,91 @@ def select_500_cohort(seed: int = 42, target_count: int = 500):
     for r in dev_repo_pool:
         available = repos[r]
         take = min(len(available), 15)  # Cap per repo to maintain diversity
-        dev_tasks.extend(available[:take])
-        if len(dev_tasks) >= target_per_split:
+        dev_raw.extend(available[:take])
+        if len(dev_raw) >= target_per_split:
             break
-    dev_tasks = dev_tasks[:target_per_split]
+    dev_raw = dev_raw[:target_per_split]
 
     # Collect 250 tasks from conf repos
     for r in conf_repo_pool:
         available = repos[r]
         take = min(len(available), 15)
-        conf_tasks.extend(available[:take])
-        if len(conf_tasks) >= target_per_split:
+        conf_raw.extend(available[:take])
+        if len(conf_raw) >= target_per_split:
             break
-    conf_tasks = conf_tasks[:target_per_split]
+    conf_raw = conf_raw[:target_per_split]
 
-    all_tasks = dev_tasks + conf_tasks
-    dev_repos = sorted(list({t["repo"] for t in dev_tasks}))
-    conf_repos = sorted(list({t["repo"] for t in conf_tasks}))
+    all_raw = dev_raw + conf_raw
+    dev_repos = sorted(list({t["repo"] for t in dev_raw}))
+    conf_repos = sorted(list({t["repo"] for t in conf_raw}))
 
     # Assert 100% disjoint
     overlap = set(dev_repos).intersection(set(conf_repos))
     assert len(overlap) == 0, f"Disjoint split violated: {overlap}"
 
+    # Build validated Task objects and split assignments
+    tasks_list = []
+    splits_dict = {}
+
+    for t in all_raw:
+        task_id = "swe:" + t["instance_id"]
+        is_dev = t["repo"] in dev_repos
+        task_obj = Task(
+            task_id=task_id,
+            group_id=task_id,
+            source="swe_rebench",
+            source_revision=HF_REVISION,
+            source_split="train",
+            kind="swe",
+            prompt=t["problem_statement"],
+            official_holdout=False,
+            repo=t["repo"],
+            base_commit=t["base_commit"],
+            private={
+                "instance_id": t["instance_id"],
+                "repo": t["repo"],
+                "base_commit": t["base_commit"],
+                "image_name": t["image_name"],
+                "test_cmd": t["test_cmd"],
+                "FAIL_TO_PASS": t["FAIL_TO_PASS"],
+                "PASS_TO_PASS": t["PASS_TO_PASS"],
+                "test_patch": t["test_patch"],
+                "gold_patch": t["gold_patch"],
+            },
+        )
+        tasks_list.append(task_obj)
+        splits_dict[task_id] = {
+            "split": "dev" if is_dev else "test",
+            "partition": "development" if is_dev else "confirmation",
+            "calibration_role": None,
+        }
+
+    # Sort tasks deterministically
+    tasks_list.sort(key=lambda x: x.task_id)
+
     # Write tasks.jsonl
     tasks_file = OUTPUT_DIR / "tasks.jsonl"
     with open(tasks_file, "w", encoding="utf-8") as f:
-        for t in all_tasks:
-            f.write(json.dumps(t) + "\n")
+        for t in tasks_list:
+            f.write(t.model_dump_json() + "\n")
+
+    # Write splits.json
+    splits_file = OUTPUT_DIR / "splits.json"
+    with open(splits_file, "w", encoding="utf-8") as f:
+        json.dump(splits_dict, f, indent=2)
+
+    tasks_hash = compute_sha256(tasks_file)
+    splits_hash = compute_sha256(splits_file)
 
     manifest = {
         "study": "veritas-swe-rebench-v2-500",
         "dataset_source": "SWE-rebench-V2",
         "parquet_sha256": parquet_hash,
-        "total_tasks": len(all_tasks),
-        "split_ratio": {"development": len(dev_tasks), "confirmation": len(conf_tasks)},
+        "tasks_sha256": tasks_hash,
+        "splits_sha256": splits_hash,
+        "hf_revision": HF_REVISION,
+        "total_tasks": len(tasks_list),
+        "split_ratio": {"development": len(dev_raw), "confirmation": len(conf_raw)},
         "development_repositories": dev_repos,
         "confirmation_repositories": conf_repos,
         "seed": seed,
@@ -126,11 +188,12 @@ def select_500_cohort(seed: int = 42, target_count: int = 500):
         json.dump(manifest, f, indent=2)
 
     print(f"Successfully froze 500-task cohort in {OUTPUT_DIR}:")
-    print(f"  Total tasks: {len(all_tasks)}")
-    print(f"  Development tasks: {len(dev_tasks)} across {len(dev_repos)} repos")
-    print(f"  Confirmation tasks: {len(conf_tasks)} across {len(conf_repos)} repos")
+    print(f"  Total tasks: {len(tasks_list)}")
+    print(f"  Development tasks: {len(dev_raw)} across {len(dev_repos)} repos")
+    print(f"  Confirmation tasks: {len(conf_raw)} across {len(conf_repos)} repos")
     print(f"  Repository overlap: {len(overlap)}")
-    print(f"  Tasks SHA-256: {compute_sha256(tasks_file)}")
+    print(f"  Tasks SHA-256: {tasks_hash}")
+    print(f"  Splits SHA-256: {splits_hash}")
 
 
 if __name__ == "__main__":

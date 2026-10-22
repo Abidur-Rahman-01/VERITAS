@@ -35,8 +35,38 @@ logging.basicConfig(
 logger = logging.getLogger("veritas_worker")
 
 
+def to_container_mount_path(p: Path) -> str:
+    """Format path for container volume mount across Windows/WSL2 and native Linux."""
+    resolved = Path(p).resolve()
+    if sys.platform == "win32":
+        drive = resolved.drive.rstrip(":").lower()
+        rest = resolved.as_posix()[len(resolved.drive):]
+        return f"/mnt/{drive}{rest}"
+    return str(resolved)
+
+
+def get_docker_host() -> str:
+    if "DOCKER_HOST" in os.environ:
+        return os.environ["DOCKER_HOST"]
+    if sys.platform == "win32":
+        ip = "172.23.21.138"
+        try:
+            r = subprocess.run(["wsl", "-d", "Ubuntu", "hostname", "-I"], capture_output=True, text=True, timeout=3)
+            if r.returncode == 0 and r.stdout.strip():
+                ip = r.stdout.strip().split()[0]
+        except Exception:
+            pass
+        host = f"tcp://{ip}:2375"
+        os.environ["DOCKER_HOST"] = host
+        return host
+    return ""
+
+
 def run_cmd(argv, timeout=300, input_data: Optional[bytes] = None) -> tuple[int, str, str]:
     """Execute command with timeout and return (exit_code, stdout, stderr)."""
+    env = os.environ.copy()
+    if sys.platform == "win32":
+        env["DOCKER_HOST"] = get_docker_host()
     try:
         proc = subprocess.run(
             argv,
@@ -44,6 +74,7 @@ def run_cmd(argv, timeout=300, input_data: Optional[bytes] = None) -> tuple[int,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             timeout=timeout,
+            env=env,
         )
         return (
             proc.returncode,
@@ -105,35 +136,36 @@ def evaluate_task_in_container(
     with tempfile.TemporaryDirectory(prefix="veritas-eval-") as tmpdir:
         tmp = Path(tmpdir)
         patch_file = tmp / "changes.patch"
-        patch_file.write_text(patch, encoding="utf-8")
+        patch_file.write_bytes(patch.encode("utf-8"))
 
         test_patch_file = None
         if test_patch:
             test_patch_file = tmp / "test.patch"
-            test_patch_file.write_text(test_patch, encoding="utf-8")
+            test_patch_file.write_bytes(test_patch.encode("utf-8"))
 
         # Create evaluation bash script to execute inside the container
         run_script = tmp / "eval_runner.sh"
         script_content = [
             "#!/bin/bash",
             "set -e",
-            "cd /testbed || cd /workspace || cd /app",
+            "# Locate repository root",
+            "if [ -d /testbed/.git ]; then cd /testbed; elif [ -d /benchopt/.git ]; then cd /benchopt; elif git rev-parse --is-inside-work-tree >/dev/null 2>&1; then cd \"$(git rev-parse --show-toplevel)\"; fi",
             "# Reset working tree",
             "git reset --hard HEAD 2>/dev/null || true",
         ]
 
         if test_patch:
-            script_content.append("git apply /veritas_mount/test.patch 2>/dev/null || true")
+            script_content.append("git apply /veritas_mount/test.patch 2>/dev/null || patch -p1 < /veritas_mount/test.patch 2>/dev/null || true")
 
         # Apply candidate patch
         script_content.append("if [ -s /veritas_mount/changes.patch ]; then")
-        script_content.append("  git apply --verbose /veritas_mount/changes.patch || patch -p1 < /veritas_mount/changes.patch")
+        script_content.append("  git apply -v /veritas_mount/changes.patch 2>/dev/null || patch -p1 < /veritas_mount/changes.patch 2>/dev/null || true")
         script_content.append("fi")
 
         # Run test command
         script_content.append("echo '=== BEGIN TEST EXECUTION ==='")
         script_content.append(f"{test_cmd}")
-        run_script.write_text("\n".join(script_content) + "\n", encoding="utf-8")
+        run_script.write_bytes(("\n".join(script_content) + "\n").replace("\r\n", "\n").encode("utf-8"))
 
         # Run container with resource bounds
         docker_args = [
@@ -142,7 +174,7 @@ def evaluate_task_in_container(
             "--memory=4g",
             "--cpus=2.0",
             "--pids-limit=256",
-            "-v", f"{str(tmp)}:/veritas_mount:ro",
+            "-v", f"{to_container_mount_path(tmp)}:/veritas_mount:ro",
             image_name,
             "/bin/bash", "/veritas_mount/eval_runner.sh",
         ]

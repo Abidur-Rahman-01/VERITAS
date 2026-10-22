@@ -147,7 +147,8 @@ class LocalModel:
         elif cfg.backend == "ollama":
             payload = {"model": cfg.name, "messages": messages, "stream": False,
                        "format": "json", "options": {"temperature": cfg.temperature,
-                                                       "num_predict": cap}}
+                                                       "num_predict": cap,
+                                                       "num_ctx": 8192}}
             if cfg.sampling_seed is not None:
                 payload["options"]["seed"] = cfg.sampling_seed
             response = None
