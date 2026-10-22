@@ -55,8 +55,11 @@ The cohort planner and integrity checker are in `src/veritas/feedback_study.py`.
 ## LangGraph SWE-bench Lite agent
 
 The optional coding-agent path uses three LangGraph nodes: fault localization, patch generation,
-and a verifier. The verifier checks that a unified diff applies cleanly and passes `git diff --check`.
-Final task success is measured separately with the official SWE-bench Docker evaluator.
+and a verifier. The verifier checks that a unified diff applies cleanly, changes repository files,
+passes `git diff --check`, and receives a valid `PASS` from the configured review model. Verifier
+errors and malformed responses fail closed and can trigger another repair attempt. This review
+does not run the task tests, and it cannot guarantee patch correctness. Final task success is
+measured separately with the official SWE-bench Docker evaluator.
 
 Build the Docker image (it installs LangGraph and the SWE-bench harness), then download
 the pinned 300-task Lite test split:

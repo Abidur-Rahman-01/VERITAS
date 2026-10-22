@@ -10,7 +10,7 @@ import json
 import os
 import re
 import subprocess
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import TypedDict
 
 import httpx
@@ -26,6 +26,8 @@ class AgentState(TypedDict, total=False):
     patch: str
     verification: dict
     repair_attempt: int
+    localization_error: str
+    patch_error: str
 
 
 def model_call(base_url, model, system, prompt, api_key=None, timeout=300):
@@ -129,14 +131,52 @@ def file_context(root, paths, max_bytes=14_000):
 
 def patch_paths(patch):
     found = []
-    for line in patch.splitlines():
+    lines = patch.splitlines()
+    for index, line in enumerate(lines):
         if line.startswith("+++ b/"):
             found.append(line[6:].strip())
-    return list(dict.fromkeys(found))
+        elif line == "+++ /dev/null" and index and lines[index - 1].startswith("--- a/"):
+            found.append(lines[index - 1][6:].strip())
+    safe = []
+    for value in found:
+        path = PurePosixPath(value)
+        if (
+            value
+            and not path.is_absolute()
+            and ".." not in path.parts
+            and "\\" not in value
+            and value != "."
+        ):
+            safe.append(path.as_posix())
+    return list(dict.fromkeys(safe))
+
+
+def existing_repo_paths(root, values, *, require_exists=True):
+    root = Path(root).resolve()
+    result = []
+    for value in values:
+        if not isinstance(value, str) or not value or "\\" in value:
+            continue
+        relative = PurePosixPath(value)
+        if relative.is_absolute() or ".." in relative.parts:
+            continue
+        path = (root / relative.as_posix()).resolve()
+        if root in path.parents and (path.is_file() or not require_exists):
+            result.append(relative.as_posix())
+    return list(dict.fromkeys(result))
+
+
+def git_command(directory, *args, check=True, **kwargs):
+    directory = Path(directory).resolve()
+    options = {"check": check, "capture_output": True, "text": True}
+    options.update(kwargs)
+    return subprocess.run(
+        ["git", "-c", f"safe.directory={directory}", "-C", str(directory), *args],
+        **options,
+    )
 
 
 def clone_task(row, directory):
-    subprocess.run(["git", "config", "--global", "--add", "safe.directory", "*"], check=False)
     repo_url = row["repo"]
     if "://" not in repo_url:
         repo_url = "https://github.com/" + repo_url
@@ -152,14 +192,25 @@ def clone_task(row, directory):
                         cached_source = str(sibling)
                         break
         if cached_source:
-            subprocess.run(["git", "clone", "--quiet", cached_source, str(directory)], check=True)
-            subprocess.run(["git", "-C", str(directory), "remote", "set-url", "origin", repo_url], check=False)
+            subprocess.run(
+                ["git", "-c", f"safe.directory={Path(cached_source).resolve()}",
+                 "clone", "--quiet", cached_source, str(directory)],
+                check=True, capture_output=True, text=True,
+            )
+            git_command(directory, "remote", "set-url", "origin", repo_url)
         else:
-            subprocess.run(["git", "clone", "--quiet", "--filter=blob:none", repo_url, str(directory)], check=True)
-    res = subprocess.run(["git", "-C", str(directory), "checkout", "--quiet", row["base_commit"]])
+            subprocess.run(
+                ["git", "clone", "--quiet", "--filter=blob:none", repo_url, str(directory)],
+                check=True, capture_output=True, text=True,
+            )
+    git_command(directory, "reset", "--hard", "HEAD")
+    git_command(directory, "clean", "-fdx")
+    res = git_command(directory, "checkout", "--quiet", "--detach", row["base_commit"], check=False)
     if res.returncode != 0:
-        subprocess.run(["git", "-C", str(directory), "fetch", "origin", row["base_commit"]], check=False)
-        subprocess.run(["git", "-C", str(directory), "checkout", "--quiet", row["base_commit"]], check=True)
+        git_command(directory, "fetch", "origin", row["base_commit"], check=False)
+        git_command(directory, "checkout", "--quiet", "--detach", row["base_commit"])
+    git_command(directory, "reset", "--hard", row["base_commit"])
+    git_command(directory, "clean", "-fdx")
 
 
 def build_graph(base_url, model, api_key=None, oracle_localization=False, verifier_model="llama3.1:8b"):
@@ -168,8 +219,15 @@ def build_graph(base_url, model, api_key=None, oracle_localization=False, verifi
         paths = source_snapshot(root)
         row = state["task"]
         if oracle_localization:
-            return {"located_paths": state["oracle_paths"], "diagnosis": "Oracle file paths supplied from gold patch metadata."}
+            selected = existing_repo_paths(
+                root, state.get("oracle_paths", []), require_exists=False
+            )[:8]
+            diagnosis = "Oracle file paths supplied from gold patch metadata."
+            if not selected:
+                diagnosis += " No oracle paths matched files in the checked-out repository."
+            return {"located_paths": selected, "diagnosis": diagnosis}
         result = {}
+        localization_error = None
         try:
             raw = model_call(
                 base_url, model,
@@ -177,47 +235,62 @@ def build_graph(base_url, model, api_key=None, oracle_localization=False, verifi
                 json.dumps({"issue": row["problem_statement"], "repository_files": paths[:350]}), api_key,
             )
             result = json_object(raw)
-        except Exception:
+        except Exception as exc:
             result = {}
-        selected = [p for p in result.get("files", []) if isinstance(p, str) and (root / p).is_file()]
+            localization_error = f"{type(exc).__name__}: {exc}"
+        selected = existing_repo_paths(root, result.get("files", []))[:8]
         if not selected:
-            mentioned = re.findall(r"[\\w/.-]+\\.py", row["problem_statement"])
-            for m in mentioned:
-                cleaned = m.lstrip("./")
-                if (root / cleaned).is_file() and cleaned not in selected:
-                    selected.append(cleaned)
+            mentioned = re.findall(r"[\w/.-]+\.py", row["problem_statement"])
+            selected = existing_repo_paths(root, [m.lstrip("./") for m in mentioned])[:8]
             if not selected and paths:
                 selected = paths[:3]
-        return {"located_paths": selected[:8], "diagnosis": str(result.get("diagnosis", "Localized based on issue and repository files."))}
+        diagnosis = str(result.get("diagnosis", "Localized based on issue and repository files."))
+        if localization_error:
+            diagnosis += f" Localization model error: {localization_error}"
+        return {
+            "located_paths": selected[:8], "diagnosis": diagnosis,
+            "localization_error": localization_error,
+        }
 
     def repair(state):
         root = Path(state["repository"])
         paths = state.get("located_paths", [])
         context = file_context(root, paths)
-        raw = model_call(
-            base_url, model,
-            "You are a repository repair specialist. Return JSON only with keys patch and rationale. patch must be a unified diff starting with diff --git, suitable for git apply. Use only the issue and source context. Do not emit the gold patch or unrelated edits.",
-            json.dumps({"issue": state["task"]["problem_statement"], "files": paths,
-                        "localization_diagnosis": state.get("diagnosis", ""),
-                        "source_context": context, "previous_verification": state.get("verification")}),
-            api_key,
-        )
         patch = ""
+        patch_error = None
         try:
-            result = json_object(raw)
-            patch = str(result.get("patch", ""))
-        except Exception:
-            pass
-        if not patch or "diff --git" not in patch:
-            match = re.search(r'(diff --git[\s\S]+?)(?:```|(?:\",\s*\"rationale\":)|$)', raw)
-            if match:
-                patch = match.group(1).strip()
-        if "\\n" in patch and "\n" not in patch:
-            patch = patch.replace("\\n", "\n")
-        patch = re.sub(r'[\s",}]+$', "", patch).strip()
-        if patch and not patch.endswith("\n"):
-            patch += "\n"
-        return {"patch": patch, "repair_attempt": state.get("repair_attempt", 0) + 1}
+            raw = model_call(
+                base_url, model,
+                "You are a repository repair specialist. Return JSON only with keys patch and rationale. patch must be a unified diff starting with diff --git, suitable for git apply. Use only the issue and source context. Do not emit the gold patch or unrelated edits.",
+                json.dumps({"issue": state["task"]["problem_statement"], "files": paths,
+                            "localization_diagnosis": state.get("diagnosis", ""),
+                            "source_context": context, "previous_verification": state.get("verification")}),
+                api_key,
+            )
+            try:
+                result = json_object(raw)
+                patch = str(result.get("patch", ""))
+            except Exception:
+                pass
+            if not patch or "diff --git" not in patch:
+                match = re.search(r'(diff --git[\s\S]+?)(?:```|(?:\",\s*\"rationale\":)|$)', raw)
+                if match:
+                    patch = match.group(1).strip()
+            if not patch.startswith("diff --git"):
+                patch = ""
+            if "\\n" in patch and "\n" not in patch:
+                patch = patch.replace("\\n", "\n")
+            patch = re.sub(r'[\s",}]+$', "", patch).strip()
+            if patch and not patch.endswith("\n"):
+                patch += "\n"
+            if not patch:
+                patch_error = "Repair model response did not contain a unified diff."
+        except Exception as exc:
+            patch_error = f"{type(exc).__name__}: {exc}"
+        return {
+            "patch": patch, "patch_error": patch_error,
+            "repair_attempt": state.get("repair_attempt", 0) + 1,
+        }
 
     def sanitize_patch(p):
         lines = p.splitlines(keepends=True)
@@ -245,45 +318,98 @@ def build_graph(base_url, model, api_key=None, oracle_localization=False, verifi
         root = Path(state["repository"])
         patch = state.get("patch", "")
         if not patch:
-            return {"verification": {"patch_applicable": False, "message": "Empty patch", "pass": False}}
+            patch_error = state.get("patch_error")
+            verdict = "ERROR" if patch_error else "FAIL"
+            reason = patch_error or "Empty patch"
+            return {"verification": {
+                "patch_applicable": False, "verdict": verdict,
+                "reason": reason, "message": reason, "pass": False,
+            }}
         patch = sanitize_patch(patch)
-        subprocess.run(["git", "reset", "--hard", "HEAD"], cwd=root, capture_output=True)
-        subprocess.run(["git", "clean", "-fdx"], cwd=root, capture_output=True)
-        check = subprocess.run(["git", "apply", "--check", "--recount", "-"], cwd=root, input=patch,
-                               encoding="utf-8", errors="replace", capture_output=True)
+        reset = git_command(root, "reset", "--hard", "HEAD", check=False)
+        clean = git_command(root, "clean", "-fdx", check=False)
+        if reset.returncode or clean.returncode:
+            reason = "Could not restore a clean base checkout: " + (
+                reset.stderr or clean.stderr or reset.stdout or clean.stdout
+            )[-3000:]
+            return {"verification": {
+                "patch_applicable": False, "verdict": "ERROR", "reason": reason,
+                "message": reason, "pass": False,
+            }, "patch": patch}
+        check = git_command(
+            root, "apply", "--check", "--recount", "-", check=False, input=patch
+        )
         git_applicable = (check.returncode == 0)
         git_message = (check.stderr or check.stdout)[-3000:]
 
         applied = False
         diff_check = False
+        apply_res = None
+        ws_res = None
         if git_applicable:
-            apply_res = subprocess.run(["git", "apply", "--recount", "-"], cwd=root, input=patch,
-                                       encoding="utf-8", errors="replace", capture_output=True)
+            apply_res = git_command(root, "apply", "--recount", "-", check=False, input=patch)
             applied = (apply_res.returncode == 0)
             if applied:
-                ws_res = subprocess.run(["git", "diff", "--check"], cwd=root,
-                                        encoding="utf-8", errors="replace", capture_output=True)
+                ws_res = git_command(root, "diff", "--check", check=False)
                 diff_check = (ws_res.returncode == 0)
 
-        git_pass = bool(git_applicable and applied and diff_check)
+        changed = git_command(
+            root, "diff", "--name-only", "-z", check=False, text=False
+        )
+        untracked = git_command(
+            root, "ls-files", "--others", "--exclude-standard", "-z",
+            check=False, text=False,
+        )
+        changed_paths = list(dict.fromkeys(
+            value.decode("utf-8", errors="replace")
+            for output in (changed.stdout, untracked.stdout)
+            for value in output.split(b"\0") if value
+        )) if changed.returncode == 0 and untracked.returncode == 0 else []
+        git_pass = bool(
+            git_applicable and applied and diff_check and changed.returncode == 0
+            and untracked.returncode == 0 and changed_paths
+        )
 
         # 1. If Git check failed, fail immediately and supply git error feedback
         if not git_pass:
+            failure_detail = (
+                git_message
+                or ((apply_res.stderr or apply_res.stdout) if apply_res else "")
+                or ((ws_res.stderr or ws_res.stdout) if ws_res else "")
+                or changed.stderr or untracked.stderr
+            ).strip()
+            if not failure_detail:
+                failure_detail = "Patch applied but produced no detectable file changes."
             result = {
                 "patch_applicable": git_applicable,
                 "applied": applied,
                 "diff_check": diff_check,
+                "changed_files": changed_paths,
                 "verifier_model": verifier_model,
                 "verdict": "FAIL",
-                "reason": f"Git application error: {git_message.strip()}",
-                "message": f"Git application error: {git_message.strip()}",
+                "reason": (
+                    f"Git verification failed: {failure_detail}"
+                    if not (
+                        git_applicable and applied and diff_check
+                        and changed.returncode == 0 and untracked.returncode == 0
+                    )
+                    else failure_detail
+                ),
+                "message": (
+                    f"Git verification failed: {failure_detail}"
+                    if not (
+                        git_applicable and applied and diff_check
+                        and changed.returncode == 0 and untracked.returncode == 0
+                    )
+                    else failure_detail
+                ),
                 "pass": False,
             }
             return {"verification": result, "patch": patch}
 
-        # 2. Git check passed! Now run semantic evaluation with Llama 8B Verifier
-        llm_verdict = "PASS"
-        llm_reason = "Verified syntactically and semantically."
+        # Git checks establish patch integrity only. A separate model review is required to pass.
+        llm_verdict = "ERROR"
+        llm_reason = "No semantic verifier model is configured."
         if verifier_model:
             try:
                 system_prompt = (
@@ -295,22 +421,28 @@ def build_graph(base_url, model, api_key=None, oracle_localization=False, verifi
                 user_prompt = json.dumps({
                     "issue": state["task"]["problem_statement"],
                     "patch": patch[:10000],
-                    "modified_files": state.get("located_paths", []),
-                    "diagnosis": state.get("diagnosis", "")
+                    "modified_files": changed_paths,
+                    "diagnosis": state.get("diagnosis", ""),
+                    "resulting_source": file_context(root, changed_paths),
                 })
                 raw_eval = model_call(base_url, verifier_model, system_prompt, user_prompt, api_key, timeout=120)
                 eval_obj = json_object(raw_eval)
-                llm_verdict = str(eval_obj.get("verdict", "PASS")).upper().strip()
+                llm_verdict = str(eval_obj.get("verdict", "")).upper().strip()
+                if llm_verdict not in {"PASS", "FAIL"}:
+                    raise ValueError("Verifier response must contain verdict PASS or FAIL")
                 llm_reason = str(eval_obj.get("reason", "No reason provided."))
+                if not llm_reason.strip():
+                    raise ValueError("Verifier response must include a reason")
             except Exception as e:
-                llm_verdict = "PASS"
-                llm_reason = f"LLM verifier fallback: {e}"
+                llm_verdict = "ERROR"
+                llm_reason = f"LLM verifier unavailable or invalid: {type(e).__name__}: {e}"
 
         passes = (llm_verdict == "PASS")
         result = {
             "patch_applicable": True,
             "applied": True,
             "diff_check": True,
+            "changed_files": changed_paths,
             "verifier_model": verifier_model,
             "verdict": llm_verdict,
             "reason": llm_reason,
@@ -386,6 +518,8 @@ def run(args):
         result = {"instance_id": instance, "model_patch": state.get("patch", ""),
                   "model_name_or_path": args.model, "located_paths": state.get("located_paths", []),
                   "verification": state.get("verification", {}),
+                  "localization_error": state.get("localization_error"),
+                  "patch_error": state.get("patch_error"),
                   "localization_mode": "oracle_gold_patch_paths" if args.oracle_localization else "model",
                   "oracle_localization": bool(args.oracle_localization)}
         results.append(result)
