@@ -52,6 +52,64 @@ The new feedback-selection primitives are in `src/veritas/feedback_evidence.py` 
 actions to evidence invalidation, selection, and the next actor prompt through `run_phase()`.
 The cohort planner and integrity checker are in `src/veritas/feedback_study.py`.
 
+## LangGraph SWE-bench Lite agent
+
+The optional coding-agent path uses three LangGraph nodes: fault localization, patch generation,
+and a verifier. The verifier checks that a unified diff applies cleanly and passes `git diff --check`.
+Final task success is measured separately with the official SWE-bench Docker evaluator.
+
+Build the Docker image (it installs LangGraph and the SWE-bench harness), then download
+the pinned 300-task Lite test split:
+
+```sh
+docker compose build swe-langgraph
+docker compose run --rm --entrypoint python swe-langgraph -m veritas.langgraph_swe download
+```
+
+Build the benchmark's isolated task environments before evaluation (this downloads/builds up to
+300 repository images and needs substantial disk space):
+
+```sh
+docker compose run --rm --entrypoint veritas veritas swe build-images data/swebench_lite.jsonl --workers 2
+```
+
+Ollama must be running on the host with a coding model already pulled. Run a small pilot first:
+
+```sh
+OLLAMA_HOST=http://host.docker.internal:11434 docker compose run --rm swe-langgraph run \
+  --tasks data/swebench_lite.jsonl --model codestral:22b --limit 3 \
+  --output runs/langgraph-swe-lite-pilot
+```
+
+`predictions.jsonl` is compatible with the official evaluator. On Linux with Docker available and
+SWE-bench task images built or pulled, evaluate the pilot with:
+
+```sh
+docker compose run --rm --entrypoint python swe-langgraph -m swebench.harness.run_evaluation \
+  --dataset_name data/swebench_lite.jsonl \
+  --predictions_path runs/langgraph-swe-lite-pilot/predictions.jsonl \
+  --max_workers 2 --run_id langgraph-lite-pilot --namespace swebench
+```
+
+For the full benchmark run, omit `--limit` and give the run a separate output directory. Build the
+task images once, then point the official evaluator at that run's `predictions.jsonl`.
+
+To measure repair/verifier behavior when repository navigation is removed as a confound, run the
+same tasks with `--oracle-localization`. This supplies only paths parsed from each gold patch; it
+does not reveal patch contents. The output records `oracle_localization: true` and
+`localization_mode: oracle_gold_patch_paths`. Treat these scores as a separate oracle ablation,
+never as the ordinary SWE-bench score. The model-localized run is the normal benchmark setting.
+
+```sh
+docker compose run --rm swe-langgraph run --tasks data/swebench_lite.jsonl \
+  --model codestral:22b --limit 3 --oracle-localization \
+  --output runs/langgraph-swe-lite-oracle-pilot
+```
+
+The current verifier is a patch-integrity gate, not a per-step test runner. Only the official
+Docker evaluation outcome establishes SWE-bench task resolution. The agent checks out each task's
+declared `base_commit`; use the official evaluator's task images to run the benchmark tests.
+
 ## Current implementation boundary
 
 The evidence model, conservative patch/environment invalidation, five policy renderers, bounded
