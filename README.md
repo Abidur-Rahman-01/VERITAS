@@ -109,6 +109,16 @@ docker compose run --rm swe-langgraph run --tasks data/swebench_lite.jsonl \
   --output runs/langgraph-swe-lite-oracle-pilot
 ```
 
+To run both full 300-task arms and their official evaluations sequentially, use the guarded
+one-shot runner. It checks Docker, Ollama, and both model tags before it builds task images:
+
+```sh
+bash scripts/run_swebench_lite_end_to_end.sh
+```
+
+Override `MODEL`, `VERIFIER_MODEL`, `IMAGE_WORKERS`, or `EVAL_WORKERS` in the environment to
+match the models and machine. The full run can take hours and needs substantial disk space.
+
 The current verifier is a patch-integrity gate, not a per-step test runner. Only the official
 Docker evaluation outcome establishes SWE-bench task resolution. The agent checks out each task's
 declared `base_commit`; use the official evaluator's task images to run the benchmark tests.
