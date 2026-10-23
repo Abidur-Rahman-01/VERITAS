@@ -21,6 +21,18 @@ def patch_paths(patch):
     return list(dict.fromkeys(paths))
 
 
+def _is_test_or_docs_path(path):
+    """Identify changed files that do not normally contain product behavior."""
+    normalized = path.replace("\\", "/").lower()
+    parts = normalized.split("/")
+    name = parts[-1]
+    if any(part in {"test", "tests", "testing", "spec", "specs", "docs", "doc"} for part in parts[:-1]):
+        return True
+    if name.startswith(("test_", "tests_")) or name.endswith(("_test.py", "_tests.py", ".spec.js", ".spec.ts")):
+        return True
+    return name.endswith((".md", ".rst", ".adoc"))
+
+
 def download_lite(output, revision="6ec7bb8"):
     from datasets import load_dataset
 
@@ -169,11 +181,16 @@ def _read_openhands_usage(log_path):
 
 def review_patch(row, patch, args):
     """Ask the local Ollama verifier for issue-grounded review without gold data."""
+    changed_paths = patch_paths(patch)
     prompt = (
         "Review the proposed repository patch against the public issue only. Do not infer or claim hidden-test results. "
+        "A test or reproduction script alone is not a fix. PASS requires a concrete implementation change in product code "
+        "that addresses the issue; when the patch only adds tests, reproducers, or documentation, return REVISE and ask "
+        "for the missing implementation. Explain which changed implementation file and behavior support PASS. "
         'Return one JSON object with fields "verdict" ("PASS" or "REVISE") and "findings" (a list of short actionable strings). '
         "Use PASS only when the patch appears to address the requested behavior without an obvious regression.\n\n"
         f"Issue:\n{row['problem_statement']}\n\nPatch:\n{patch[:50000]}"
+        f"\n\nChanged paths:\n" + "\n".join(f"- {path}" for path in changed_paths)
     )
     body = {
         "model": args.verifier_model,
@@ -208,6 +225,12 @@ def review_patch(row, patch, args):
         findings = review.get("findings", [])
         if not isinstance(findings, list):
             findings = [str(findings)]
+        implementation_paths = [path for path in changed_paths if not _is_test_or_docs_path(path)]
+        if changed_paths and not implementation_paths:
+            verdict = "REVISE"
+            findings = [
+                "The patch changes only test, reproduction, or documentation files; implement the requested behavior in product code."
+            ] + [str(item) for item in findings]
         return {
             "verdict": verdict,
             "findings": [str(item)[:1000] for item in findings[:8]],
