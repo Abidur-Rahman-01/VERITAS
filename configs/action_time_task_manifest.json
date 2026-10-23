@@ -1,6 +1,6 @@
 {
   "manifest_name": "TSE_Action_Time_Verification_20Task_Manifest",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "target_focus": "Repository Repair and Multi-File Software Maintenance",
   "cohort_size": 20,
   "conditions": {
@@ -10,7 +10,8 @@
       "policy": "never",
       "max_steps": 30,
       "verifier_budget": 0.0,
-      "actor_model": "qwen2.5-coder:7b",
+      "actor_model": "qwen3-coder:30b",
+      "verifier_model": null,
       "description": "Unverified control: actor executes tool mutations freely without checks."
     },
     "Arm_1": {
@@ -19,8 +20,8 @@
       "policy": "random",
       "max_steps": 30,
       "verifier_budget": 0.4,
-      "actor_model": "qwen2.5-coder:7b",
-      "verifier_model": "llama3.1:8b",
+      "actor_model": "qwen3-coder:30b",
+      "verifier_model": "qwen2.5-coder:14b",
       "description": "Random control: mutations randomly verified at p=0.33 under 0.4 budget."
     },
     "Arm_2": {
@@ -29,8 +30,8 @@
       "policy": "error_impact",
       "max_steps": 30,
       "verifier_budget": 0.4,
-      "actor_model": "qwen2.5-coder:7b",
-      "verifier_model": "llama3.1:8b",
+      "actor_model": "qwen3-coder:30b",
+      "verifier_model": "qwen2.5-coder:14b",
       "description": "Selective treatment: controller evaluates risk, verifies high-risk mutations, blocks FAIL."
     }
   },

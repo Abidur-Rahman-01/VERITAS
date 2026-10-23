@@ -16,6 +16,8 @@ uv sync --frozen --extra dev --extra swe
 uv run veritas --help
 ```
 
+For the separate three-arm action-time verification experiment, model choices, and Docker commands, see [the Docker and WSL setup guide](docs/DOCKER_WSL_SETUP.md#action-time-tse-experiment-three-arms).
+
 The repository currently contains the prepared 21,336-row `nebius/SWE-rebench` release pinned in
 `configs/datasets.yaml`. The separate `nebius/SWE-rebench-V2` parquet referenced by an older helper
 is not present in this checkout. The active workflow uses the prepared release and records its
@@ -64,7 +66,7 @@ Install Python 3.12, `uv`, Git, Ollama, and OpenHands CLI. Then install the proj
 
 ```sh
 uv tool install openhands --python 3.12
-uv sync --extra swe --extra dev
+uv sync --frozen --extra dev --extra swe
 ```
 
 Pull Qwen3-Coder 30B:

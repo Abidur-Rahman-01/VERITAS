@@ -18,7 +18,7 @@ echo ======================================================
 echo Pulling requested models...
 echo ======================================================
 
-set "MODELS=tinyllama qwen2.5:1.5b qwen2.5:3b llama3.2:3b phi3.5 qwen2.5:7b llama3.1:8b gemma3:4b gemma3:12b qwen2.5:14b"
+set "MODELS=tinyllama qwen2.5:1.5b qwen2.5:3b llama3.2:3b phi3.5 qwen2.5:7b llama3.1:8b gemma3:4b gemma3:12b qwen2.5:14b qwen3-coder:30b qwen2.5-coder:14b"
 
 for %%m in (%MODELS%) do (
     echo.

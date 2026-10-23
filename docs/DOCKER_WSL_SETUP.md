@@ -98,6 +98,31 @@ Once Windows boots:
 
 Use `run_docker.bat` (CMD), `run_docker.ps1` (PowerShell), or `./run_docker.sh` (WSL / Bash).
 
+### Action-Time TSE Experiment (Three Arms)
+
+The action-time experiment uses the same actor in every arm: `qwen3-coder:30b`. Ollama’s official Qwen3-Coder catalog currently provides a 30B model (about 19 GB on disk), rather than a 20B tag. Arms 1 and 2 use `qwen2.5-coder:14b` as verifier; Arm 0 remains unverified and makes no verifier calls. Ollama runs on the Windows host, and Docker reaches it through `host.docker.internal` using `VERITAS_OLLAMA_BASE_URL`.
+
+In PowerShell, from the project root:
+
+```powershell
+ollama pull qwen3-coder:30b
+ollama pull qwen2.5-coder:14b
+docker compose build veritas
+docker compose run --rm --entrypoint python veritas scripts/run_action_time_tse_experiment.py --tasks 20 --output artifacts/action_time_pilot
+docker compose run --rm --entrypoint python veritas scripts/analyze_action_time_study.py --study-dir artifacts/action_time_pilot
+docker compose run --rm --entrypoint python veritas scripts/generate_tse_action_time_figures.py --study-dir artifacts/action_time_pilot
+```
+
+After the pilot finishes, run the current 60-task registry (180 task-arm trials):
+
+```powershell
+docker compose run --rm --entrypoint python veritas scripts/run_action_time_tse_experiment.py --tasks 60 --output artifacts/action_time_study
+docker compose run --rm --entrypoint python veritas scripts/analyze_action_time_study.py --study-dir artifacts/action_time_study
+docker compose run --rm --entrypoint python veritas scripts/generate_tse_action_time_figures.py --study-dir artifacts/action_time_study
+```
+
+This runner uses its configured local sandbox inside the coordinator container; it does not start a nested Docker sandbox for each trial. The `veritas-sandbox` image is used by other Docker-backed grading workflows.
+
 ### A. Build the Project Images
 ```cmd
 run_docker.bat build

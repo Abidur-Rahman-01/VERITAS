@@ -14,7 +14,9 @@ $models = @(
     "llama3.1:8b",
     "gemma3:4b",
     "gemma3:12b",
-    "qwen2.5:14b"
+    "qwen2.5:14b",
+    "qwen3-coder:30b",
+    "qwen2.5-coder:14b"
 )
 
 foreach ($model in $models) {

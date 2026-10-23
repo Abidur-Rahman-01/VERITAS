@@ -1,3 +1,4 @@
+import os
 from pathlib import Path, PurePosixPath
 from typing import Literal
 
@@ -126,6 +127,14 @@ def load_config(path, override=None):
     for extra in [override] if isinstance(override, (str, Path)) else override or []:
         obj = merge(obj, yaml.safe_load(Path(extra).read_text()))
     config = Config.model_validate(obj)
+    # Model endpoints are host-local in native runs, but Docker containers need
+    # to reach services on the host through Docker Desktop's host gateway.
+    # Keep the override opt-in so existing native configurations stay unchanged.
+    ollama_base_url = os.environ.get("VERITAS_OLLAMA_BASE_URL")
+    if ollama_base_url:
+        for model in (config.model, config.critic, config.verifier):
+            if model.backend == "ollama":
+                model.base_url = ollama_base_url.rstrip("/")
     if set(config.impact) != set(ActionClass) or any(
         not 0 <= v <= 1 for v in config.impact.values()
     ):

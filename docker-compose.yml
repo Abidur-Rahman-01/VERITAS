@@ -24,6 +24,7 @@ services:
     environment:
       - VERITAS_DOCKER_TESTS=1
       - OLLAMA_HOST=${OLLAMA_HOST:-http://host.docker.internal:11434}
+      - VERITAS_OLLAMA_BASE_URL=${VERITAS_OLLAMA_BASE_URL:-http://host.docker.internal:11434}
       - VERITAS_API_KEY=${VERITAS_API_KEY:-}
       - PYTHONUNBUFFERED=1
     stdin_open: true
@@ -47,6 +48,7 @@ services:
     environment:
       - VERITAS_DOCKER_TESTS=1
       - OLLAMA_HOST=${OLLAMA_HOST:-http://host.docker.internal:11434}
+      - VERITAS_OLLAMA_BASE_URL=${VERITAS_OLLAMA_BASE_URL:-http://host.docker.internal:11434}
       - PYTHONUNBUFFERED=1
     entrypoint: ["pytest"]
     command: ["-ra"]
@@ -80,6 +82,7 @@ services:
     environment:
       - VERITAS_DOCKER_TESTS=1
       - OLLAMA_HOST=${OLLAMA_HOST:-http://host.docker.internal:11434}
+      - VERITAS_OLLAMA_BASE_URL=${VERITAS_OLLAMA_BASE_URL:-http://host.docker.internal:11434}
       - VERITAS_API_KEY=${VERITAS_API_KEY:-}
       - PYTHONUNBUFFERED=1
     stdin_open: true

@@ -26,28 +26,26 @@ This study investigates **action-time runtime verification**: dynamic, in-loop q
 
 ---
 
-## 3. The Unified Experimental Matrix (Four Matched Arms)
+## 3. The Unified Experimental Matrix (Three Matched Arms)
 
-To isolate verifier guidance from extra search depth, inference tokens, or chance, all arms share identical step caps (30 steps), identical actor models (`qwen2.5-coder:7b`), and identical tool harnesses:
+To isolate verifier guidance from extra search depth, inference tokens, or chance, all arms share identical step caps (30 steps), the same actor model (`qwen3-coder:30b`), and identical tool harnesses. Arms 1 and 2 use `qwen2.5-coder:14b` as the verifier; Arm 0 makes no verifier calls.
 
 ```
 +---------------------------------------------------------------------------------------------------------+
-|                                    FOUR-ARM COMPARATIVE STUDY MATRIX                                    |
+|                                    THREE-ARM COMPARATIVE STUDY MATRIX                                   |
 +------------------------------------+-------------------+-----------+----------------+-------------------+
 | Experimental Arm                   | Controller Policy | Step Cap  | Verifier Budget| Verifier Timing   |
 +------------------------------------+-------------------+-----------+----------------+-------------------+
 | Arm 0: Unverified Baseline         | policy: "never"   | 30 steps  | 0.0 credits    | None (Zero checks)|
-| Arm 1: Native-Check Control        | policy: "never"   | 30 steps  | 0.0 credits    | Local dry-run only|
-| Arm 2: Random Verification Control | policy: "random"  | 30 steps  | 0.4 credits    | p=0.33 per action |
-| Arm 3: Selective Action Gate (Treat)| policy: "error_impact"| 30 steps| 0.4 credits | Pre-action gate   |
+| Arm 1: Random Verification Control | policy: "random"  | 30 steps  | 0.4 credits    | p=0.33 per action |
+| Arm 2: Selective Action Gate (Treat)| policy: "error_impact"| 30 steps| 0.4 credits | Pre-action gate   |
 +------------------------------------+-------------------+-----------+----------------+-------------------+
 ```
 
 ### Treatment Specifications
 1. **Arm 0 (Unverified Baseline):** Actor generates proposals and executes them directly.
-2. **Arm 1 (Native-Check Control):** Actor is allowed internal test dry-runs via `pytest` without external verifier critique or blocking.
-3. **Arm 2 (Budget-Matched Random Verification):** Verifier is invoked randomly on candidate mutations ($p = 0.33$) until the 0.4 credit budget is exhausted.
-4. **Arm 3 (Selective Action-Time Gate):** Controller calculates risk $R = p_{\text{error}} \cdot \text{impact}$, scores candidates against threshold $\tau = 0.25$, and invokes the verifier only when risk justifies verification cost. If verifier returns `FAIL`:
+2. **Arm 1 (Budget-Matched Random Verification):** The `qwen2.5-coder:14b` verifier is invoked randomly on candidate mutations ($p = 0.33$) until the 0.4 credit budget is exhausted.
+3. **Arm 2 (Selective Action-Time Gate):** The same verifier is invoked when the controller score crosses threshold $\tau = 0.25$. If verifier returns `FAIL`:
    * `record.blocked = True`, `record.executed = False`
    * Workspace rolled back via checkpoint restore
    * Specific diagnostic critique returned to agent to trigger replanning.

@@ -81,6 +81,10 @@ def analyze_study(report_path: Path, output_dir: Path):
             "total_tasks": int(df["task_id"].nunique()),
             "total_trials": int(len(df)),
         },
+        "models": {
+            "actor": sorted(str(value) for value in df.get("actor_model", pd.Series(dtype=str)).dropna().unique()),
+            "verifier": sorted(str(value) for value in df.get("verifier_model", pd.Series(dtype=str)).dropna().unique()),
+        },
         "arm_summary": arm_summary,
         "contrasts": contrasts,
     }

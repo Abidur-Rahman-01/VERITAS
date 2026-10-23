@@ -838,6 +838,8 @@ def run_single_arm_task(
         "trial_id": trial_id,
         "arm": arm,
         "task_id": task_id,
+        "actor_model": cfg.model.name,
+        "verifier_model": cfg.verifier.name if verifier_model else None,
         "resolved": resolved,
         "elapsed_seconds": round(elapsed, 2),
         "total_events": total_events,

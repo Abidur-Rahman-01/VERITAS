@@ -61,7 +61,7 @@ Actions proposed by the agent are categorized by mutation risk in [`src/veritas/
 ### B. What the Verifier Does
 Before the sandbox executes the proposed action:
 1. An isolated workspace checkpoint is created (`state_before = tree_hash(workspace)`).
-2. The verifier (`llama3.1:8b` or static constraint checker) inspects the proposed diff/command against the issue statement, AST integrity, and syntax.
+2. The verifier (`qwen2.5-coder:14b`) inspects the proposed diff/command against the issue statement, AST integrity, and syntax.
 3. For code edits, candidate unit tests are dry-run in an isolated sub-container.
 
 ### C. State Machine & Verdict Handling
@@ -109,8 +109,8 @@ All runs use frozen manifests pinned prior to data collection:
 
 * **Task Manifest:** [`configs/action_time_task_manifest.json`](file:///F:/Sadik/VERITAS/configs/action_time_task_manifest.json)
 * **Model Versions:**
-  * **Actor:** `qwen2.5-coder:7b` (Ollama, `temperature: 0.0`, greedy decoding, context: 4,096 tokens).
-  * **Verifier:** `llama3.1:8b` (Ollama, `temperature: 0.0`, context: 2,048 tokens).
+  * **Actor:** `qwen3-coder:30b` (Ollama, `temperature: 0.0`, greedy decoding).
+  * **Verifier:** `qwen2.5-coder:14b` (Ollama, `temperature: 0.0`).
 * **Limits:**
   * Maximum agent steps per task: **30 steps**.
   * Maximum replan attempts after verifier rejection: **3 replans**.
@@ -224,7 +224,7 @@ artifacts/action_time_study/
 
 ## 10. Executable Next Step
 
-To execute the pilot study and generate the auditable action-time databases, run:
+To execute the 20-task pilot cohort and generate the auditable action-time databases, run:
 ```powershell
-uv run python scripts/run_action_time_tse_experiment.py --pilot --tasks 10
+uv run python scripts/run_action_time_tse_experiment.py --tasks 20
 ```

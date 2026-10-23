@@ -67,6 +67,10 @@ def generate_report():
 
     n_trials = len(df)
     n_tasks = df["task_id"].nunique()
+    actor_models = sorted(str(x) for x in df.get("actor_model", pd.Series(dtype=str)).dropna().unique())
+    verifier_models = sorted(str(x) for x in df.get("verifier_model", pd.Series(dtype=str)).dropna().unique())
+    actor_label = ", ".join(actor_models) if actor_models else "model metadata unavailable"
+    verifier_label = ", ".join(verifier_models) if verifier_models else "none recorded"
     arms = ["arm0_unverified", "arm1_random", "arm2_selective"]
 
     # Compute Arm Stats
@@ -139,7 +143,7 @@ def generate_report():
     md.append(f"**Study Target:** IEEE Transactions on Software Engineering (TSE) Confirmatory Evaluation  ")
     md.append(f"**Cohort Size:** {n_tasks} Unique Repository Tasks $\\times$ 3 Comparative Arms = **{n_trials} Independent Trials**  ")
     md.append(f"**Execution Environment:** LocalSandbox In-Process Execution with SHA-256 Tree Hashing  ")
-    md.append(f"**Actor Model:** `qwen2.5-coder:7b` (greedy $T=0.0$, 2,048 tokens) | **Verifier Model:** `llama3.1:8b` (greedy $T=0.0$)  ")
+    md.append(f"**Actor Model(s):** `{actor_label}` | **Verifier Model(s):** `{verifier_label}`  ")
     md.append(f"**Step Limit:** Standardized to exactly **30 steps** across all arms  \n")
     md.append("---\n")
 
