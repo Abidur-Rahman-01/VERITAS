@@ -56,9 +56,8 @@ The cohort planner and integrity checker are in `src/veritas/feedback_study.py`.
 
 ## OpenHands SWE-bench Lite agent
 
-This workflow runs OpenHands CLI and the local model on the host, then uses SWE-bench's supported
-Modal evaluator for grading. It does not require a local Docker daemon. Modal runs the grading
-environments remotely and may incur cloud charges.
+This workflow runs OpenHands CLI and the local models in WSL/Linux, then grades with SWE-bench.
+Grading uses Modal by default; set `EVAL_MODAL=false` to grade in local Docker containers.
 
 ### 1. Install host tools
 
@@ -69,10 +68,11 @@ uv tool install openhands --python 3.12
 uv sync --frozen --extra dev --extra swe
 ```
 
-Pull Qwen3-Coder 30B:
+Pull the OpenHands actor and the Veritas verifier models:
 
 ```sh
 ollama pull qwen3-coder:30b
+ollama pull qwen2.5-coder:14b
 ```
 
 OpenHands requires a large context. Configure Ollama for at least 32K tokens, and leave it running
@@ -82,7 +82,7 @@ variable in the Ollama service environment before restarting it, or start it in 
 `OLLAMA_CONTEXT_LENGTH=32768 ollama serve`. The default endpoint is
 `http://127.0.0.1:11434/v1`.
 
-### 2. Set up Modal once
+### 2. Set up Modal once (skip this for local Docker grading)
 
 Create a Modal account, install its SWE-bench integration, and authenticate:
 
@@ -90,40 +90,47 @@ Create a Modal account, install its SWE-bench integration, and authenticate:
 uv run --extra swe modal setup
 ```
 
-### 3. Run a small pilot
+### 3. Run a one-task resource pilot
 
 ```sh
-RUN_STAMP=qwen-pilot bash scripts/run_swebench_lite_end_to_end.sh
+EVAL_MODAL=false LIMIT=1 RUN_STAMP=pilot-1 bash scripts/run_swebench_lite_end_to_end.sh
 ```
 
-The script downloads the pinned dataset if needed, runs three tasks with normal repository
-navigation and three matched tasks with oracle gold-patch file paths, then evaluates both arms on
-Modal. Oracle paths are extra information, so keep those results separate from the normal score.
-Predictions, task records, and OpenHands logs are stored under `runs/`.
+The script downloads the pinned dataset if needed, runs OpenHands with Qwen3-Coder, asks Qwen2.5-Coder to review the patch, and returns actionable findings to OpenHands for up to two repair rounds. It stops early when the verifier returns PASS, then evaluates the final prediction with the SWE-bench grader. Per-task token counts (when exposed by the model/runtime), verifier usage, action-event counts, patch size, and wall time are written to `resource_report.json`; predictions, task records, and OpenHands logs are stored under `runs/`.
 
-For a live view in a second terminal, point the dashboard at the run's normal-arm folder:
+This is a single-condition resource-profile pilot with a reviewer/repair pass. It does not execute the architecture's five paired feedback-selection branches; that confirmatory executor remains separate work described below.
+
+Continue with non-overlapping slices so each task is only charged once during profiling. These use
+the dataset's pinned row order; they are larger samples, not an easy-to-hard ranking.
 
 ```sh
-SWE_LITE_DIR=runs/openhands-swe-lite-qwen-pilot python scripts/veritas_live_dashboard.py
+EVAL_MODAL=false OFFSET=1 LIMIT=2 RUN_STAMP=pilot-2 bash scripts/run_swebench_lite_end_to_end.sh
+EVAL_MODAL=false OFFSET=3 LIMIT=7 RUN_STAMP=pilot-7 bash scripts/run_swebench_lite_end_to_end.sh
+```
+
+For a live view in a second terminal, point the dashboard at the run folder:
+
+```sh
+SWE_LITE_DIR=runs/openhands-swe-lite-pilot-1 python scripts/veritas_live_dashboard.py
 ```
 
 Open `http://127.0.0.1:8765`. It refreshes every two seconds and shows the latest OpenHands JSONL
-events while a task is running, plus completed task records. To monitor the oracle arm, restart the
-dashboard with `SWE_LITE_DIR=runs/openhands-swe-lite-oracle-qwen-pilot`.
+events while a task is running, plus completed task records.
 
-After the pilot succeeds, use `LIMIT=300` to run all Lite tasks:
+For a separate full run over all 300 Lite tasks (including tasks used in the pilot slices):
 
 ```sh
-LIMIT=300 bash scripts/run_swebench_lite_end_to_end.sh
+EVAL_MODAL=false OFFSET=0 LIMIT=300 RUN_STAMP=full-300 bash scripts/run_swebench_lite_end_to_end.sh
 ```
 
-You can run an individual arm directly as well:
+You can run the agent without Modal grading directly as well:
 
 ```sh
 uv run --extra swe python -m veritas.openhands_swe download
 uv run --extra swe python -m veritas.openhands_swe run \
   --tasks data/swebench_lite.jsonl --limit 3 \
-  --model openai/qwen3-coder:30b --output runs/openhands-qwen-pilot
+  --model openai/qwen3-coder:30b --output runs/openhands-qwen-pilot \
+  --verifier-model qwen2.5-coder:14b --max-verifier-rounds 3
 ```
 
 Then grade its predictions remotely, using a new run ID for every evaluation:
@@ -136,10 +143,11 @@ uv run --extra swe \
   --max_workers 2 --run_id openhands-qwen-pilot --modal true
 ```
 
-The agent executes repository commands with the host user's permissions. For stronger isolation,
-run it inside a disposable Linux VM, with Ollama either inside that VM or reachable over a private
-network. Do not expose Ollama's API to the public internet. Set `MODEL`, `OPENHANDS_MODEL`,
-`LLM_BASE_URL`, `LIMIT`, `NORMAL_OUT`, and `ORACLE_OUT` to customize runs.
+OpenHands headless mode approves tool actions automatically, so run it in WSL or a disposable Linux
+environment with only the task workspace mounted. Ollama should be reachable over a private local
+network. Do not expose its API to the public internet. Set `MODEL`, `OPENHANDS_MODEL`,
+`VERIFIER_MODEL`, `LLM_BASE_URL`, `VERIFIER_BASE_URL`, `LIMIT`, `MAX_VERIFIER_ROUNDS`,
+`OFFSET`, `LIMIT`, `NORMAL_OUT`, or `EVAL_MODAL` to customize runs. Docker grading may download and build task images; start with a small `LIMIT`.
 
 ## Current implementation boundary
 
