@@ -31,6 +31,14 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Callable
 
+# The CLI entry point installed by `uv sync` runs with the environment's
+# executable directory on sys.path, not necessarily the checkout root. The
+# Docker grading helpers live in scripts/, so expose the checkout before
+# importing them.
+REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
 from .config import ModelConfig, SandboxConfig
 from .feedback_evidence import EvidenceItem, PatchCheckpoint, tool_observation_item
 from .feedback_policy import ARMS
@@ -58,11 +66,6 @@ def safe_rmtree(p: Path | str):
             pass
     shutil.rmtree(p, onerror=on_exc)
 
-
-
-REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
 
 
 def get_task_setup_fn(task: Task | str) -> Callable[[Path], tuple[str, str]]:

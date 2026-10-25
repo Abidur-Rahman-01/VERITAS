@@ -5,7 +5,12 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Callable
 
-from .feedback_evidence import EvidenceBank, EvidenceItem, PatchCheckpoint
+from .feedback_evidence import (
+    EvidenceBank,
+    EvidenceItem,
+    PatchCheckpoint,
+    tool_observation_item,
+)
 from .feedback_policy import FeedbackDecision, select_feedback
 from .io import digest
 from .state import tree_hash
