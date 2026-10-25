@@ -44,7 +44,7 @@ def run_phase(task, session, model, sandbox, store, output, *, trial_id, actor_n
     if phase not in {"draft", "revision"} or (phase == "draft" and boundary is not None):
         raise ValueError("Invalid phase or premature boundary feedback")
     start = time.monotonic()
-    tokens, steps, tool_seconds, status = 0, 0, 0.0, "step_limit"
+    prompt_tokens, tokens, steps, tool_seconds, status = 0, 0, 0, 0.0, "step_limit"
     error = None
     request_ids, usage_complete = [], True
     system = POLICY_COMPACT_SYSTEM if protocol.compact else POLICY_SYSTEM
@@ -79,16 +79,19 @@ def run_phase(task, session, model, sandbox, store, output, *, trial_id, actor_n
             raw, usage = model.complete(system, context,
                 max_tokens=limits.completion_tokens-tokens, timeout_seconds=remaining)
             record.policy_usage = usage
+            prompt_tokens += usage.prompt_tokens
             tokens += usage.completion_tokens
         except StudyBudgetExceeded:
             raise
         except ModelOutputError as exc:
             record.policy_usage = exc.usage
+            prompt_tokens += exc.usage.prompt_tokens
             tokens += exc.usage.completion_tokens
             raw = exc.raw
             record.blocked, record.decision, record.block_reason = True, "blocked", redact(str(exc))
         except Exception as exc:
             record.policy_usage = getattr(exc, "usage", Usage(measured=False))
+            prompt_tokens += record.policy_usage.prompt_tokens
             tokens += record.policy_usage.completion_tokens
             error = redact(f"{type(exc).__name__}: {exc}")
             record.blocked, record.decision, record.block_reason = True, "blocked", error
@@ -157,6 +160,7 @@ def run_phase(task, session, model, sandbox, store, output, *, trial_id, actor_n
             status, error = "unknown_usage", "Malformed response with unknown usage"
             break
     return {"phase": phase, "termination": status, "steps": steps,
+            "prompt_tokens": prompt_tokens,
             "completion_tokens": tokens if usage_complete else None,
             "known_completion_tokens": tokens, "usage_complete": usage_complete,
             "actor_request_ids": request_ids, "seconds": time.monotonic()-start,

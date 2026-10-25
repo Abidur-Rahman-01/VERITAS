@@ -17,6 +17,8 @@ class FeedbackDecision(StrictModel):
     checkpoint_id: int = Field(ge=0)
     arm: Literal["generic_retry", "raw_diagnostics", "fixed_actionable", "fixed_combined", "adaptive"]
     selected_evidence_ids: list[str] = Field(default_factory=list)
+    rejected_evidence: dict[str, str] = Field(default_factory=dict)
+    evidence_scores: list[dict[str, str | float | int]] = Field(default_factory=list)
     abstained: bool = False
     packet: str
     packet_chars: int = Field(ge=0)
@@ -78,7 +80,8 @@ def select_feedback(*, arm: str, branch_id: str, checkpoint_id: int,
     if arm == "generic_retry":
         return FeedbackDecision(branch_id=branch_id, checkpoint_id=checkpoint_id, arm=arm,
             packet=neutral, packet_chars=len(neutral), abstained=True, reason_codes=["neutral_control"],
-            selector_credits=selector_credits)
+            selector_credits=selector_credits,
+            rejected_evidence={e.evidence_id: "withheld_by_neutral_control" for e in current})
 
     seen = previously_delivered or set()
     if arm == "raw_diagnostics":
@@ -92,26 +95,45 @@ def select_feedback(*, arm: str, branch_id: str, checkpoint_id: int,
     elif arm == "fixed_combined":
         ordered = sorted(current, key=lambda e: (e.source, e.checkpoint_id, e.evidence_id))
         render = _actionable
+        score_details = []
     else:
         weights = {"relevance": 2.0, "severity": 2.0, "reliability": 1.0,
-                   "novelty": 1.0, "redundancy": 1.0, **(adaptive_weights or {})}
+                   "novelty": 1.0, "redundancy": 1.0, "packet_cost": 0.001,
+                   **(adaptive_weights or {})}
         changed = set(changed_files)
         reliability = {"test": 1.0, "build": 1.0, "static": 0.9,
                        "actor_tool": 0.8, "issue": 1.0, "reviewer": 0.5}
+        score_details = []
         def score(item):
-            return (weights["relevance"] * _relevance(item, changed)
-                    + weights["severity"] * _severity(item)
-                    + weights["reliability"] * reliability[item.source]
-                    + weights["novelty"] * _novelty(item, seen)
-                    - weights["redundancy"] * (0 if _novelty(item, seen) else 1))
+            relevance = _relevance(item, changed)
+            severity = _severity(item)
+            source_reliability = reliability[item.source]
+            novelty = _novelty(item, seen)
+            redundancy = 0 if novelty else 1
+            packet_cost = len(_actionable(item))
+            value = (weights["relevance"] * relevance
+                     + weights["severity"] * severity
+                     + weights["reliability"] * source_reliability
+                     + weights["novelty"] * novelty
+                     - weights["redundancy"] * redundancy
+                     - weights["packet_cost"] * packet_cost)
+            score_details.append({"evidence_id": item.evidence_id, "score": round(value, 4),
+                "relevance": relevance, "severity": severity,
+                "source_reliability": source_reliability, "novelty": novelty,
+                "redundancy": redundancy, "packet_cost_chars": packet_cost})
+            return value
         ordered = sorted(current, key=lambda e: (-score(e), e.evidence_id))
         render = _actionable
 
-    packets, selected, used = [], [], len(header)
+    if arm in {"raw_diagnostics", "fixed_actionable"}:
+        score_details = []
+
+    packets, selected, rejected, used = [], [], {}, len(header)
     for item in ordered:
         body = render(item)
         candidate_cost = len(body) + (2 if packets else 0)
         if used + candidate_cost > packet_char_cap:
+            rejected[item.evidence_id] = "packet_character_cap"
             continue
         packets.append(body)
         selected.append(item.evidence_id)
@@ -119,9 +141,12 @@ def select_feedback(*, arm: str, branch_id: str, checkpoint_id: int,
     if not packets:
         return FeedbackDecision(branch_id=branch_id, checkpoint_id=checkpoint_id, arm=arm,
             packet=neutral, packet_chars=len(neutral), abstained=True,
-            reason_codes=["no_current_evidence_fits"], selector_credits=selector_credits)
+            reason_codes=["no_current_evidence_fits"], selector_credits=selector_credits,
+            rejected_evidence={e.evidence_id: "no_current_evidence_fits" for e in current},
+            evidence_scores=score_details)
     packet = header + "\n\n".join(packets)
     return FeedbackDecision(branch_id=branch_id, checkpoint_id=checkpoint_id, arm=arm,
-        selected_evidence_ids=selected, packet=packet, packet_chars=len(packet),
+        selected_evidence_ids=selected, rejected_evidence=rejected,
+        evidence_scores=score_details, packet=packet, packet_chars=len(packet),
         selector_credits=selector_credits,
         reason_codes=["adaptive_ranked"] if arm == "adaptive" else ["fixed_order"])

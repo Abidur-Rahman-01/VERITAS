@@ -93,15 +93,50 @@ class FeedbackCheckpointController:
         return event
 
     def on_step(self, record, session):
-        if not record.executed or record.state_before == record.state_after:
+        if not record.executed:
             return None
-        # Reads/tests do not normally change the tree. If a tool did mutate files,
-        # treat the resulting state as a new checkpoint regardless of tool label.
         tree = tree_hash(self.workspace)
         if tree == self._last_tree_hash:
-            return None
+            # A test/read command can produce useful public evidence without
+            # changing files. Preserve the current patch checkpoint, add the
+            # observation, and refresh the packet before the next actor call.
+            if not record.action or self.bank.current_checkpoint is None:
+                return None
+            checkpoint = self.bank.current_checkpoint
+            proposal_dict = record.action.proposal.model_dump(mode="json")
+            item = tool_observation_item(
+                checkpoint, proposal_dict, record.observation, record.step_id
+            )
+            self.bank.add(item)
+            decision = select_feedback(
+                arm=self.arm, branch_id=self.branch_id,
+                checkpoint_id=checkpoint.checkpoint_id,
+                evidence=self.bank.current(), changed_files=checkpoint.changed_files,
+                previously_delivered=self._delivered, packet_char_cap=self.packet_char_cap,
+                adaptive_weights=self.adaptive_weights,
+                selector_credits=float(self.selector_credit_fn()),
+            )
+            self.decisions.append(decision)
+            self._delivered.update(decision.selected_evidence_ids)
+            self._packet = decision.packet
+            event = {
+                "checkpoint": checkpoint.model_dump(mode="json"),
+                "expired_evidence_ids": [],
+                "produced_evidence": [item.model_dump(mode="json")],
+                "evidence_producer_error": None,
+                "decision": decision.model_dump(mode="json"),
+                "trigger": "tool_observation_without_patch_change",
+            }
+            if self.event_sink:
+                self.event_sink(event)
+            return event
+
+        # A tree change creates a new patch checkpoint regardless of tool label.
         patch = self.patch_fn(self.baseline, self.workspace)
-        checkpoint_id = len(self.decisions)
+        checkpoint_id = (
+            self.bank.current_checkpoint.checkpoint_id + 1
+            if self.bank.current_checkpoint is not None else 0
+        )
         changed_files = _changed_paths(patch)
         remaining_credits = self.remaining_credits_fn()
         checkpoint = PatchCheckpoint(

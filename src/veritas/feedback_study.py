@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import math
+from statistics import NormalDist
 from collections import defaultdict
 from pathlib import Path
 
@@ -109,7 +111,11 @@ def verify_plan(directory):
 
 
 def analyze_results(directory, results_path=None):
-    """Summarize branch outcomes; unknown/infrastructure statuses stay missing."""
+    """Summarize all five arms and the paired E-vs-C comparison descriptively.
+
+    Pilot outputs include uncertainty intervals and denominators, but deliberately
+    do not label small-sample p-values as confirmatory evidence.
+    """
     root = Path(directory)
     verify_plan(root)
     results_path = Path(results_path) if results_path else root / "results.jsonl"
@@ -128,6 +134,48 @@ def analyze_results(directory, results_path=None):
             raise ValueError("Duplicate block/arm outcome")
         by_block[row["block_id"]][row["arm"]] = row
     paired = []
+    per_arm = {}
+    by_repository = {}
+    for arm in ARMS:
+        rows = [row for row in results if row.get("arm") == arm]
+        planned_count = sum(1 for block_id, planned_arm in planned if planned_arm == arm)
+        graded = [row for row in rows if row.get("resolved") in (True, False)]
+        resolved = sum(row.get("resolved") is True for row in graded)
+        unresolved = sum(row.get("resolved") is False for row in graded)
+        empty = sum(bool(row.get("patch_empty")) for row in rows)
+        infra = sum(row.get("grader_status") == "infrastructure_error" for row in rows)
+        all_recorded_denominator = len(rows)
+        per_arm[arm] = {
+            "planned": planned_count,
+            "recorded": len(rows),
+            "graded_nonempty": len(graded),
+            "resolved": resolved,
+            "unresolved": unresolved,
+            "empty_patch": empty,
+            "grader_infrastructure_error": infra,
+            "unrecorded": max(0, planned_count - len(rows)),
+            "resolution_rate_graded": _rate_with_wilson(resolved, len(graded)),
+            "resolved_share_recorded": _rate_with_wilson(resolved, all_recorded_denominator),
+            "mean_estimated_credits": _mean([
+                row["total_credits"] for row in rows if row.get("total_credits") is not None
+            ]),
+            "mean_wall_seconds": _mean([
+                row["wall_seconds"] for row in rows if row.get("wall_seconds") is not None
+            ]),
+            "mean_steps": _mean([row["steps"] for row in rows if row.get("steps") is not None]),
+        }
+        repo_stats = {}
+        for repo in sorted({row.get("repository", "unknown") for row in rows}):
+            repo_rows = [row for row in rows if row.get("repository", "unknown") == repo]
+            repo_graded = [row for row in repo_rows if row.get("resolved") in (True, False)]
+            repo_resolved = sum(row.get("resolved") is True for row in repo_graded)
+            repo_stats[repo] = {
+                "recorded": len(repo_rows), "graded_nonempty": len(repo_graded),
+                "resolved": repo_resolved,
+                "resolution_rate_graded": _rate_with_wilson(repo_resolved, len(repo_graded)),
+            }
+        by_repository[arm] = repo_stats
+
     for block in read_jsonl(root / "blocks.jsonl"):
         arms = by_block.get(block["block_id"], {})
         if not {"adaptive", "fixed_actionable"} <= set(arms):
@@ -146,10 +194,29 @@ def analyze_results(directory, results_path=None):
             "fixed_actionable_credits": fixed.get("total_credits")})
     incorrect = [row for row in paired if row["parent_resolved"] is False]
     correct = [row for row in paired if row["parent_resolved"] is True]
+    adaptive_wins = sum(r["adaptive_resolved"] and not r["fixed_actionable_resolved"] for r in incorrect)
+    fixed_wins = sum(r["fixed_actionable_resolved"] and not r["adaptive_resolved"] for r in incorrect)
+    paired_ties = len(incorrect) - adaptive_wins - fixed_wins
     adaptive_costs = [row["adaptive_credits"] for row in paired if row["adaptive_credits"] is not None]
     fixed_costs = [row["fixed_actionable_credits"] for row in paired
                    if row["fixed_actionable_credits"] is not None]
     return {"paired_blocks": len(paired), "incorrect_parent_blocks": len(incorrect),
+        "parent_correct_paired_blocks": len(correct),
+        "parent_unknown_or_unpaired_blocks": max(0, len(list(read_jsonl(root / "blocks.jsonl"))) - len(paired)),
+        "arms": per_arm, "by_repository": by_repository,
+        "primary_paired": {
+            "comparison": "adaptive vs fixed_actionable among initially incorrect parents",
+            "paired_n": len(incorrect),
+            "adaptive_only_resolved": adaptive_wins,
+            "fixed_only_resolved": fixed_wins,
+            "both_or_neither_tied": paired_ties,
+            "adaptive_recovery_rate": _rate_with_wilson(
+                sum(r["adaptive_resolved"] for r in incorrect), len(incorrect)
+            ),
+            "fixed_actionable_recovery_rate": _rate_with_wilson(
+                sum(r["fixed_actionable_resolved"] for r in incorrect), len(incorrect)
+            ),
+        },
         "all_block_adaptive_resolution": _mean([r["adaptive_resolved"] for r in paired]),
         "all_block_fixed_resolution": _mean([r["fixed_actionable_resolved"] for r in paired]),
         "recovery_adaptive": _mean([r["adaptive_resolved"] for r in incorrect]),
@@ -161,9 +228,23 @@ def analyze_results(directory, results_path=None):
         ]),
         "mean_adaptive_credits": _mean(adaptive_costs),
         "mean_fixed_actionable_credits": _mean(fixed_costs),
-        "analysis_status": "descriptive_unclustered",
-        "note": "Use repository-clustered paired intervals for confirmatory inference."}
+        "analysis_status": "pilot_descriptive_unclustered",
+        "note": "Pilot summaries are descriptive. Use a predeclared, repository-clustered paired analysis on a held-out confirmation cohort for confirmatory claims."}
 
 
 def _mean(values):
     return sum(float(v) for v in values) / len(values) if values else None
+
+
+def _rate_with_wilson(successes, total, confidence=0.95):
+    """Return a Wilson score interval, including its explicit denominator."""
+    if total <= 0:
+        return {"successes": successes, "total": total, "rate": None, "ci95": None}
+    z = NormalDist().inv_cdf(0.5 + confidence / 2)
+    p = successes / total
+    z2 = z * z
+    denom = 1 + z2 / total
+    center = (p + z2 / (2 * total)) / denom
+    radius = z * math.sqrt((p * (1 - p) / total) + z2 / (4 * total * total)) / denom
+    return {"successes": successes, "total": total, "rate": p,
+            "ci95": [max(0.0, center - radius), min(1.0, center + radius)]}

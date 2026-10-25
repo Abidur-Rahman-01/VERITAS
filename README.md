@@ -29,19 +29,22 @@ Validate local data without model inference or Docker work:
 uv run python scripts/test_dataset_with_repo.py --tasks data/prepared --source swe_rebench --limit 100
 ```
 
-Create and verify a repository-disjoint five-arm cohort plan:
+Create and verify a repository-disjoint 60-task five-arm cohort plan:
 
 ```sh
 uv run veritas feedback-study plan \
-  --tasks data/prepared --source swe_rebench --limit 100 \
-  --output runs/feedback-pilot
-uv run veritas feedback-study verify --study runs/feedback-pilot
+  --tasks data/prepared --source swe_rebench --limit 60 --seed 42 \
+  --confirmation-fraction 0.2 --output runs/feedback-selection-pilot-60
+uv run veritas feedback-study verify --study runs/feedback-selection-pilot-60
 ```
 
 The plan contains a common-parent block for each task and five branch assignments: generic retry,
 raw diagnostics, fixed actionable feedback, fixed combined feedback, and adaptive evidence
 selection. The plan command only freezes the cohort and assignments; it does not run coding agents,
 checks, or graders.
+
+For fresh-machine setup, a one-task end-to-end smoke run, the full 60-task pilot, resume behavior,
+and analysis commands, follow [the feedback-selection pilot guide](docs/FEEDBACK_PILOT_60.md).
 
 ## Existing workflows
 
@@ -152,12 +155,15 @@ network. Do not expose its API to the public internet. Set `MODEL`, `OPENHANDS_M
 ## Current implementation boundary
 
 The evidence model, conservative patch/environment invalidation, five policy renderers, bounded
-adaptive packet selection, prepared-data cohort planning, plan verification, and descriptive paired
-analysis are implemented. The full experiment executor is still required: it must create one
-common draft per block, grade and freeze that parent before treatment, replay the exact parent into
-all five branches, run identical checks/reviewer steps at each patch checkpoint, enforce and log a
-matched total resource cap, and persist independent grader outcomes. Do not treat a cohort plan or
-the existing `awareness` runner as a completed result for the proposed study.
+adaptive packet selection, prepared-data cohort planning, plan verification, paired executor,
+durable result/event ledgers, independent grading, and descriptive paired analysis are implemented.
+The 60-task executor creates one common draft per task, freezes it before treatment, replays that
+parent into all five branches, and gives each branch the same actor phase limits. This engineering
+pilot uses public issue text, `git diff --check`, changed-file Python syntax checks, and actor tool
+observations; it does not call a model reviewer. It reports estimated resource use but does not
+enforce a hard total-cost cap. Treat its results as exploratory and descriptive, not as evidence of
+superiority or a matched-total-budget result. The guide records these limits and the commands needed
+to run and analyze the pilot.
 
 All model and grader calls should be explicitly invoked through their study commands and pinned
 protocols. A successful software test run validates code behavior only; it does not establish a

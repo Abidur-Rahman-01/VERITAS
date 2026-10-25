@@ -326,10 +326,10 @@ Run these on development data first and confirm only prespecified contrasts with
 
 | Component | Status | Remaining work |
 |---|---|---|
-| [`feedback_evidence.py`](../src/veritas/feedback_evidence.py) | Implemented: typed checkpoint/evidence records, provenance checks, exact tree/environment invalidation, and tool-observation conversion. | Connect all fixed test/build/reviewer producers and durably append every item to each branch ledger. |
-| [`feedback_policy.py`](../src/veritas/feedback_policy.py) | Implemented: neutral, raw, fixed actionable, fixed combined, and deterministic adaptive packet policies with a shared character cap. | Tune/freeze the primary fixed comparator and adaptive weights on development repositories. |
-| [`runtime.py`](../src/veritas/runtime.py) `run_phase()` and [`feedback_runtime.py`](../src/veritas/feedback_runtime.py) | Implemented hook: detect workspace-changing tool actions, advance a patch checkpoint, invalidate old evidence, invoke a shared evidence producer, select a policy packet, and expose it before the next actor request. | Supply fixed test/reviewer producers and durable branch event sinks in the study executor. |
-| [`feedback_study.py`](../src/veritas/feedback_study.py) | Implemented: prepared SWE-rebench cohort planning, repository-disjoint partitioning, five paired branch assignments, plan hashing/verification, and descriptive paired summaries. | Implement the executor: one common draft, private parent grading, exact workspace/history replay, durable branch state, resume, and inference-time cost accounting. |
+| [`feedback_evidence.py`](../src/veritas/feedback_evidence.py) | Implemented: typed checkpoint/evidence records, provenance checks, tree/environment invalidation, and tool-observation conversion. | Expand evidence producers beyond the current public/static pilot sources. |
+| [`feedback_policy.py`](../src/veritas/feedback_policy.py) | Implemented: five packet policies with a shared character cap and adaptive selection scores/rejection reasons. | Freeze policy weights and the strongest fixed comparator on development repositories before confirmation. |
+| [`runtime.py`](../src/veritas/runtime.py) `run_phase()` and [`feedback_runtime.py`](../src/veritas/feedback_runtime.py) | Implemented hook: detect patch changes and actor tool observations, refresh evidence packets, and expose the selected packet before the next actor request. | Add the planned model reviewer and broader shared test/build evidence producers. |
+| [`feedback_study.py`](../src/veritas/feedback_study.py) and [`feedback_runner.py`](../src/veritas/feedback_runner.py) | Implemented exploratory executor: one common parent draft and private grade, five continuations from that parent, Docker task images, event/result ledgers, resume, independent grading, and descriptive paired summaries. | Enforce a hard matched total-resource cap, add a real reviewer, and validate the full run on a held-out confirmation set before confirmatory claims. |
 | [`awareness_runtime.py`](../src/veritas/awareness_runtime.py) | Existing separate draft/review/revision experiment; not the proposed study runner. | Do not use its four factorial assignments as substitutes for the five paired feedback arms. |
 | [`awareness_grading.py`](../src/veritas/awareness_grading.py) / [`swe.py`](../src/veritas/swe.py) | Existing pinned SWE grading and harness contracts. | Reuse to grade frozen parent/final patches, preserving infrastructure and grader errors as unknown outcomes. |
 | [`controller.py`](../src/veritas/controller.py) | Existing action-time verifier controller; distinct from feedback selection. | No reuse as the proposed selector. |
@@ -339,7 +339,9 @@ Run these on development data first and confirm only prespecified contrasts with
 The architecture is ready for a confirmatory study when one pinned repository task can be run from
 initial draft through all five branches, with exact parent-state replay, multiple feedback
 checkpoints, traceable evidence, enforced budgets, independent parent/final grades, and a report
-recomputed from the ledger. The current implementation has cohort planning and policy primitives;
+recomputed from the ledger. The current executor supports exploratory paired runs, but the 60-task
+pilot does not include a model reviewer or enforce a hard total-resource cap. Treat it as an
+engineering and descriptive pilot; do not use it alone to claim the adaptive method is superior.
 it is not yet ready to execute the experiment end to end. The pilot must establish a nontrivial number of initially incorrect
 drafts that the chosen actor can sometimes recover from; a floor or ceiling actor cannot identify
 the policy effect well.
