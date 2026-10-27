@@ -14,15 +14,20 @@ Local fixture grading is available only when both planning and execution explici
 
 Run from the repository root in WSL/Linux with Docker, Ollama, and `uv` installed:
 
-```sh
+```bash
+cd /mnt/f/Sadik/VERITAS
+set -euo pipefail
+export PYTHONUNBUFFERED=1
 uv sync --frozen --extra dev --extra swe
+ollama show qwen3-coder:30b >/dev/null
+docker info >/dev/null
 ```
 
 The dataset revision is pinned to
 [`6ec7bb89b9342f664a54a6e0a6ea6501d3437cc2`](https://huggingface.co/datasets/princeton-nlp/SWE-bench_Lite/commit/6ec7bb89b9342f664a54a6e0a6ea6501d3437cc2).
 Download and prepare only that dataset into its own immutable directory:
 
-```sh
+```bash
 uv run --extra swe veritas data download \
   --manifest configs/datasets.yaml --sources swe_bench_lite \
   --output data/raw-swe-bench-lite
@@ -34,7 +39,7 @@ uv run --extra swe veritas data prepare \
 
 Generate official image names for all 300 Lite test tasks:
 
-```sh
+```bash
 uv run --extra swe veritas swe image-map \
   --tasks data/prepared-swe-bench-lite --source swe_bench_lite --split test \
   --namespace swebench \
@@ -49,7 +54,7 @@ operational screening gate, not a formal power calculation. Your earlier fixture
 establish the Lite parent-error rate or an effect size; predeclare a power analysis before making
 confirmatory claims.
 
-```sh
+```bash
 uv run --extra swe veritas feedback-study plan \
   --tasks data/prepared-swe-bench-lite --source swe_bench_lite --split test \
   --image-map runs/swe-bench-lite-test-image-map.json \
@@ -67,14 +72,16 @@ official grading fields, and repository assignment.
 
 ## 3. Select the fixed comparator on development repositories
 
-```sh
+```bash
 uv run --extra swe veritas feedback-study run \
   --study runs/feedback-selection-swe-bench-lite \
   --partition development --actor qwen3-coder:30b \
-  --draft-steps 4 --revision-steps 10 --budget 120
+  --draft-steps 4 --revision-steps 10 --budget 120 2>&1 \
+  | tee -a runs/feedback-selection-swe-bench-lite/run.log
 
 uv run --extra swe veritas feedback-study freeze-baseline \
-  --study runs/feedback-selection-swe-bench-lite --minimum-incorrect 20
+  --study runs/feedback-selection-swe-bench-lite --minimum-incorrect 20 \
+  2>&1 | tee -a runs/feedback-selection-swe-bench-lite/run.log
 ```
 
 Development must finish for every planned block and arm. The fixed comparator is selected by
@@ -83,26 +90,42 @@ order. Fewer than 20 incorrect development parents stops baseline selection.
 
 ## 4. Screen confirmation parents, then run the locked comparison
 
+Start the live dashboard in a second terminal before running the model stages. It refreshes from
+the plan, parent grades, result ledger, event stores, and appended executor log:
+
+```bash
+cd /mnt/f/Sadik/VERITAS
+FEEDBACK_STUDY_DIR=runs/feedback-selection-swe-bench-lite \
+FEEDBACK_LOG=runs/feedback-selection-swe-bench-lite/run.log \
+uv run --extra swe python scripts/veritas_live_dashboard.py
+```
+
+Open `http://localhost:8765`. The dashboard shows 300-task stage progress, parent correctness,
+all 1,500 planned arm outcomes, per-arm resolution/recovery/regression, actor tokens before and
+after verifier feedback, estimated resource credits, grader status, and the active task/arm.
+
 First grade every confirmation parent without running treatment branches:
 
-```sh
+```bash
 uv run --extra swe veritas feedback-study run \
   --study runs/feedback-selection-swe-bench-lite \
   --partition confirmation --parents-only --actor qwen3-coder:30b \
-  --draft-steps 4 --revision-steps 10 --budget 120
+  --draft-steps 4 --revision-steps 10 --budget 120 2>&1 \
+  | tee -a runs/feedback-selection-swe-bench-lite/run.log
 ```
 
 If fewer than 20 initially incorrect parents are found, the runner stops before treatment branches.
 Do not lower the threshold after observing the screen.
 
-If the gate passes, run adaptive against the fixed arm chosen on development, then analyze the held
-out comparison:
+If the gate passes, run all five arms on confirmation. Adaptive versus the development-selected
+fixed arm remains the primary contrast; the other confirmation arm results are secondary:
 
-```sh
+```bash
 uv run --extra swe veritas feedback-study run \
   --study runs/feedback-selection-swe-bench-lite \
   --partition confirmation --actor qwen3-coder:30b \
-  --draft-steps 4 --revision-steps 10 --budget 120
+  --draft-steps 4 --revision-steps 10 --budget 120 2>&1 \
+  | tee -a runs/feedback-selection-swe-bench-lite/run.log
 
 uv run --extra swe veritas feedback-study analyze \
   --study runs/feedback-selection-swe-bench-lite --partition confirmation \
@@ -122,3 +145,6 @@ resource units, not dollars.
 
 Use a new output directory if you change the cohort, actor, phase limits, budget, or implementation.
 Do not use the archived 60-task local-fixture study as benchmark evidence.
+
+The setup shell exports `PYTHONUNBUFFERED=1` and enables `set -euo pipefail`, so log lines stream
+to the dashboard and a failed command or pipeline stops the staged run.

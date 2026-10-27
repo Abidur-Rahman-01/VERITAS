@@ -417,8 +417,10 @@ def analyze_results(directory, results_path=None, *, partition=None):
     paired = []
     per_arm = {}
     by_repository = {}
-    selected_arms = (ARMS if partition in (None, "development")
-                     else ("adaptive", comparison_arm))
+    # Report all five arms for both partitions. In confirmation, only the
+    # adaptive-vs-frozen-development-arm contrast is primary; the remaining
+    # arm summaries are secondary and descriptive.
+    selected_arms = ARMS
     for arm in selected_arms:
         rows = [row for row in results if row.get("arm") == arm]
         planned_count = sum(1 for block_id, planned_arm in planned if planned_arm == arm)
@@ -503,7 +505,11 @@ def analyze_results(directory, results_path=None, *, partition=None):
             else:
                 confirmation_screen["graded"] += 1
                 confirmation_screen["incorrect"] += parent_value is False
-    confirmation_outcomes_complete = (partition != "confirmation" or len(paired) == len(selected_block_ids))
+    confirmation_primary_complete = (partition != "confirmation" or len(paired) == len(selected_block_ids))
+    confirmation_all_arms_complete = (partition != "confirmation" or all(
+        (block_id, arm) in by_block for block_id in selected_block_ids for arm in ARMS
+    ))
+    confirmation_outcomes_complete = confirmation_primary_complete and confirmation_all_arms_complete
     confirmation_gate_satisfied = (
         partition != "confirmation"
         or confirmation_screen["incorrect"] >= int(plan_protocol.get("minimum_confirmation_incorrect", 0))
@@ -548,10 +554,17 @@ def analyze_results(directory, results_path=None, *, partition=None):
         ),
         "analysis_partition": partition or "all",
         "comparison_arm": comparison_arm,
+        "primary_comparison": {
+            "adaptive_arm": "adaptive",
+            "frozen_comparator_arm": comparison_arm,
+            "secondary_arms": [arm for arm in ARMS if arm not in {"adaptive", comparison_arm}],
+        },
         "confirmation_gate": {
             "minimum_incorrect_predeclared": plan_protocol.get("minimum_confirmation_incorrect", 0),
             "parent_screening": confirmation_screen if partition == "confirmation" else None,
             "incorrect_parent_blocks_with_paired_outcomes": len(incorrect),
+            "complete_primary_pairs_for_all_confirmation_blocks": confirmation_primary_complete,
+            "complete_five_arm_outcomes_for_all_confirmation_blocks": confirmation_all_arms_complete,
             "complete_paired_outcomes_for_all_confirmation_blocks": confirmation_outcomes_complete,
             "satisfied": confirmation_gate_satisfied and confirmation_outcomes_complete,
         },

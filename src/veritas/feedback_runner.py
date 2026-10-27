@@ -5,8 +5,9 @@ Runs each planned block:
 1. Initialize clean workspace from repository baseline.
 2. Run common parent draft phase; save parent patch and session history.
 3. Privately grade parent draft (parent_resolved: True/False).
-4. On development repositories, run five arms; on confirmation repositories, run only adaptive
-   and the fixed arm selected and frozen on development:
+4. Run all five arms in both development and confirmation repositories. The fixed arm selected
+   on development remains the predeclared primary comparator; other confirmation arms are
+   secondary comparisons:
    a. Clone parent workspace and history into branch directory.
    b. Instantiate FeedbackCheckpointController with evidence producer.
    c. Run initial checkpoint on parent patch.
@@ -483,6 +484,7 @@ def execute_study(
             "frozen_baseline_hash": frozen_baseline["content_hash"],
             "minimum_confirmation_incorrect": minimum_incorrect,
             "primary_comparison": ["adaptive", frozen_baseline["selected_fixed_arm"]],
+            "confirmation_arms": list(ARMS),
         }
         lock_path = study_root / "confirmation_lock.json"
         if lock_path.exists():
@@ -517,7 +519,7 @@ def execute_study(
     print(f"\n=======================================================")
     print(f"VERITAS End-to-End Feedback Study Executor")
     print(f"Study: {study_root.name}")
-    branch_count = 0 if parents_only else (2 if partition == "confirmation" else len(ARMS))
+    branch_count = 0 if parents_only else len(ARMS)
     print(f"Blocks: {len(blocks)} | Branches per block: {branch_count}")
     print(f"Actor Model: {actor_model_name}")
     print(f"Partition: {partition}{' (parent screening only)' if parents_only else ''}")
@@ -538,8 +540,7 @@ def execute_study(
 
         # Check if all branches of this block are already done
         planned_branches = branches_by_block.get(block_id, [])
-        selected_arms = ({"adaptive", frozen_baseline["selected_fixed_arm"]}
-                         if partition == "confirmation" else set(ARMS))
+        selected_arms = set(ARMS)
         relevant_branches = [b for b in planned_branches if b["arm"] in selected_arms]
         all_done = bool(relevant_branches) and all(
             (block_id, b["arm"]) in existing_results for b in relevant_branches

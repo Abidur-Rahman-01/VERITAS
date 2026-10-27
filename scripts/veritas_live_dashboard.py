@@ -18,7 +18,7 @@ from pathlib import Path
 PORT = int(os.environ.get("VERITAS_DASHBOARD_PORT", "8765"))
 
 SWE_LITE_DIR = Path(os.environ.get("SWE_LITE_DIR", "runs/openhands-swe-lite"))
-FEEDBACK_DIR = Path(os.environ.get("FEEDBACK_STUDY_DIR", "runs/feedback_study_v2_500"))
+FEEDBACK_DIR = Path(os.environ.get("FEEDBACK_STUDY_DIR", "runs/feedback-selection-swe-bench-lite"))
 FEEDBACK_LOG = Path(os.environ.get("FEEDBACK_LOG", FEEDBACK_DIR / "run.log"))
 
 
@@ -197,6 +197,11 @@ def get_feedback_paper_stats():
     blocks = read_jsonl(FEEDBACK_DIR / "blocks.jsonl")
     branches = read_jsonl(FEEDBACK_DIR / "branches.jsonl")
     records = read_jsonl(FEEDBACK_DIR / "results.jsonl")
+    protocol = {}
+    try:
+        protocol = json.loads((FEEDBACK_DIR / "protocol.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        pass
     total_blocks = len(blocks)
     total_branches = len(branches)
     by_arm = defaultdict(lambda: {
@@ -208,6 +213,7 @@ def get_feedback_paper_stats():
         "mean_checkpoints": 0,
     })
     block_arms = defaultdict(dict)
+    partition_arms = defaultdict(lambda: defaultdict(int))
     for row in records:
         arm = row.get("arm", "unknown")
         stat = by_arm[arm]
@@ -232,6 +238,8 @@ def get_feedback_paper_stats():
             stat["regressions"] += int(not row["resolved"])
         stat["mean_checkpoints"] += int(row.get("checkpoints") or 0)
         block_arms[row.get("block_id")][arm] = row
+        partition = row.get("partition", "unknown")
+        partition_arms[partition][arm] += 1
 
     arm_order = ["generic_retry", "raw_diagnostics", "fixed_actionable", "fixed_combined", "adaptive"]
     arm_stats = []
@@ -292,12 +300,19 @@ def get_feedback_paper_stats():
 
     graded_parents = [p for p in parent_grades if isinstance(p.get("parent_resolved"), bool)]
     parent_resolved = sum(bool(p["parent_resolved"]) for p in graded_parents)
+    frozen_arm = None
+    try:
+        frozen_arm = json.loads((FEEDBACK_DIR / "frozen_baseline.json").read_text(encoding="utf-8")).get("selected_fixed_arm")
+    except (OSError, ValueError):
+        pass
     paired = {"n": 0, "adaptive_only": 0, "fixed_only": 0, "both_or_neither": 0,
               "adaptive_recovered": 0, "fixed_recovered": 0}
     for arm_rows in block_arms.values():
         adaptive = arm_rows.get("adaptive")
-        fixed = arm_rows.get("fixed_actionable")
+        fixed = arm_rows.get(frozen_arm or "fixed_actionable")
         if not adaptive or not fixed or adaptive.get("parent_resolved") is not False or fixed.get("parent_resolved") is not False:
+            continue
+        if adaptive.get("partition") != "confirmation" or fixed.get("partition") != "confirmation":
             continue
         if not isinstance(adaptive.get("resolved"), bool) or not isinstance(fixed.get("resolved"), bool):
             continue
@@ -350,14 +365,43 @@ def get_feedback_paper_stats():
 
     branch_tokens = sum(a["tokens"] for a in arm_stats)
     complete_blocks = sum(1 for arms in block_arms.values() if len(arms) >= 5)
+    stage_stats = {}
+    for partition in ("development", "confirmation"):
+        stage_blocks = [b for b in blocks if b.get("partition") == partition]
+        stage_ids = {b.get("block_id") for b in stage_blocks}
+        stage_results = [r for r in records if r.get("block_id") in stage_ids]
+        stage_parent_grades = []
+        for block in stage_blocks:
+            grade_path = FEEDBACK_DIR / "blocks" / block["block_id"] / "parent_grade.json"
+            try:
+                grade = json.loads(grade_path.read_text(encoding="utf-8"))
+                if isinstance(grade.get("parent_resolved"), bool):
+                    stage_parent_grades.append(grade)
+            except (OSError, ValueError, KeyError):
+                continue
+        stage_stats[partition] = {
+            "tasks": len(stage_blocks),
+            "parents_graded": len(stage_parent_grades),
+            "parents_incorrect": sum(g.get("parent_resolved") is False for g in stage_parent_grades),
+            "branches_planned": len(stage_blocks) * 5,
+            "branches_recorded": len(stage_results),
+            "graded_outcomes": sum(isinstance(r.get("resolved"), bool) for r in stage_results),
+            "resolved": sum(r.get("resolved") is True for r in stage_results),
+            "infrastructure_errors": sum(r.get("grader_status") == "infrastructure_error" for r in stage_results),
+            "arms": {arm: partition_arms[partition].get(arm, 0) for arm in arm_order},
+        }
     return {
         "mode": "feedback_paper",
         "benchmark_title": "VERITAS Feedback Study · Live Monitor",
-        "benchmark_subtitle": f"{FEEDBACK_DIR.name} · descriptive pilot · results refresh every 2 seconds",
+        "benchmark_subtitle": f"{FEEDBACK_DIR.name} · {protocol.get('dataset_source', 'benchmark cohort')} · repository-disjoint development / confirmation · live refresh 2s",
         "total_blocks": total_blocks,
         "total_branches": total_branches,
         "completed_blocks": complete_blocks,
         "completed_branches": len(records),
+        "branch_completion_percent": round(100 * len(records) / total_branches, 1) if total_branches else 0,
+        "stage_stats": stage_stats,
+        "frozen_comparator": frozen_arm,
+        "primary_comparison": f"adaptive vs {frozen_arm}" if frozen_arm else "adaptive vs development-selected fixed arm (not frozen yet)",
         "graded_parents": len(graded_parents),
         "parent_resolved": parent_resolved,
         "parent_incorrect": len(graded_parents) - parent_resolved,
@@ -369,7 +413,7 @@ def get_feedback_paper_stats():
         "revision": {"prompt_tokens": sum(a["prompt_tokens"] for a in arm_stats),
                      "completion_tokens": sum(a["completion_tokens"] for a in arm_stats),
                      "tokens": branch_tokens,
-                     "reported_estimated_credits": round(sum(float(r.get("total_credits") or 0.0) for r in records), 3)},
+                     "reported_estimated_credits": round(sum(float(r.get("revision_credits") or 0.0) for r in records), 3)},
         "all_actor_tokens": draft_prompt + draft_completion + branch_tokens,
         "paired": paired,
         "active": active,
@@ -381,8 +425,9 @@ def get_feedback_paper_stats():
         "notes": [
             "Before feedback = shared parent draft token usage from draft_events.sqlite.",
             "After feedback = per-arm continuation usage recorded in results.jsonl.",
-            "Credits are estimates and the reference cap is not enforced; usage completeness is reported per arm.",
-            "All summaries are live descriptive counts; clustered confirmatory analysis is not performed here.",
+            "The run enforces the configured per-task total actor-credit cap with conservative reservations; credits are experimental units, not currency.",
+            "Development selects the fixed comparator. The primary held-out contrast is adaptive versus that frozen arm; other arms are secondary.",
+            "This dashboard displays live counts only; use the saved analysis for repository-clustered uncertainty estimates.",
         ],
     }
 
@@ -694,8 +739,9 @@ FEEDBACK_HTML_TEMPLATE = """<!doctype html>
  <article class="card"><div class="label">Current arm</div><div class="value" style="font-size:18px" id="arm">Waiting</div><div class="small" id="partition">—</div></article>
 </section>
 <section class="cols"><article class="panel"><h2>Token use before and after feedback</h2><div class="phase"><div class="phasebox"><span class="label">Before verifier · shared draft</span><b id="drafttokens">0 tokens</b><span class="small" id="draftdetail">Prompt 0 · completion 0 · 0 calls</span></div><div class="arrow">→</div><div class="phasebox"><span class="label">After verifier · all continuations</span><b id="revisiontokens">0 tokens</b><span class="small" id="revisiondetail">Prompt 0 · completion 0</span></div></div><div class="foot">Draft is shared once per task; continuation tokens are counted separately for each of five arms. Draft credit is a token-only estimate; revision credits use the runner's formula. Missing usage is not imputed.</div></article>
-<article class="panel"><h2>Adaptive vs fixed actionable</h2><div class="pair"><div><span class="small">Paired n</span><strong id="pairn">0</strong></div><div><span class="small">Adaptive only</span><strong id="adaptiveonly">0</strong></div><div><span class="small">Fixed only</span><strong id="fixedonly">0</strong></div><div><span class="small">Tied</span><strong id="tied">0</strong></div></div><div class="foot" id="pairrate">Recovery: adaptive — · fixed actionable —</div></article></section>
-<section class="panel"><h2>Per-arm outcome and efficiency</h2><div class="tablewrap"><table><thead><tr><th>Arm</th><th>Recorded</th><th>Resolved</th><th>Resolution</th><th>Recovery from incorrect</th><th>Recovery / 1k tokens</th><th>Regressions</th><th>Revision tokens</th><th>Mean tokens / branch</th><th>Mean credits*</th><th>Credits / recovery*</th><th>Mean checkpoints</th><th>Mean seconds</th><th>Infra errors</th></tr></thead><tbody id="armrows"><tr><td colspan="14" class="muted">Waiting for results…</td></tr></tbody></table></div><div class="foot">* Runner-estimated credits; the configured reference budget is not enforced. Efficiency values are descriptive; parent-correct tasks and unrecorded tasks affect their interpretation.</div></section>
+<article class="panel"><h2>Primary held-out comparison</h2><div class="pair"><div><span class="small">Paired n</span><strong id="pairn">0</strong></div><div><span class="small">Adaptive only</span><strong id="adaptiveonly">0</strong></div><div><span class="small">Frozen comparator only</span><strong id="fixedonly">0</strong></div><div><span class="small">Tied</span><strong id="tied">0</strong></div></div><div class="foot" id="pairrate">Recovery: adaptive — · comparator —</div><div class="foot" id="primarylabel">Primary: adaptive vs development-selected fixed arm</div></article></section>
+<section class="panel"><h2>Development and confirmation stage progress</h2><div class="livegrid"><div class="phasebox"><span class="label">Development</span><b id="devstage">0 / 0 tasks · 0 / 0 arms</b><span class="small" id="devdetail">Parent grades, incorrect parents, and outcomes loading</span></div><div class="phasebox"><span class="label">Confirmation</span><b id="confstage">0 / 0 tasks · 0 / 0 arms</b><span class="small" id="confdetail">Parent grades, incorrect parents, and outcomes loading</span></div><div class="phasebox"><span class="label">Frozen comparator</span><b id="frozenarm">Not selected</b><span class="small" id="armcoverage">Five arms planned per task in each partition</span></div></div></section>
+<section class="panel"><h2>Per-arm outcome and efficiency</h2><div class="tablewrap"><table><thead><tr><th>Arm</th><th>Recorded</th><th>Resolved</th><th>Resolution</th><th>Recovery from incorrect</th><th>Recovery / 1k tokens</th><th>Regressions</th><th>Revision tokens</th><th>Mean tokens / branch</th><th>Mean credits*</th><th>Credits / recovery*</th><th>Mean checkpoints</th><th>Mean seconds</th><th>Infra errors</th></tr></thead><tbody id="armrows"><tr><td colspan="14" class="muted">Waiting for results…</td></tr></tbody></table></div><div class="foot">* Credits are experimental resource units, not dollars. The runner enforces a hard per-task total actor-credit ceiling with conservative reservations. Efficiency summaries are descriptive; parent-correct, unrecorded, and infrastructure-error tasks remain visible in their denominators.</div></section>
 <section class="cols"><article class="panel"><h2>Recent completed branches</h2><div class="tablewrap"><table><thead><tr><th>Task</th><th>Arm</th><th>Parent</th><th>Final</th><th>Revision tokens</th><th>Credits*</th><th>Time</th><th>Grader</th></tr></thead><tbody id="recent"><tr><td colspan="8" class="muted">Waiting for completed branches…</td></tr></tbody></table></div></article>
 <article class="panel"><h2>Live executor log</h2><div class="terminal" id="log">Waiting for run.log…</div></article></section>
 <section class="panel"><h2>Interpretation and data quality</h2><div class="livegrid"><div class="phasebox"><span class="label">Incorrect parent blocks</span><b id="incorrect">0</b><span class="small">Only these contribute to the primary recovery comparison.</span></div><div class="phasebox"><span class="label">Completion usage</span><b id="usagecoverage">—</b><span class="small">Arms reporting complete token counts.</span></div><div class="phasebox"><span class="label">Study status</span><b id="studywarning" style="font-size:14px">Descriptive pilot</b><span class="small">This dashboard does not perform repository-clustered inference.</span></div></div><div class="foot">This live view is an operational monitor for the paper pilot. Preserve the frozen plan, execution protocol, result ledger, parent/branch grades, event ledgers, and final analysis as the reproducibility record.</div></section>
@@ -712,9 +758,14 @@ document.getElementById('parents').textContent=`${d.graded_parents} / ${d.total_
 document.getElementById('pairedn').textContent=nfmt(d.paired.n);document.getElementById('alltokens').textContent=nfmt(d.all_actor_tokens);document.getElementById('tokenquality').textContent=`${nfmt(d.draft.tokens)} draft + ${nfmt(d.revision.tokens)} continuation tokens`;
 document.getElementById('task').textContent=d.active.task||d.last_task||'Waiting';document.getElementById('repo').textContent=d.active.repository||d.last_repo||'—';document.getElementById('arm').textContent=d.active.arm||d.last_arm||'Starting / between arms';document.getElementById('partition').textContent=d.active.partition?`Block ${d.active.index}/${d.active.total} · ${d.active.partition}`:'Current execution state from run.log';
 document.getElementById('drafttokens').textContent=`${nfmt(d.draft.tokens)} tokens`;document.getElementById('draftdetail').textContent=`Prompt ${nfmt(d.draft.prompt_tokens)} · completion ${nfmt(d.draft.completion_tokens)} · ${d.draft.steps} calls · token credit est. ${d.draft.token_credit_estimate}`;
-document.getElementById('revisiontokens').textContent=`${nfmt(d.revision.tokens)} tokens`;document.getElementById('revisiondetail').textContent=`Prompt ${nfmt(d.revision.prompt_tokens)} · completion ${nfmt(d.revision.completion_tokens)} · reported credits ${d.revision.reported_estimated_credits}`;
+document.getElementById('revisiontokens').textContent=`${nfmt(d.revision.tokens)} tokens`;document.getElementById('revisiondetail').textContent=`Prompt ${nfmt(d.revision.prompt_tokens)} · completion ${nfmt(d.revision.completion_tokens)} · continuation credits ${d.revision.reported_estimated_credits}`;
 document.getElementById('pairn').textContent=nfmt(d.paired.n);document.getElementById('adaptiveonly').textContent=nfmt(d.paired.adaptive_only);document.getElementById('fixedonly').textContent=nfmt(d.paired.fixed_only);document.getElementById('tied').textContent=nfmt(d.paired.both_or_neither);
-document.getElementById('pairrate').textContent=`Recovery among incorrect parents: adaptive ${pct(d.paired.adaptive_recovered,d.paired.n)} (${d.paired.adaptive_recovered}/${d.paired.n}) · fixed actionable ${pct(d.paired.fixed_recovered,d.paired.n)} (${d.paired.fixed_recovered}/${d.paired.n})`;
+document.getElementById('primarylabel').textContent=`Primary comparison: ${d.primary_comparison||'adaptive vs frozen development comparator'} · other confirmation arms are secondary`;
+document.getElementById('fixedonly').parentElement.querySelector('.small').textContent=`${d.frozen_comparator||'Frozen comparator'} only`;
+document.getElementById('pairrate').textContent=`Recovery among initially incorrect parents: adaptive ${pct(d.paired.adaptive_recovered,d.paired.n)} (${d.paired.adaptive_recovered}/${d.paired.n}) · ${d.frozen_comparator||'frozen comparator'} ${pct(d.paired.fixed_recovered,d.paired.n)} (${d.paired.fixed_recovered}/${d.paired.n})`;
+for(const [key,prefix] of [['development','dev'],['confirmation','conf']]){const s=d.stage_stats?.[key]||{};document.getElementById(prefix+'stage').textContent=`${s.parents_graded||0} / ${s.tasks||0} parents · ${s.branches_recorded||0} / ${s.branches_planned||0} arms`;
+document.getElementById(prefix+'detail').textContent=`Incorrect parents ${s.parents_incorrect||0} · graded outcomes ${s.graded_outcomes||0} · resolved ${s.resolved||0} · grader infrastructure errors ${s.infrastructure_errors||0}`}
+document.getElementById('frozenarm').textContent=d.frozen_comparator||'Not selected';document.getElementById('armcoverage').textContent=`${d.completed_branches} / ${d.total_branches} total branch outcomes · ${d.branch_completion_percent}% recorded`;
 document.getElementById('incorrect').textContent=nfmt(d.parent_incorrect);let usable=d.arm_stats.reduce((a,x)=>a+x.usage_complete,0),arms=d.arm_stats.reduce((a,x)=>a+x.count,0);document.getElementById('usagecoverage').textContent=arms?`${usable}/${arms} (${pct(usable,arms)})`:'—';
 const rows=document.getElementById('armrows');rows.innerHTML='';for(const a of d.arm_stats){const tr=document.createElement('tr');if(a.arm==='adaptive')tr.className='arm-adaptive';tr.innerHTML=`<td>${safe(a.arm)}</td><td>${a.count}</td><td>${a.resolved}/${a.graded}</td><td>${a.resolution_rate==null?'—':a.resolution_rate+'%'}</td><td>${a.recovery_resolved}/${a.recovery_total}</td><td>${a.recoveries_per_1k_tokens??'—'}</td><td>${a.regressions}/${a.regression_total}</td><td>${nfmt(a.tokens)}</td><td>${nfmt(a.mean_tokens)}</td><td>${a.mean_credits??'—'}</td><td>${a.credits_per_recovery??'—'}</td><td>${a.mean_checkpoints??'—'}</td><td>${a.mean_seconds??'—'}</td><td>${a.infrastructure_errors}</td>`;rows.appendChild(tr)}
 const recent=document.getElementById('recent');recent.innerHTML='';for(const x of d.recent_records.slice().reverse()){const tr=document.createElement('tr');tr.innerHTML=`<td>${safe(x.task_id)}</td><td>${safe(x.arm)}</td><td>${x.parent_resolved==null?'—':x.parent_resolved?'resolved':'incorrect'}</td><td>${x.resolved==null?'unknown':x.resolved?'resolved':'unresolved'}</td><td>${nfmt((x.actor_prompt_tokens||0)+(x.actor_completion_tokens||0))}</td><td>${x.total_credits??'—'}</td><td>${x.wall_seconds??'—'} s</td><td>${safe(x.grader_status)}</td>`;recent.appendChild(tr)}
