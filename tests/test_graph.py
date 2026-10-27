@@ -179,7 +179,10 @@ def test_probe_runs_isolated_clones_and_preserves_original(tmp_path, monkeypatch
                 "output": "pytest",
             }
 
-    monkeypatch.setattr("veritas.graph_verifier.DockerSandbox", ProbeSandbox)
+    monkeypatch.setattr(
+        "veritas.graph_verifier.default_sandbox_factory",
+        lambda workspace, config: ProbeSandbox(workspace, config),
+    )
     engine = verifier()
     engine.probes = [["pytest", "test_a.py"]]
     verdict, _ = verify(engine, action("edit_file", path="a.py", old="1", new="2"), tmp_path)

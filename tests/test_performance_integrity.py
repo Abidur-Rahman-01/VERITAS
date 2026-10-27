@@ -198,7 +198,9 @@ def test_targeted_edit_requires_exact_unambiguous_match():
     )
     assert contract(proposal).action_class == "code_edit"
     assert replace_unique("value = 1\n", "value = 1", "value = 2", "a.py") == "value = 2\n"
-    for old in ["", "absent", "x"]:
+    with pytest.raises(ValueError, match="cannot be empty"):
+        replace_unique("xx", "", "z", "a.txt")
+    for old in ["absent", "x"]:
         with pytest.raises(ValueError, match="exactly once"):
             replace_unique("xx", old, "z", "a.txt")
     with pytest.raises(SyntaxError):
@@ -230,7 +232,10 @@ def test_probe_rejects_new_failure_not_existing_failure(
             calls.append(context)
             return Verification(verdict="PASS", reason="fixture", cost=cost)
 
-    monkeypatch.setattr("veritas.verifier.DockerSandbox", Sandbox)
+    monkeypatch.setattr(
+        "veritas.verifier.default_sandbox_factory",
+        lambda workspace, config: Sandbox(workspace, config),
+    )
     action = contract(Proposal(tool="write_file", args={"path": "a.py", "content": "x=1"}))
     result = Verifier(Model(), SandboxConfig(), [["pytest", "-q"]]).verify(
         "context", action, 0.02, tmp_path
