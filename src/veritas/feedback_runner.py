@@ -18,6 +18,7 @@ Runs each planned block:
 from __future__ import annotations
 
 import copy
+import importlib.util
 import json
 import os
 import platform
@@ -132,6 +133,8 @@ def evaluate_task(task: Task, ws: Path, baseline: Path) -> dict:
 
 def evaluate_workspace(ws: Path) -> tuple[bool, str]:
     """Independent grading: execute pytest in the isolated workspace."""
+    if importlib.util.find_spec("pytest") is None:
+        return False, "Evaluation error: pytest is not installed in the active Python environment"
     try:
         res = subprocess.run(
             [sys.executable, "-m", "pytest", "tests/", "-q"],
@@ -284,6 +287,17 @@ def execute_study(
         write_json(execution_protocol_path, execution_protocol)
 
     tasks_by_id = {row["task_id"]: Task.model_validate(row) for row in read_jsonl(study_root / "tasks.jsonl")}
+    # Local fixture tasks are graded with the active Python interpreter. Catch a
+    # missing pytest install before making any expensive actor calls; otherwise
+    # pytest's module-not-found message would be misread as a task failure.
+    needs_local_grader = any(not task.private.get("image_name") for task in tasks_by_id.values())
+    if needs_local_grader and importlib.util.find_spec("pytest") is None:
+        raise RuntimeError(
+            "Local task grading requires pytest in the active uv environment. "
+            "Install the project dev extra with `uv sync --frozen --extra dev --extra swe`, "
+            "then start a new study run."
+        )
+
     blocks = list(read_jsonl(study_root / "blocks.jsonl"))
     branches_by_block = {}
     for branch in read_jsonl(study_root / "branches.jsonl"):
