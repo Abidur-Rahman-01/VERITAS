@@ -19,7 +19,7 @@ PLAN_FILES = ("tasks.jsonl", "blocks.jsonl", "branches.jsonl", "protocol.json",
               "source_image_map.json")
 
 
-def create_plan(tasks_dir, output, *, source="swe_rebench", task_limit=None, seed=42,
+def create_plan(tasks_dir, output, *, source="swe_bench_lite", task_limit=None, seed=42,
                 confirmation_fraction=0.2, minimum_confirmation_incorrect=0,
                 allow_local_fixtures=False, image_map_path=None, split=None):
     """Freeze a repository-disjoint task cohort and the five paired policy branches."""
@@ -33,6 +33,11 @@ def create_plan(tasks_dir, output, *, source="swe_rebench", task_limit=None, see
         raise ValueError(
             "Benchmark-backed plans require an official `veritas swe image-map` file; "
             "local fixtures require the explicit --allow-local-fixtures flag."
+        )
+    if not allow_local_fixtures and source not in {"swe_bench_lite", "swe_rebench"}:
+        raise ValueError(
+            f"Benchmark-backed feedback studies do not support source {source!r}; "
+            "use swe_bench_lite or swe_rebench."
         )
     root = Path(output)
     if root.exists() and any(root.iterdir()):

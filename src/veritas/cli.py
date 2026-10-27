@@ -24,7 +24,7 @@ def parser():
     ).add_subparsers(dest="action", required=True)
     fp = feedback.add_parser("plan", help="Freeze a repository-disjoint five-arm task cohort")
     fp.add_argument("--tasks", default="data/prepared")
-    fp.add_argument("--source", default="swe_rebench")
+    fp.add_argument("--source", default="swe_bench_lite")
     fp.add_argument("--split", help="Prepared-data split filter; keep this equal to the image-map split")
     fp.add_argument("--image-map", help="Pinned instance_id-to-Docker-image JSON from `veritas swe image-map`")
     fp.add_argument("--output", required=True)

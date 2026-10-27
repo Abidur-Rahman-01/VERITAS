@@ -1,122 +1,124 @@
-# Staged feedback-selection study
+# Staged feedback-selection study on SWE-bench Lite
 
-This is the current workflow for image-backed repository tasks. It separates policy selection
-(development repositories) from the held-out comparison (confirmation repositories). The study
-runner refuses to start when a pinned task image or official grader metadata is missing; local
-fixture grading requires an explicit local-pilot plan and run flag.
+This workflow runs the VERITAS feedback-selection study on a repository-disjoint split of the
+pinned SWE-bench Lite test cohort. SWE-bench Lite contains 300 test instances; dividing those
+repositories into development and confirmation means the resulting confirmation subset is an
+internal held-out comparison, not a standard score on all 300 Lite tasks. The [official SWE-bench
+evaluation guide](https://github.com/SWE-bench/SWE-bench/blob/main/docs/guides/evaluation.md) uses
+`swebench.harness.run_evaluation` for Lite.
 
-## 1. Prepare the pinned SWE-rebench harness
+The runner requires the canonical task metadata, official image map, and pinned official grader.
+Local fixture grading is available only when both planning and execution explicitly opt into it.
 
-Run from the repository root in WSL/Linux with Docker and Ollama running:
+## 1. Prepare the locked official SWE-bench harness
+
+Run from the repository root in WSL/Linux with Docker, Ollama, and `uv` installed:
 
 ```sh
-bash scripts/setup_rebench.sh
+uv sync --frozen --extra dev --extra swe
 ```
 
-The prepared task data must retain the original `data/prepared/manifest.json`, `tasks.jsonl`, and
-`splits.json`. Generate the official image-name map for the same source and prepared split that the
-study will use:
+The dataset revision is pinned to
+[`6ec7bb89b9342f664a54a6e0a6ea6501d3437cc2`](https://huggingface.co/datasets/princeton-nlp/SWE-bench_Lite/commit/6ec7bb89b9342f664a54a6e0a6ea6501d3437cc2).
+Download and prepare only that dataset into its own immutable directory:
 
 ```sh
-.venv-rebench/bin/veritas swe image-map \
-  --tasks data/prepared --source swe_rebench --split test \
-  --namespace '' --output runs/swe-rebench-test-image-map.json
+uv run --extra swe veritas data download \
+  --manifest configs/datasets.yaml --sources swe_bench_lite \
+  --output data/raw-swe-bench-lite
+
+uv run --extra swe veritas data prepare \
+  --manifest configs/datasets.yaml --raw data/raw-swe-bench-lite \
+  --output data/prepared-swe-bench-lite --seed 43
 ```
 
-This step makes no model calls and does not pull images. If the pinned upstream task metadata
-cannot produce image names, stop: do not use the local-fixture fallback as a benchmark result.
-
-## 2. Freeze the cohort and confirmation gate
-
-For a 300-task cohort, the example gives development and confirmation half of the repositories
-each, with a minimum of 20 initially incorrect confirmation parents before treatment branches run.
-This is a screening floor only, not a formal power calculation. The earlier 60-task pilot had just
-8 initially incorrect parents and used local fixtures; it cannot establish the benchmark-backed
-error rate or a defensible effect size. Set final cohort size and thresholds from a predeclared
-power analysis before making confirmatory claims.
+Generate official image names for all 300 Lite test tasks:
 
 ```sh
-.venv-rebench/bin/veritas feedback-study plan \
-  --tasks data/prepared --source swe_rebench --split test \
-  --image-map runs/swe-rebench-test-image-map.json \
+uv run --extra swe veritas swe image-map \
+  --tasks data/prepared-swe-bench-lite --source swe_bench_lite --split test \
+  --namespace swebench \
+  --output runs/swe-bench-lite-test-image-map.json
+```
+
+## 2. Freeze and verify the repository-disjoint cohort
+
+The example assigns half the repositories to development and half to confirmation. It requires at
+least 20 initially incorrect confirmation parents before running treatment branches. That is an
+operational screening gate, not a formal power calculation. Your earlier fixture pilot cannot
+establish the Lite parent-error rate or an effect size; predeclare a power analysis before making
+confirmatory claims.
+
+```sh
+uv run --extra swe veritas feedback-study plan \
+  --tasks data/prepared-swe-bench-lite --source swe_bench_lite --split test \
+  --image-map runs/swe-bench-lite-test-image-map.json \
   --limit 300 --seed 43 --confirmation-fraction 0.5 \
   --min-confirmation-incorrect 20 \
-  --output runs/feedback-selection-qwen3-confirmatory
+  --output runs/feedback-selection-swe-bench-lite
 
-.venv-rebench/bin/veritas feedback-study verify \
-  --study runs/feedback-selection-qwen3-confirmatory
+uv run --extra swe veritas feedback-study verify \
+  --study runs/feedback-selection-swe-bench-lite
 ```
 
-The plan embeds the selected task metadata, source manifest, and both the full source image map and
-selected image map with hashes. It refuses to create a benchmark plan if any eligible task lacks an
-official image-map entry or if the requested sample exceeds the available cohort. `verify` checks
-each selected task ID against the embedded prepared split map, source, pinned
-image and official grader fields, as well as the frozen repository split.
+The plan embeds the selected task metadata, prepared manifest and splits, and both the source and
+selected image maps with hashes. Verification checks each task ID and source revision, pinned image,
+official grading fields, and repository assignment.
 
-## 3. Run development and choose the fixed comparator
+## 3. Select the fixed comparator on development repositories
 
 ```sh
-.venv-rebench/bin/veritas feedback-study run \
-  --study runs/feedback-selection-qwen3-confirmatory \
+uv run --extra swe veritas feedback-study run \
+  --study runs/feedback-selection-swe-bench-lite \
   --partition development --actor qwen3-coder:30b \
   --draft-steps 4 --revision-steps 10 --budget 120
 
-.venv-rebench/bin/veritas feedback-study freeze-baseline \
-  --study runs/feedback-selection-qwen3-confirmatory \
-  --minimum-incorrect 20
+uv run --extra swe veritas feedback-study freeze-baseline \
+  --study runs/feedback-selection-swe-bench-lite --minimum-incorrect 20
 ```
 
-Development must finish for every planned development block and every arm. Baseline selection
-uses only recovery among initially incorrect development parents, breaking ties by lower mean
-credits and then frozen arm order. It writes an immutable baseline and a snapshot of the development
-results used to choose it. If fewer than 20 development parents are incorrect, increase the
-development cohort under a new plan; do not lower the rule after seeing results.
+Development must finish for every planned block and arm. The fixed comparator is selected by
+recovery among initially incorrect development parents, then lower mean credits, then frozen arm
+order. Fewer than 20 incorrect development parents stops baseline selection.
 
 ## 4. Screen confirmation parents, then run the locked comparison
 
-First create and independently grade every common parent in the confirmation partition. No
-treatment branches are run in this step:
+First grade every confirmation parent without running treatment branches:
 
 ```sh
-.venv-rebench/bin/veritas feedback-study run \
-  --study runs/feedback-selection-qwen3-confirmatory \
+uv run --extra swe veritas feedback-study run \
+  --study runs/feedback-selection-swe-bench-lite \
   --partition confirmation --parents-only --actor qwen3-coder:30b \
   --draft-steps 4 --revision-steps 10 --budget 120
 ```
 
-If the predeclared minimum of 20 incorrect parents is not met, the runner stops before confirmation
-branches. Make a new, larger plan with a new seed and a predeclared threshold; do not lower the
-existing threshold after inspecting confirmation outcomes.
+If fewer than 20 initially incorrect parents are found, the runner stops before treatment branches.
+Do not lower the threshold after observing the screen.
 
-If the gate passes, run only adaptive and the fixed baseline selected from development:
+If the gate passes, run adaptive against the fixed arm chosen on development, then analyze the held
+out comparison:
 
 ```sh
-.venv-rebench/bin/veritas feedback-study run \
-  --study runs/feedback-selection-qwen3-confirmatory \
+uv run --extra swe veritas feedback-study run \
+  --study runs/feedback-selection-swe-bench-lite \
   --partition confirmation --actor qwen3-coder:30b \
   --draft-steps 4 --revision-steps 10 --budget 120
 
-.venv-rebench/bin/veritas feedback-study analyze \
-  --study runs/feedback-selection-qwen3-confirmatory \
-  --partition confirmation \
-  > runs/feedback-selection-qwen3-confirmatory/analysis-confirmation.json
+uv run --extra swe veritas feedback-study analyze \
+  --study runs/feedback-selection-swe-bench-lite --partition confirmation \
+  > runs/feedback-selection-swe-bench-lite/analysis-confirmation.json
 ```
 
-The runner fingerprints the installed grader and requires the pinned SWE-rebench fork from
-`scripts/setup_rebench.sh`; final and parent grades go through `swebench.harness.run_evaluation`,
-including its FAIL_TO_PASS and PASS_TO_PASS checks. It records the actual Docker image IDs and
-platforms after pulling them. A missing image, grader mismatch, grader infrastructure error, or
-invalid parent grade stops the run instead of silently falling back to local pytest fixtures.
+The runner requires the lockfile-pinned official `swebench` package and grades parent and final
+patches through `swebench.harness.run_evaluation`, including FAIL_TO_PASS and PASS_TO_PASS. It
+records Docker image IDs and platforms. Missing image metadata, grader mismatch, or an unknown
+parent grade stops the run instead of falling back to local pytest fixtures.
 
-The per-task credit ceiling includes the common parent draft, repair model tokens, actor tool time,
-public evidence-check time, and selector credits. Each model call reserves the full 8,192-token
-context, at least 256 completion tokens, and bounded tool time before it starts. Image setup and
-private outcome grading are recorded separately and excluded from this actor-resource cap. The
-reported credits are an experimental resource unit, not a dollar estimate.
+The per-task actor-resource ceiling includes the common parent draft, repair model tokens, actor
+sandbox time, public evidence-check time, and selector credits. Model calls reserve the full
+8,192-token context, at least 256 completion tokens, and bounded tool time. Image setup and private
+grading are recorded separately and excluded from that actor-resource cap. Credits are experimental
+resource units, not dollars.
 
-The confirmation report uses a repository-cluster bootstrap for the paired recovery difference.
-It also reports the number of independent repository clusters; few clusters make the interval
-unstable. A successful gate and a clustered interval do not replace a predeclared power analysis.
-
-Use a new, empty output directory for every change to the cohort, actor, phase limits, budget, or
-implementation. Do not reuse the archived 60-task local-fixture study as the confirmation set.
+Use a new output directory if you change the cohort, actor, phase limits, budget, or implementation.
+Do not use the archived 60-task local-fixture study as benchmark evidence.

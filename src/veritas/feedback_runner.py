@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import copy
 import importlib.util
+import importlib.metadata
 import json
 import os
 import platform
@@ -262,17 +263,39 @@ def preflight_task_images(tasks: list[Task], *, allow_local_fixtures: bool) -> d
         )
     if not image_tasks:
         return {"grader": None, "images": {}}
-    if any(task.source != "swe_rebench" for task in image_tasks):
-        raise ValueError("Image-backed feedback studies currently require canonical swe_rebench tasks")
+    sources = {task.source for task in image_tasks}
+    if len(sources) != 1:
+        raise ValueError("A benchmark-backed feedback plan must use exactly one pinned task source")
+    source = next(iter(sources))
     from .awareness_grading import harness_fingerprint
 
     grader_fingerprint = harness_fingerprint(sys.executable)
     grader_commit = (grader_fingerprint.get("origin") or {}).get("vcs_info", {}).get("commit_id")
-    expected_commit = "d307ff9f2168a0448843c0d5881d2cd498d9f73f"
-    if grader_commit != expected_commit:
+    if source == "swe_rebench":
+        expected_commit = "d307ff9f2168a0448843c0d5881d2cd498d9f73f"
+        if grader_commit != expected_commit:
+            raise ValueError(
+                "Official grader mismatch: expected the pinned SWE-rebench fork at "
+                f"{expected_commit}, found {grader_commit or 'unknown'}. "
+                "Run via .venv-rebench/bin/veritas."
+            )
+        grader_identity = f"swe-rebench-fork@{grader_commit}"
+        grader_namespace = "none"
+        grader_version = None
+    elif source == "swe_bench_lite":
+        grader_version = importlib.metadata.version("swebench")
+        expected_version = "4.1.0"
+        if grader_version != expected_version:
+            raise ValueError(
+                f"SWE-bench Lite requires the lockfile-pinned official swebench {expected_version}; "
+                f"found {grader_version}. Use `uv sync --frozen --extra swe`."
+            )
+        grader_identity = f"swebench-official@{grader_version}"
+        grader_namespace = "swebench"
+    else:
         raise ValueError(
-            "Official grader mismatch: expected the pinned SWE-rebench fork at "
-            f"{expected_commit}, found {grader_commit or 'unknown'}. Run via .venv-rebench/bin/veritas."
+            f"Unsupported image-backed feedback source {source!r}; supported sources are "
+            "swe_bench_lite and swe_rebench."
         )
     docker_code, _, docker_err = run_cmd(["docker", "info"], timeout=20)
     if docker_code != 0:
@@ -306,8 +329,10 @@ def preflight_task_images(tasks: list[Task], *, allow_local_fixtures: bool) -> d
             )
         image_identities[image] = {"image_id": image_id, "platform": image_platform}
     return {
-        "grader": {"commit": grader_commit, "package_sha256": grader_fingerprint["sha256"],
-                   "identity": f"swe-rebench-fork@{grader_commit}", "python": sys.executable,
+        "grader": {"commit": grader_commit, "version": grader_version,
+                   "namespace": grader_namespace,
+                   "package_sha256": grader_fingerprint["sha256"],
+                   "identity": grader_identity, "python": sys.executable,
                    "platform": expected_platform},
         "images": image_identities,
     }
@@ -355,7 +380,7 @@ def execute_study(
         grader_spec = GraderSpec(
             python=preflight["grader"]["python"],
             identity=preflight["grader"]["identity"],
-            namespace="none",
+            namespace=preflight["grader"]["namespace"],
             timeout_seconds=1800,
             max_attempts=1,
             package_sha256=preflight["grader"]["package_sha256"],
