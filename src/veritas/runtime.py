@@ -5,6 +5,7 @@ import shutil
 import time
 import uuid
 from dataclasses import dataclass, field
+from math import floor
 from pathlib import Path
 
 from scipy.special import expit
@@ -29,9 +30,64 @@ class AgentSession:
     step: int = 0
 
 
+class CreditBudgetExceeded(RuntimeError):
+    """Raised when a measured study-credit cap leaves no safe model call."""
+
+
+@dataclass
+class CreditBudget:
+    """Conservative per-task resource ledger shared by draft and arm continuation.
+
+    Model requests reserve the full configured context window, the requested
+    completion allowance, and bounded verifier/actor tool time before they are
+    sent. Measured usage is charged after each operation. This prevents a last
+    request from crossing the cap merely because the model returned a long
+    completion or a tool ran for its full timeout.
+    """
+
+    cap: float
+    spent: float = 0.0
+    tool_seconds: float = 0.0
+    token_credit: float = 0.002
+    tool_second_credit: float = 0.05
+    context_tokens: int = 8192
+    minimum_completion_tokens: int = 256
+    reserved_tool_seconds: float = 45.0  # 15s fixed evidence + 30s actor tool
+
+    @property
+    def remaining(self) -> float:
+        return max(0.0, self.cap - self.spent)
+
+    def max_completion_tokens(self, requested: int) -> int:
+        fixed_reserve = (
+            self.context_tokens * self.token_credit
+            + self.reserved_tool_seconds * self.tool_second_credit
+        )
+        output_allowance = floor((self.remaining - fixed_reserve) / self.token_credit)
+        if output_allowance < self.minimum_completion_tokens:
+            return 0
+        return min(requested, output_allowance)
+
+    def charge(self, credits: float) -> None:
+        credits = max(0.0, float(credits))
+        if self.spent + credits > self.cap + 1e-9:
+            raise CreditBudgetExceeded(
+                f"Resource operation would exceed cap ({self.spent + credits:.3f} > {self.cap:.3f})"
+            )
+        self.spent = round(self.spent + credits, 9)
+
+    def charge_model(self, usage) -> None:
+        self.charge((usage.prompt_tokens + usage.completion_tokens) * self.token_credit)
+
+    def charge_tool(self, seconds: float) -> None:
+        seconds = max(0.0, seconds)
+        self.charge(seconds * self.tool_second_credit)
+        self.tool_seconds = round(self.tool_seconds + seconds, 9)
+
+
 def run_phase(task, session, model, sandbox, store, output, *, trial_id, actor_name,
               phase, limits, protocol, cue="", boundary=None, on_step=None,
-              feedback_provider=None):
+              feedback_provider=None, credit_budget: CreditBudget | None = None):
     """Baseline execution with equal phase caps; reuse contracts, sandbox and event writer.
 
     The legacy action-gate runner below keeps its existing policy semantics. This
@@ -47,6 +103,7 @@ def run_phase(task, session, model, sandbox, store, output, *, trial_id, actor_n
     prompt_tokens, tokens, steps, tool_seconds, status = 0, 0, 0, 0.0, "step_limit"
     error = None
     request_ids, usage_complete = [], True
+    budget_exhausted = False
     system = POLICY_COMPACT_SYSTEM if protocol.compact else POLICY_SYSTEM
     for phase_step in range(limits.steps):
         remaining = limits.seconds - (time.monotonic() - start)
@@ -57,7 +114,11 @@ def run_phase(task, session, model, sandbox, store, output, *, trial_id, actor_n
         if feedback_provider is not None:
             # Provider is called immediately before each actor request. It can expose
             # evidence produced after the previous edit without changing tool policy.
-            current_boundary = feedback_provider(session)
+            try:
+                current_boundary = feedback_provider(session)
+            except CreditBudgetExceeded:
+                status, budget_exhausted = "credit_budget", True
+                break
         context = phase_context(task, session.history, phase=phase, cue=cue, boundary=current_boundary,
             history_chars=protocol.history_chars, observation_chars=protocol.observation_chars,
             compact=protocol.compact, steps_remaining=limits.steps-phase_step,
@@ -75,24 +136,59 @@ def run_phase(task, session, model, sandbox, store, output, *, trial_id, actor_n
         session.step += 1
         steps += 1
         fatal = False
+        call_max_tokens = limits.completion_tokens - tokens
+        if credit_budget is not None:
+            call_max_tokens = credit_budget.max_completion_tokens(call_max_tokens)
+            if call_max_tokens < 1:
+                status, budget_exhausted = "credit_budget", True
+                break
         try:
             raw, usage = model.complete(system, context,
-                max_tokens=limits.completion_tokens-tokens, timeout_seconds=remaining)
+                max_tokens=call_max_tokens, timeout_seconds=remaining)
             record.policy_usage = usage
             prompt_tokens += usage.prompt_tokens
             tokens += usage.completion_tokens
+            if credit_budget is not None:
+                if not usage.measured:
+                    # The request was bounded by the full context and completion
+                    # reservation, so charge that conservative reservation and
+                    # stop before any unbudgeted action can run.
+                    credit_budget.charge(
+                        (credit_budget.context_tokens + call_max_tokens)
+                        * credit_budget.token_credit
+                    )
+                    fatal, status = True, "unknown_usage"
+                    error = "Actor usage unavailable; conservative request reservation charged"
+                else:
+                    credit_budget.charge_model(usage)
         except StudyBudgetExceeded:
             raise
         except ModelOutputError as exc:
             record.policy_usage = exc.usage
             prompt_tokens += exc.usage.prompt_tokens
             tokens += exc.usage.completion_tokens
+            if credit_budget is not None:
+                if exc.usage.measured:
+                    credit_budget.charge_model(exc.usage)
+                else:
+                    credit_budget.charge(
+                        (credit_budget.context_tokens + call_max_tokens)
+                        * credit_budget.token_credit
+                    )
             raw = exc.raw
             record.blocked, record.decision, record.block_reason = True, "blocked", redact(str(exc))
         except Exception as exc:
             record.policy_usage = getattr(exc, "usage", Usage(measured=False))
             prompt_tokens += record.policy_usage.prompt_tokens
             tokens += record.policy_usage.completion_tokens
+            if credit_budget is not None:
+                if record.policy_usage.measured:
+                    credit_budget.charge_model(record.policy_usage)
+                else:
+                    credit_budget.charge(
+                        (credit_budget.context_tokens + call_max_tokens)
+                        * credit_budget.token_credit
+                    )
             error = redact(f"{type(exc).__name__}: {exc}")
             record.blocked, record.decision, record.block_reason = True, "blocked", error
             raw, fatal, status = "", True, "model_error"
@@ -100,7 +196,7 @@ def run_phase(task, session, model, sandbox, store, output, *, trial_id, actor_n
         if record.actor_request_id is not None:
             request_ids.append(record.actor_request_id)
         usage_complete = usage_complete and record.policy_usage.measured
-        if not record.blocked:
+        if not record.blocked and not fatal:
             try:
                 record.action = contract(proposal_from_text(raw))
             except (ValueError, TypeError, KeyError, SyntaxError) as exc:
@@ -148,6 +244,8 @@ def run_phase(task, session, model, sandbox, store, output, *, trial_id, actor_n
             finally:
                 checkpoint.close()
                 tool_seconds += time.monotonic() - before_tool
+                if credit_budget is not None:
+                    credit_budget.charge_tool(time.monotonic() - before_tool)
         store.append(record)
         session.history.append({"action": record.action.proposal.model_dump(mode="json")
                                 if record.action else "invalid_proposal",
@@ -164,7 +262,9 @@ def run_phase(task, session, model, sandbox, store, output, *, trial_id, actor_n
             "completion_tokens": tokens if usage_complete else None,
             "known_completion_tokens": tokens, "usage_complete": usage_complete,
             "actor_request_ids": request_ids, "seconds": time.monotonic()-start,
-            "tool_seconds": tool_seconds, "error": error}
+            "tool_seconds": tool_seconds, "error": error,
+            "credit_budget_exhausted": budget_exhausted,
+            "credits_spent": (credit_budget.spent if credit_budget is not None else None)}
 
 
 def build_context(task, history, limit):

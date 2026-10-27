@@ -25,15 +25,26 @@ def parser():
     fp = feedback.add_parser("plan", help="Freeze a repository-disjoint five-arm task cohort")
     fp.add_argument("--tasks", default="data/prepared")
     fp.add_argument("--source", default="swe_rebench")
+    fp.add_argument("--split", help="Prepared-data split filter; keep this equal to the image-map split")
+    fp.add_argument("--image-map", help="Pinned instance_id-to-Docker-image JSON from `veritas swe image-map`")
     fp.add_argument("--output", required=True)
     fp.add_argument("--limit", type=int)
     fp.add_argument("--seed", type=int, default=42)
     fp.add_argument("--confirmation-fraction", type=float, default=0.2)
+    fp.add_argument("--min-confirmation-incorrect", type=int, default=0,
+                    help="Predeclared minimum incorrect parent drafts required before confirmation branches run")
+    fp.add_argument("--allow-local-fixtures", action="store_true",
+                    help="Explicitly mark this as a local engineering pilot; not benchmark-backed")
     fv = feedback.add_parser("verify", help="Verify frozen feedback-study plan integrity")
     fv.add_argument("--study", required=True)
+    fb = feedback.add_parser("freeze-baseline", help="Select the strongest fixed arm from development results")
+    fb.add_argument("--study", required=True)
+    fb.add_argument("--minimum-incorrect", type=int, default=20)
+    fb.add_argument("--results")
     fa = feedback.add_parser("analyze", help="Analyze paired branch outcomes from results.jsonl")
     fa.add_argument("--study", required=True)
     fa.add_argument("--results")
+    fa.add_argument("--partition", choices=("development", "confirmation"))
     fr = feedback.add_parser("run", help="Execute the paired feedback-selection study end-to-end")
     fr.add_argument("--study", required=True)
     fr.add_argument("--actor", default="qwen2.5-coder:7b")
@@ -41,6 +52,11 @@ def parser():
     fr.add_argument("--revision-steps", type=int, default=6)
     fr.add_argument("--budget", type=float, default=30.0)
     fr.add_argument("--task-limit", type=int)
+    fr.add_argument("--partition", choices=("development", "confirmation"), default="development")
+    fr.add_argument("--parents-only", action="store_true",
+                    help="Run and privately grade confirmation parent drafts; do not run treatment arms")
+    fr.add_argument("--allow-local-fixtures", action="store_true",
+                    help="Run a plan explicitly marked local_fixtures; results are not benchmark-backed")
     fr.add_argument("--no-resume", action="store_true")
     scope = commands.add_parser(
         "dependency-scope", help="Create public-only development interface/caller review queue"
@@ -384,13 +400,18 @@ def dispatch(a):
 
         return dispatch_awareness(a)
     if a.command == "feedback-study":
-        from .feedback_study import analyze_results, create_plan, verify_plan
+        from .feedback_study import analyze_results, create_plan, freeze_baseline, verify_plan
 
         if a.action == "plan":
             return create_plan(a.tasks, a.output, source=a.source, task_limit=a.limit,
-                seed=a.seed, confirmation_fraction=a.confirmation_fraction)
+                seed=a.seed, confirmation_fraction=a.confirmation_fraction,
+                minimum_confirmation_incorrect=a.min_confirmation_incorrect,
+                allow_local_fixtures=a.allow_local_fixtures,
+                image_map_path=a.image_map, split=a.split)
         if a.action == "verify":
             return verify_plan(a.study)
+        if a.action == "freeze-baseline":
+            return freeze_baseline(a.study, a.results, minimum_incorrect=a.minimum_incorrect)
         if a.action == "run":
             from .feedback_runner import execute_study
             return execute_study(
@@ -401,8 +422,11 @@ def dispatch(a):
                 budget_credits=a.budget,
                 resume=not a.no_resume,
                 task_limit=a.task_limit,
+                partition=a.partition,
+                parents_only=a.parents_only,
+                allow_local_fixtures=a.allow_local_fixtures,
             )
-        return analyze_results(a.study, a.results)
+        return analyze_results(a.study, a.results, partition=a.partition)
     if a.command == "dependencies":
         from .dependencies import write_dependencies
 

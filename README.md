@@ -29,22 +29,11 @@ Validate local data without model inference or Docker work:
 uv run python scripts/test_dataset_with_repo.py --tasks data/prepared --source swe_rebench --limit 100
 ```
 
-Create and verify a repository-disjoint 60-task five-arm cohort plan:
-
-```sh
-uv run veritas feedback-study plan \
-  --tasks data/prepared --source swe_rebench --limit 60 --seed 42 \
-  --confirmation-fraction 0.2 --output runs/feedback-selection-pilot-60
-uv run veritas feedback-study verify --study runs/feedback-selection-pilot-60
-```
-
-The plan contains a common-parent block for each task and five branch assignments: generic retry,
-raw diagnostics, fixed actionable feedback, fixed combined feedback, and adaptive evidence
-selection. The plan command only freezes the cohort and assignments; it does not run coding agents,
-checks, or graders.
-
-For fresh-machine setup, a one-task end-to-end smoke run, the full 60-task pilot, resume behavior,
-and analysis commands, follow [the feedback-selection pilot guide](docs/FEEDBACK_PILOT_60.md).
+The current staged, image-backed workflow (development baseline selection, confirmation screening,
+hard resource caps, and held-out analysis) is documented in
+[the confirmatory run guide](docs/FEEDBACK_CONFIRMATORY_RUN.md). Historical 60-task pilot
+instructions are archived in [the pilot guide](docs/FEEDBACK_PILOT_60.md); that run used the local
+fixture path and is not a benchmark-backed confirmation study.
 
 ## Existing workflows
 

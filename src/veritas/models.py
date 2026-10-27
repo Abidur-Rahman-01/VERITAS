@@ -151,24 +151,17 @@ class LocalModel:
                                                        "num_ctx": 8192}}
             if cfg.sampling_seed is not None:
                 payload["options"]["seed"] = cfg.sampling_seed
-            response = None
-            for attempt in range(5):
-                try:
-                    response = self.client.post(
-                        cfg.base_url.rstrip('/') + '/api/chat',
-                        headers=headers, json=payload,
-                        timeout=deadline,
-                    )
-                    response.raise_for_status()
-                    break
-                except Exception:
-                    if attempt >= 1 and 'format' in payload:
-                        payload.pop('format', None)
-                    if attempt == 4:
-                        break
-                    time.sleep(1.0 * (attempt + 1))
-            if response is None or response.status_code != 200:
+            try:
+                response = self.client.post(
+                    cfg.base_url.rstrip('/') + '/api/chat',
+                    headers=headers, json=payload,
+                    timeout=deadline,
+                )
+                response.raise_for_status()
+            except Exception:
                 fallback_content = json.dumps({'action': 'final_answer', 'arguments': {'message': 'Model timeout or backend error'}})
+                # One request was attempted, but its token usage is unknown. The
+                # caller charges the full bounded request reservation and stops.
                 return fallback_content, Usage()
             data = response.json()
             content = data["message"]["content"]

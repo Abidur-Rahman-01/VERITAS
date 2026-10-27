@@ -329,22 +329,21 @@ Run these on development data first and confirm only prespecified contrasts with
 | [`feedback_evidence.py`](../src/veritas/feedback_evidence.py) | Implemented: typed checkpoint/evidence records, provenance checks, tree/environment invalidation, and tool-observation conversion. | Expand evidence producers beyond the current public/static pilot sources. |
 | [`feedback_policy.py`](../src/veritas/feedback_policy.py) | Implemented: five packet policies with a shared character cap and adaptive selection scores/rejection reasons. | Freeze policy weights and the strongest fixed comparator on development repositories before confirmation. |
 | [`runtime.py`](../src/veritas/runtime.py) `run_phase()` and [`feedback_runtime.py`](../src/veritas/feedback_runtime.py) | Implemented hook: detect patch changes and actor tool observations, refresh evidence packets, and expose the selected packet before the next actor request. | Add the planned model reviewer and broader shared test/build evidence producers. |
-| [`feedback_study.py`](../src/veritas/feedback_study.py) and [`feedback_runner.py`](../src/veritas/feedback_runner.py) | Implemented exploratory executor: one common parent draft and private grade, five continuations from that parent, Docker task images, event/result ledgers, resume, independent grading, and descriptive paired summaries. | Enforce a hard matched total-resource cap, add a real reviewer, and validate the full run on a held-out confirmation set before confirmatory claims. |
+| [`feedback_study.py`](../src/veritas/feedback_study.py) and [`feedback_runner.py`](../src/veritas/feedback_runner.py) | Staged executor: image/grader fail-closed preflight, repository-disjoint development selection, frozen fixed baseline, confirmation parent screening, adaptive-vs-frozen-baseline continuation, hard per-task actor-resource cap, and repository-cluster bootstrap summary. | Complete a predeclared power analysis, validate upstream task/image provenance on the intended cohort, then run and audit the held-out comparison. |
 | [`awareness_runtime.py`](../src/veritas/awareness_runtime.py) | Existing separate draft/review/revision experiment; not the proposed study runner. | Do not use its four factorial assignments as substitutes for the five paired feedback arms. |
 | [`awareness_grading.py`](../src/veritas/awareness_grading.py) / [`swe.py`](../src/veritas/swe.py) | Existing pinned SWE grading and harness contracts. | Reuse to grade frozen parent/final patches, preserving infrastructure and grader errors as unknown outcomes. |
 | [`controller.py`](../src/veritas/controller.py) | Existing action-time verifier controller; distinct from feedback selection. | No reuse as the proposed selector. |
 
 ## 8. Completion criteria
 
-The architecture is ready for a confirmatory study when one pinned repository task can be run from
-initial draft through all five branches, with exact parent-state replay, multiple feedback
-checkpoints, traceable evidence, enforced budgets, independent parent/final grades, and a report
-recomputed from the ledger. The current executor supports exploratory paired runs, but the 60-task
-pilot does not include a model reviewer or enforce a hard total-resource cap. Treat it as an
-engineering and descriptive pilot; do not use it alone to claim the adaptive method is superior.
-it is not yet ready to execute the experiment end to end. The pilot must establish a nontrivial number of initially incorrect
-drafts that the chosen actor can sometimes recover from; a floor or ceiling actor cannot identify
-the policy effect well.
+The current executor supports the staged protocol, but software support does not itself establish
+benchmark validity, adequate power, or a positive effect. The archived 60-task pilot used local
+fixture grading and is only engineering evidence. The new runner requires pinned images and official
+grader metadata for benchmark plans, screens confirmation parents before branches, and enforces a
+per-task resource cap. Before interpreting a held-out run, verify task provenance and complete a
+power analysis using a valid development cohort. The parent screen must produce enough initially
+incorrect drafts for the predeclared minimum; a floor or ceiling actor cannot identify the policy
+effect well.
 
 A positive contribution requires E to outperform C on held-out repair recovery or the
 reliability-cost frontier without a material regression increase. A null result remains valuable

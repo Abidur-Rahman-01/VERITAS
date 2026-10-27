@@ -5,7 +5,8 @@ Runs each planned block:
 1. Initialize clean workspace from repository baseline.
 2. Run common parent draft phase; save parent patch and session history.
 3. Privately grade parent draft (parent_resolved: True/False).
-4. For each of the 5 arms (generic_retry, raw_diagnostics, fixed_actionable, fixed_combined, adaptive):
+4. On development repositories, run five arms; on confirmation repositories, run only adaptive
+   and the fixed arm selected and frozen on development:
    a. Clone parent workspace and history into branch directory.
    b. Instantiate FeedbackCheckpointController with evidence producer.
    c. Run initial checkpoint on parent patch.
@@ -44,16 +45,16 @@ from .config import ModelConfig, SandboxConfig
 from .feedback_evidence import EvidenceItem, PatchCheckpoint, tool_observation_item
 from .feedback_policy import ARMS
 from .feedback_runtime import FeedbackCheckpointController
-from .feedback_study import analyze_results, verify_plan
+from .feedback_study import analyze_results, verify_frozen_baseline, verify_plan
 from .io import digest, file_hash, read_jsonl, write_json, write_text
 from .models import LocalModel
-from .runtime import AgentSession, run_phase
+from .runtime import AgentSession, CreditBudget, CreditBudgetExceeded, run_phase
 from .sandbox import DockerSandbox, LocalSandbox, make_patch
 from .schema import Task
 from .state import tree_hash
 from .store import EventStore
 import stat
-from scripts.veritas_cloud_worker import evaluate_task_in_container, run_cmd, to_container_mount_path
+from scripts.veritas_cloud_worker import run_cmd
 
 def safe_rmtree(p: Path | str):
     p = Path(p)
@@ -71,23 +72,14 @@ def safe_rmtree(p: Path | str):
 
 def get_task_setup_fn(task: Task | str) -> Callable[[Path], tuple[str, str]]:
     """Resolve task setup function from task across SWE-rebench-V2 and fixtures."""
-    if isinstance(task, Task) and task.source == "swe_rebench" and task.private.get("image_name"):
-        image_name = task.private["image_name"]
+    if isinstance(task, Task) and (
+        task.private.get("image_name") or task.private.get("docker_image")
+    ):
+        image_name = task.private.get("image_name") or task.private.get("docker_image")
         def setup_container_task(ws: Path) -> tuple[str, str]:
-            ws.mkdir(parents=True, exist_ok=True)
-            mount_ws = to_container_mount_path(ws)
-            inspect_code, _, _ = run_cmd(["docker", "image", "inspect", image_name], timeout=15)
-            if inspect_code != 0:
-                print(f"    [Docker] Image {image_name} not local; pulling from registry...")
-                pull_code, _, pull_err = run_cmd(["docker", "pull", image_name], timeout=900)
-                if pull_code != 0:
-                    print(f"    [Docker] Warning: Pull returned code {pull_code}: {pull_err[:300]}")
-            run_cmd([
-                "docker", "run", "--rm",
-                "-v", f"{mount_ws}:/out_ws",
-                image_name,
-                "sh", "-c", "cp -a . /out_ws/ 2>/dev/null || true"
-            ], timeout=180)
+            from .sandbox import initialize_swe_workspace
+
+            initialize_swe_workspace(image_name, ws, task.base_commit)
             return task.repo or "repo", task.prompt
         return setup_container_task
 
@@ -101,28 +93,30 @@ def get_task_setup_fn(task: Task | str) -> Callable[[Path], tuple[str, str]]:
             return TASK_REGISTRY[candidate]
     raise ValueError(f"No setup function registered for task: {task_id}")
 
-def evaluate_task(task: Task, ws: Path, baseline: Path) -> dict:
+def evaluate_task(task: Task, ws: Path, baseline: Path, grade_directory: Path,
+                  grader_spec=None) -> dict:
     """Grade independently and retain status, log, and grading wall time."""
     started = time.monotonic()
-    if task.source == "swe_rebench" and task.private.get("image_name"):
+    image_name = task.private.get("image_name") or task.private.get("docker_image")
+    if image_name:
+        if grader_spec is None:
+            raise RuntimeError("Image-backed benchmark task has no pinned official grader configuration")
+        from .awareness_grading import grade_patch
+
+        if Path(grade_directory).exists():
+            safe_rmtree(grade_directory)
         patch = make_patch(baseline, ws)
-        res = evaluate_task_in_container(
-            image_name=task.private["image_name"],
-            patch=patch,
-            test_patch=task.private.get("test_patch"),
-            test_cmd=task.private.get("test_cmd", "pytest"),
-            fail_to_pass=task.private.get("FAIL_TO_PASS", []),
-            pass_to_pass=task.private.get("PASS_TO_PASS", []),
-            timeout_seconds=90,
+        grade = grade_patch(
+            task=task, patch=patch, spec=grader_spec, directory=grade_directory,
+            opaque_id=digest([task.task_id, digest(patch), grade_directory.name])[:20],
         )
-        if not res.get("success"):
-            return {"resolved": None, "status": "infrastructure_error",
-                    "log": res.get("error", res.get("log", "Grader infrastructure failed")),
-                    "seconds": res.get("duration_seconds", time.monotonic() - started)}
-        resolved = bool(res.get("resolved", False))
-        return {"resolved": resolved, "status": "resolved" if resolved else "unresolved",
-                "log": res.get("log", ""),
-                "seconds": res.get("duration_seconds", time.monotonic() - started)}
+        harness_log = grade_directory / "harness.log"
+        log = harness_log.read_text(errors="replace")[-4000:] if harness_log.is_file() else ""
+        return {"resolved": grade.get("resolved"), "status": grade["status"],
+                "log": grade.get("error") or log, "seconds": grade.get("seconds", time.monotonic() - started),
+                "grader_identity": grade.get("harness_identity"),
+                "grader_package_sha256": grade.get("harness_package_sha256"),
+                "report_hash": grade.get("report_hash")}
     resolved, output = evaluate_workspace(ws)
     status = "resolved" if resolved else (
         "infrastructure_error" if "Evaluation error:" in output or "Evaluation timed out" in output
@@ -153,8 +147,8 @@ def evaluate_workspace(ws: Path) -> tuple[bool, str]:
 
 def make_task_sandbox(task: Task, workspace: Path, fallback: SandboxConfig):
     """Run SWE-rebench actors in their task image; use local only for fixtures."""
-    image_name = task.private.get("image_name")
-    if task.source == "swe_rebench" and image_name:
+    image_name = task.private.get("image_name") or task.private.get("docker_image")
+    if image_name:
         cfg = SandboxConfig(
             image=image_name,
             platform=fallback.platform,
@@ -167,13 +161,14 @@ def make_task_sandbox(task: Task, workspace: Path, fallback: SandboxConfig):
     return LocalSandbox(workspace, fallback)
 
 
-def make_evidence_producer(task: Task, baseline: Path | None = None):
+def make_evidence_producer(task: Task, baseline: Path | None = None,
+                           credit_budget: CreditBudget | None = None):
     """Produce only public, actor-visible evidence for a treatment branch.
 
     Private test patches, FAIL_TO_PASS identifiers, and independent grader
     outcomes are outcome-plane data. They must never enter the evidence packets.
     """
-    def produce(checkpoint: PatchCheckpoint, workspace: Path, record, session) -> list[EvidenceItem]:
+    def produce_impl(checkpoint: PatchCheckpoint, workspace: Path, record, session) -> list[EvidenceItem]:
         items: list[EvidenceItem] = []
         # The public task statement is shared context, not a hidden label.
         items.append(EvidenceItem.create(
@@ -231,7 +226,91 @@ def make_evidence_producer(task: Task, baseline: Path | None = None):
             items.append(tool_observation_item(checkpoint, proposal_dict, record.observation, record.step_id))
 
         return items
+
+    def produce(checkpoint: PatchCheckpoint, workspace: Path, record, session) -> list[EvidenceItem]:
+        started = time.monotonic()
+        try:
+            return produce_impl(checkpoint, workspace, record, session)
+        finally:
+            if credit_budget is not None:
+                credit_budget.charge_tool(time.monotonic() - started)
     return produce
+
+
+def preflight_task_images(tasks: list[Task], *, allow_local_fixtures: bool) -> dict:
+    """Validate grader provenance and make all pinned images available upfront."""
+    missing = [task.task_id for task in tasks
+               if not (task.private.get("image_name") or task.private.get("docker_image"))]
+    if missing and not allow_local_fixtures:
+        sample = ", ".join(missing[:5])
+        raise ValueError(
+            f"Benchmark preflight failed: {len(missing)} task(s) lack image_name/docker_image "
+            f"(examples: {sample}). Refusing the local fixture fallback."
+        )
+    if missing and importlib.util.find_spec("pytest") is None:
+        raise RuntimeError("Explicit local-fixture runs require pytest in the active environment")
+    image_tasks = [task for task in tasks
+                   if task.private.get("image_name") or task.private.get("docker_image")]
+    grader_fields = ("FAIL_TO_PASS", "PASS_TO_PASS", "test_patch")
+    malformed = [task.task_id for task in image_tasks
+                 if not all(key in task.private for key in grader_fields)]
+    if malformed:
+        raise ValueError(
+            f"Benchmark preflight failed: {len(malformed)} image-backed task(s) lack official "
+            "grader fields. Re-prepare the cohort with "
+              "pinned SWE-rebench metadata."
+        )
+    if not image_tasks:
+        return {"grader": None, "images": {}}
+    if any(task.source != "swe_rebench" for task in image_tasks):
+        raise ValueError("Image-backed feedback studies currently require canonical swe_rebench tasks")
+    from .awareness_grading import harness_fingerprint
+
+    grader_fingerprint = harness_fingerprint(sys.executable)
+    grader_commit = (grader_fingerprint.get("origin") or {}).get("vcs_info", {}).get("commit_id")
+    expected_commit = "d307ff9f2168a0448843c0d5881d2cd498d9f73f"
+    if grader_commit != expected_commit:
+        raise ValueError(
+            "Official grader mismatch: expected the pinned SWE-rebench fork at "
+            f"{expected_commit}, found {grader_commit or 'unknown'}. Run via .venv-rebench/bin/veritas."
+        )
+    docker_code, _, docker_err = run_cmd(["docker", "info"], timeout=20)
+    if docker_code != 0:
+        raise RuntimeError(f"Docker is unavailable before actor execution: {docker_err[:500]}")
+    images = sorted({task.private.get("image_name") or task.private.get("docker_image")
+                     for task in image_tasks})
+    image_identities = {}
+    host_arch = {"x86_64": "amd64", "AMD64": "amd64", "aarch64": "arm64", "arm64": "arm64"}.get(
+        platform.machine(), platform.machine()
+    )
+    expected_platform = f"linux/{host_arch}"
+    for image in images:
+        inspect_code, _, inspect_err = run_cmd(["docker", "image", "inspect", image], timeout=20)
+        if inspect_code != 0:
+            print(f"  [Preflight] Pulling pinned task image {image}...", flush=True)
+            pull_code, _, pull_err = run_cmd(["docker", "pull", image], timeout=1800)
+            if pull_code != 0:
+                raise RuntimeError(f"Failed to pull pinned task image {image}: {pull_err[:500]}")
+            inspect_code, _, inspect_err = run_cmd(["docker", "image", "inspect", image], timeout=20)
+            if inspect_code != 0:
+                raise RuntimeError(f"Pinned image unavailable after pull {image}: {inspect_err[:500]}")
+        inspect_code, inspect_out, inspect_err = run_cmd([
+            "docker", "image", "inspect", image, "--format", "{{.Id}}|{{.Os}}/{{.Architecture}}"
+        ], timeout=20)
+        if inspect_code != 0:
+            raise RuntimeError(f"Could not fingerprint pinned image {image}: {inspect_err[:500]}")
+        image_id, image_platform = inspect_out.strip().split("|", 1)
+        if image_platform != expected_platform:
+            raise RuntimeError(
+                f"Pinned task image {image} is {image_platform}; this study requires {expected_platform}"
+            )
+        image_identities[image] = {"image_id": image_id, "platform": image_platform}
+    return {
+        "grader": {"commit": grader_commit, "package_sha256": grader_fingerprint["sha256"],
+                   "identity": f"swe-rebench-fork@{grader_commit}", "python": sys.executable,
+                   "platform": expected_platform},
+        "images": image_identities,
+    }
 
 
 def execute_study(
@@ -243,22 +322,60 @@ def execute_study(
     budget_credits: float = 30.0,
     resume: bool = True,
     task_limit: int | None = None,
+    partition: str = "development",
+    parents_only: bool = False,
+    allow_local_fixtures: bool = False,
 ) -> dict:
     """Execute all planned blocks and branches of a verified study plan."""
     study_root = Path(study_dir).resolve()
     verify_plan(study_root)
+    if budget_credits <= 0:
+        raise ValueError("--budget must be positive")
+    if partition not in {"development", "confirmation"}:
+        raise ValueError("partition must be development or confirmation; stages cannot be combined")
+    if parents_only and partition != "confirmation":
+        raise ValueError("--parents-only is only valid for the confirmation partition")
+    if partition == "confirmation" and task_limit is not None:
+        raise ValueError("Confirmation screening and treatment must cover the full frozen partition")
+    study_protocol = json.loads((study_root / "protocol.json").read_text(encoding="utf-8"))
+    expected_env = study_protocol.get("environment_mode", "pinned_images")
+    if expected_env == "local_fixtures" and not allow_local_fixtures:
+        raise ValueError("This plan is explicitly marked local_fixtures; pass --allow-local-fixtures to run it")
+    if expected_env == "pinned_images" and allow_local_fixtures:
+        raise ValueError("--allow-local-fixtures cannot downgrade a pinned-image study")
+    tasks_by_id = {row["task_id"]: Task.model_validate(row)
+                   for row in read_jsonl(study_root / "tasks.jsonl")}
+    preflight = preflight_task_images(
+        list(tasks_by_id.values()), allow_local_fixtures=allow_local_fixtures
+    )
+    grader_spec = None
+    if preflight["grader"]:
+        from .awareness import GraderSpec
+
+        grader_spec = GraderSpec(
+            python=preflight["grader"]["python"],
+            identity=preflight["grader"]["identity"],
+            namespace="none",
+            timeout_seconds=1800,
+            max_attempts=1,
+            package_sha256=preflight["grader"]["package_sha256"],
+            platform=preflight["grader"]["platform"],
+        )
 
     implementation_files = [
         Path(__file__), Path(__file__).with_name("feedback_study.py"),
+        Path(__file__).with_name("awareness_grading.py"),
+        Path(__file__).with_name("awareness.py"),
         Path(__file__).with_name("feedback_policy.py"),
         Path(__file__).with_name("feedback_runtime.py"),
         Path(__file__).with_name("feedback_evidence.py"),
-        Path(__file__).with_name("runtime.py"),
+        Path(__file__).with_name("runtime.py"), Path(__file__).with_name("models.py"),
+        Path(__file__).with_name("sandbox.py"), REPO_ROOT / "scripts" / "veritas_cloud_worker.py",
     ]
     execution_protocol = {
         "schema_version": 1,
-        "study": "veritas-feedback-selection-60-pilot",
-        "pilot_status": "engineering_and_descriptive_pilot_not_confirmatory",
+        "study": "veritas-feedback-selection-confirmatory-v2",
+        "pilot_status": "staged_repository_disjoint_study",
         "plan_hash": json.loads((study_root / "plan.json").read_text())["plan_hash"],
         "actor": {"name": actor_model_name, "backend": "ollama",
                   "base_url": "http://localhost:11434", "max_tokens_per_call": 2048,
@@ -266,9 +383,16 @@ def execute_study(
         "phase_limits": {"draft_steps": draft_steps, "draft_completion_tokens": 4096,
                          "draft_seconds": 180, "revision_steps": revision_steps,
                          "revision_completion_tokens": 8192, "revision_seconds": 300},
-        "budget_mode": "matched_actor_phase_limits_resource_cost_reported_not_hard_total_cap",
-        "reference_credit_cap": budget_credits,
-        "credit_formula": "(prompt_tokens + completion_tokens) * 0.002 + tool_seconds * 0.05 + selector_credits",
+        "budget_mode": "hard_per_task_total_credit_cap_including_common_parent_actor_and_tool_usage",
+        "budget_scope": "model tokens, actor tools, public evidence checks, and selector credits; excludes image setup and private outcome grading",
+        "total_credit_cap_per_task_arm": budget_credits,
+        "credit_formula": "(prompt_tokens + completion_tokens) * 0.002 + measured_tool_seconds * 0.05 + selector_credits",
+        "budget_reservation": {"context_tokens": 8192, "minimum_completion_tokens": 256,
+                               "max_actor_tool_seconds": 30,
+                               "max_evidence_seconds": 15},
+        "environment_mode": expected_env,
+        "official_grader": preflight["grader"],
+        "pinned_docker_images": preflight["images"],
         "evidence_sources": ["public_issue", "git_diff_check", "changed_python_syntax", "actor_tool_observations"],
         "private_grading_data_available_to_actor_or_selector": False,
         "branch_execution_order": "deterministic hash-randomized within each task block",
@@ -285,18 +409,6 @@ def execute_study(
             )
     else:
         write_json(execution_protocol_path, execution_protocol)
-
-    tasks_by_id = {row["task_id"]: Task.model_validate(row) for row in read_jsonl(study_root / "tasks.jsonl")}
-    # Local fixture tasks are graded with the active Python interpreter. Catch a
-    # missing pytest install before making any expensive actor calls; otherwise
-    # pytest's module-not-found message would be misread as a task failure.
-    needs_local_grader = any(not task.private.get("image_name") for task in tasks_by_id.values())
-    if needs_local_grader and importlib.util.find_spec("pytest") is None:
-        raise RuntimeError(
-            "Local task grading requires pytest in the active uv environment. "
-            "Install the project dev extra with `uv sync --frozen --extra dev --extra swe`, "
-            "then start a new study run."
-        )
 
     blocks = list(read_jsonl(study_root / "blocks.jsonl"))
     branches_by_block = {}
@@ -325,7 +437,7 @@ def execute_study(
         history_chars=16000,
         observation_chars=4000,
         input_chars=32000,
-        partition="development",
+        partition=partition,
         sandbox=sandbox_cfg,
     )
     draft_limits = SimpleNamespace(steps=draft_steps, completion_tokens=4096, seconds=180.0)
@@ -334,15 +446,57 @@ def execute_study(
     blocks_executed = 0
     branches_executed = 0
 
+    blocks = [block for block in blocks if block.get("partition") == partition]
     if task_limit:
         blocks = blocks[:task_limit]
+
+    if partition == "confirmation":
+        frozen_baseline = verify_frozen_baseline(study_root)
+        minimum_incorrect = int(study_protocol.get("minimum_confirmation_incorrect", 0))
+        confirmation_lock = {
+            "plan_hash": json.loads((study_root / "plan.json").read_text())["plan_hash"],
+            "frozen_baseline_hash": frozen_baseline["content_hash"],
+            "minimum_confirmation_incorrect": minimum_incorrect,
+            "primary_comparison": ["adaptive", frozen_baseline["selected_fixed_arm"]],
+        }
+        lock_path = study_root / "confirmation_lock.json"
+        if lock_path.exists():
+            if json.loads(lock_path.read_text(encoding="utf-8")) != confirmation_lock:
+                raise ValueError("Confirmation protocol differs from the frozen confirmation lock")
+        else:
+            write_json(lock_path, confirmation_lock)
+        if not parents_only and minimum_incorrect < 1:
+            raise ValueError("Plan must predeclare --min-confirmation-incorrect before confirmation branches run")
+        if not parents_only:
+            incorrect_parent_count = 0
+            for block in blocks:
+                grade_path = study_root / "blocks" / block["block_id"] / "parent_grade.json"
+                if not grade_path.is_file():
+                    raise ValueError("Run confirmation with --parents-only first; a parent grade is missing")
+                grade = json.loads(grade_path.read_text(encoding="utf-8"))
+                if grade.get("parent_resolved") not in (True, False):
+                    raise ValueError(
+                        f"Confirmation parent grade is unknown for {block['task_id']}; fix grader "
+                        "infrastructure before opening treatment branches."
+                    )
+                incorrect_parent_count += grade.get("parent_resolved") is False
+            if incorrect_parent_count < minimum_incorrect:
+                raise ValueError(
+                    f"Confirmation gate failed: {incorrect_parent_count} initially incorrect parents; "
+                    f"the plan predeclares {minimum_incorrect}. Increase the cohort under a new plan; "
+                    "do not lower the threshold after observing outcomes."
+                )
+    else:
+        frozen_baseline = None
 
     print(f"\n=======================================================")
     print(f"VERITAS End-to-End Feedback Study Executor")
     print(f"Study: {study_root.name}")
-    print(f"Blocks: {len(blocks)} | Planned Branches per block: {len(ARMS)}")
+    branch_count = 0 if parents_only else (2 if partition == "confirmation" else len(ARMS))
+    print(f"Blocks: {len(blocks)} | Branches per block: {branch_count}")
     print(f"Actor Model: {actor_model_name}")
-    print(f"Reference credit cap: {budget_credits} (reported, not hard-enforced)")
+    print(f"Partition: {partition}{' (parent screening only)' if parents_only else ''}")
+    print(f"Total per-task-arm credit cap: {budget_credits} (hard enforced with conservative reservations)")
     print(f"Matched phase limits: draft steps={draft_steps}, revision steps={revision_steps}")
     print(f"=======================================================\n")
 
@@ -359,9 +513,14 @@ def execute_study(
 
         # Check if all branches of this block are already done
         planned_branches = branches_by_block.get(block_id, [])
-        all_done = all((block_id, b["arm"]) in existing_results for b in planned_branches)
+        selected_arms = ({"adaptive", frozen_baseline["selected_fixed_arm"]}
+                         if partition == "confirmation" else set(ARMS))
+        relevant_branches = [b for b in planned_branches if b["arm"] in selected_arms]
+        all_done = bool(relevant_branches) and all(
+            (block_id, b["arm"]) in existing_results for b in relevant_branches
+        )
         if all_done and resume:
-            print(f"  -> All 5 branches already completed. Skipping block.")
+            print("  -> All required branches already completed. Skipping block.")
             continue
 
         # Common parent draft setup
@@ -383,6 +542,7 @@ def execute_study(
             parent_session = AgentSession()
             parent_store = EventStore(block_dir / "draft_events.sqlite")
             parent_sandbox = make_task_sandbox(task, parent_workspace, sandbox_cfg)
+            parent_budget = CreditBudget(cap=budget_credits)
 
             print(f"  [Draft] Running common parent draft with actor...")
             draft_res = run_phase(
@@ -398,6 +558,7 @@ def execute_study(
                 limits=draft_limits,
                 protocol=protocol_stub,
                 cue="Solve the issue in the repository and run tests to verify your fix.",
+                credit_budget=parent_budget,
             )
             parent_store.close()
 
@@ -405,25 +566,41 @@ def execute_study(
             write_text(block_dir / "parent.patch", parent_patch)
 
             # Private parent grading (hidden from all treatment arms)
-            parent_grade = evaluate_task(task, parent_workspace, parent_baseline)
+            parent_grade = evaluate_task(
+                task, parent_workspace, parent_baseline,
+                block_dir / "parent_official_grade", grader_spec,
+            )
             parent_resolved = parent_grade["resolved"]
             parent_grade_data = {
                 "parent_resolved": parent_resolved,
                 "grader_status": parent_grade["status"],
+                "grader_identity": parent_grade.get("grader_identity"),
+                "grader_package_sha256": parent_grade.get("grader_package_sha256"),
+                "grader_report_hash": parent_grade.get("report_hash"),
                 "grader_seconds": parent_grade["seconds"],
                 "output": parent_grade["log"][:1000],
                 "patch_hash": digest(parent_patch),
                 "tree_hash": tree_hash(parent_workspace),
+                "parent_credits": parent_budget.spent,
+                "parent_prompt_tokens": draft_res.get("prompt_tokens", 0),
+                "parent_completion_tokens": draft_res.get("known_completion_tokens", 0),
+                "parent_usage_complete": draft_res.get("usage_complete", False),
+                "parent_tool_seconds": parent_budget.tool_seconds,
+                "draft_termination": draft_res.get("termination"),
             }
             write_json(parent_grade_file, parent_grade_data)
             write_json(parent_session_file, {
                 "step": parent_session.step,
                 "history": parent_session.history,
             })
-            print(f"  [Draft] Completed. Private parent grade: {'RESOLVED' if parent_resolved else 'INCORRECT'}")
+            parent_label = ("RESOLVED" if parent_resolved is True else
+                            "INCORRECT" if parent_resolved is False else "GRADER ERROR")
+            print(f"  [Draft] Completed. Private parent grade: {parent_label}")
         else:
             parent_grade_data = json.loads(parent_grade_file.read_text(encoding="utf-8"))
             parent_resolved = parent_grade_data["parent_resolved"]
+            if "parent_credits" not in parent_grade_data:
+                raise ValueError("Parent record lacks budget accounting; create a fresh study directory")
             parent_session_data = json.loads(parent_session_file.read_text(encoding="utf-8"))
             parent_session = AgentSession(
                 step=parent_session_data["step"],
@@ -432,13 +609,33 @@ def execute_study(
             parent_patch = (block_dir / "parent.patch").read_text(encoding="utf-8") if (block_dir / "parent.patch").exists() else ""
             print(f"  [Draft] Reused existing parent draft (parent_resolved={parent_resolved})")
 
-        evidence_producer = make_evidence_producer(task, parent_baseline)
+        if parent_resolved not in (True, False):
+            raise RuntimeError(
+                f"Parent grader did not return a valid benchmark outcome for {task_id} "
+                f"(status={parent_grade_data.get('grader_status')}); refusing to run feedback arms."
+            )
+
+        if not parents_only:
+            parent_credits = float(parent_grade_data["parent_credits"])
+            minimum_revision_reserve = (
+                (8192 + 256) * 0.002 + 60 * 0.05 + 0.25
+            )
+            if budget_credits - parent_credits < minimum_revision_reserve:
+                raise RuntimeError(
+                    f"Task {task_id} used {parent_credits:.3f} credits in the common draft, "
+                    f"leaving less than the {minimum_revision_reserve:.3f}-credit safe "
+                    "minimum for one revision request. Increase --budget in a fresh study."
+                )
+        if parents_only:
+            blocks_executed += 1
+            print("  [Confirmation] Parent grade recorded; treatment branches deferred.")
+            continue
 
         # Execute the 5 treatment arms from the exact same parent state
         # Deterministically randomize execution order within each block to reduce
         # systematic time/order effects while preserving frozen assignments.
         for branch in sorted(
-            planned_branches, key=lambda row: digest([block_id, "execution-order", row["arm"]])
+            relevant_branches, key=lambda row: digest([block_id, "execution-order", row["arm"]])
         ):
             arm = branch["arm"]
             branch_id = branch["branch_id"]
@@ -465,6 +662,13 @@ def execute_study(
             branch_events: list[dict] = []
             events_jsonl = branch_dir / "events.jsonl"
 
+            parent_credits = float(parent_grade_data["parent_credits"])
+            branch_budget = CreditBudget(
+                cap=budget_credits, spent=parent_credits,
+                tool_seconds=float(parent_grade_data.get("parent_tool_seconds", 0.0)),
+            )
+            evidence_producer = make_evidence_producer(task, parent_baseline, branch_budget)
+
             selector_spend = 0.0
 
             def record_branch_event(event):
@@ -475,6 +679,7 @@ def execute_study(
             def selector_credit():
                 # Selector computation charged ONLY to Arm E (adaptive)
                 if arm == "adaptive":
+                    branch_budget.charge(0.25)
                     return 0.25
                 return 0.0
 
@@ -489,9 +694,7 @@ def execute_study(
                 evidence_producer=evidence_producer,
                 packet_char_cap=6000,
                 selector_credit_fn=selector_credit,
-                # This engineering pilot matches phase limits and records measured
-                # spend; it does not claim a hard total-credit cap.
-                remaining_credits_fn=lambda: None,
+                remaining_credits_fn=lambda: branch_budget.remaining,
                 event_sink=record_branch_event,
             )
 
@@ -517,23 +720,24 @@ def execute_study(
                 cue="Continue refining the patch using the verifier evidence.",
                 on_step=controller.on_step,
                 feedback_provider=controller.feedback,
+                credit_budget=branch_budget,
             )
             elapsed = time.monotonic() - arm_start
             branch_store.close()
 
             # Record selector credits consumed during run
             selector_overhead = selector_spend
-            model_tokens = (rev_res.get("prompt_tokens") or 0) + (rev_res.get("known_completion_tokens") or 0)
-            # Pilot accounting estimate; rates are fixed across arms and retained
-            # in each row. The reference cap above is not an enforced stop rule.
-            arm_total_credits = round(model_tokens * 0.002 + rev_res.get("tool_seconds", 0) * 0.05 + selector_overhead, 3)
+            arm_total_credits = round(branch_budget.spent, 3)
 
             # Freeze final patch
             final_patch = make_patch(branch_baseline, branch_workspace)
             write_text(branch_dir / "final.patch", final_patch)
 
             # Independent final grading
-            final_grade = evaluate_task(task, branch_workspace, branch_baseline)
+            final_grade = evaluate_task(
+                task, branch_workspace, branch_baseline,
+                branch_dir / "official_grade", grader_spec,
+            )
             final_resolved = final_grade["resolved"]
             patch_empty = not bool(final_patch.strip())
             grader_status = "invalid_patch" if patch_empty else final_grade["status"]
@@ -561,18 +765,31 @@ def execute_study(
                 "partition": block["partition"],
                 "resolved": final_resolved,
                 "grader_status": grader_status,
+                "grader_identity": final_grade.get("grader_identity"),
+                "grader_package_sha256": final_grade.get("grader_package_sha256"),
+                "grader_report_hash": final_grade.get("report_hash"),
                 "patch_empty": patch_empty,
                 "parent_resolved": parent_resolved,
                 "grader_seconds": final_grade["seconds"],
                 "total_credits": arm_total_credits,
                 "credit_formula": "(prompt_tokens + completion_tokens) * 0.002 + tool_seconds * 0.05 + selector_credits",
-                "credit_cap_enforced": False,
-                "reference_credit_cap": budget_credits,
+                "credit_cap_enforced": True,
+                "total_credit_cap": budget_credits,
+                "parent_credits": round(parent_credits, 3),
+                "revision_credits": round(max(0.0, branch_budget.spent - parent_credits), 3),
+                "parent_prompt_tokens": parent_grade_data.get("parent_prompt_tokens", 0),
+                "parent_completion_tokens": parent_grade_data.get("parent_completion_tokens", 0),
+                "parent_usage_complete": parent_grade_data.get("parent_usage_complete", False),
+                "parent_tool_seconds": round(float(parent_grade_data.get("parent_tool_seconds", 0.0)), 3),
                 "selector_credits": round(selector_overhead, 3),
                 "actor_prompt_tokens": rev_res.get("prompt_tokens", 0),
                 "actor_completion_tokens": rev_res.get("known_completion_tokens", 0),
                 "actor_usage_complete": rev_res.get("usage_complete", False),
                 "tool_seconds": round(rev_res.get("tool_seconds", 0), 3),
+                "total_tool_seconds": round(branch_budget.tool_seconds, 3),
+                "revision_tool_seconds": round(max(0.0, branch_budget.tool_seconds - float(parent_grade_data.get("parent_tool_seconds", 0.0))), 3),
+                "grader_backend": ("official_container" if task.private.get("image_name")
+                                   or task.private.get("docker_image") else "local_fixture_pytest"),
                 "steps": rev_res.get("steps", 0),
                 "checkpoints": len(controller.decisions),
                 "wall_seconds": round(elapsed, 2),
