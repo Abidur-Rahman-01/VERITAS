@@ -29,7 +29,7 @@ def replace_unique(text, old, new, filename):
             try:
                 ast.parse(edited)
                 return edited
-            except (IndentationError, SyntaxError):
+            except IndentationError:
                 pass  # Fall through to flexible indentation matching
         else:
             return edited
@@ -44,7 +44,7 @@ def replace_unique(text, old, new, filename):
             try:
                 ast.parse(edited)
                 return edited
-            except (IndentationError, SyntaxError):
+            except IndentationError:
                 pass  # Fall through to flexible indentation matching
         else:
             return edited
