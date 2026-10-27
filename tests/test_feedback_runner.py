@@ -45,7 +45,8 @@ def test_evaluate_workspace_and_evidence_producer(tmp_path):
         remaining_credits=10.0,
     )
     items = producer(cp, ws, None, None)
-    assert len(items) >= 2
     sources = {item.source for item in items}
-    assert "test" in sources
-    assert "reviewer" in sources
+    # The feedback study exposes public issue/static evidence only here.
+    # Hidden grader outcomes and model-reviewer judgments stay out of packets.
+    assert sources == {"issue", "static"}
+    assert all(item.patch_hash == cp.patch_hash for item in items)
