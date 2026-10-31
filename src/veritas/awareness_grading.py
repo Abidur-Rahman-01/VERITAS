@@ -24,6 +24,7 @@ class GradeRecord(StrictModel):
     grading_id: str
     report_hash: str | None = None
     evidence: dict[str, str] = Field(default_factory=dict)
+    test_summary: dict[str, int | bool | list[str]] | None = None
     source: str | None = None
     error: str | None = None
     seconds: float | None = Field(default=None, ge=0)
@@ -104,6 +105,37 @@ def parse_grade(report, instance, detail=None, instance_log=None):
     return {"status": status, "resolved": resolved}
 
 
+def summarize_test_status(detail):
+    """Extract aggregate regression counts without exposing test identities."""
+    if not isinstance(detail, dict):
+        return None
+    entry = detail.get("tests_status")
+    if not isinstance(entry, dict):
+        return None
+    pass_to_pass = entry.get("PASS_TO_PASS")
+    fail_to_pass = entry.get("FAIL_TO_PASS")
+
+    def counts(value):
+        if not isinstance(value, dict):
+            return None
+        success, failure = value.get("success"), value.get("failure")
+        if not isinstance(success, list) or not isinstance(failure, list):
+            return None
+        return len(success), len(failure)
+
+    p2p = counts(pass_to_pass)
+    f2p = counts(fail_to_pass)
+    if p2p is None and f2p is None:
+        return None
+    result: dict[str, int | bool | list[str]] = {}
+    if p2p is not None:
+        result.update(pass_to_pass_passed=p2p[0], pass_to_pass_failed=p2p[1],
+                      pass_to_pass_failure_hashes=sorted(digest(str(x)) for x in pass_to_pass["failure"]))
+    if f2p is not None:
+        result.update(fail_to_pass_passed=f2p[0], fail_to_pass_failed=f2p[1])
+    return result
+
+
 def grade_patch(task, patch, spec, directory, opaque_id, execute=subprocess.run):
     directory = Path(directory).resolve()
     directory.mkdir(parents=True, exist_ok=False)
@@ -148,8 +180,11 @@ def grade_patch(task, patch, spec, directory, opaque_id, execute=subprocess.run)
         if not report_path.is_file():
             raise ValueError("SWE report missing; inspect harness.log")
         detail = json.loads(detail_path.read_text()) if detail_path.is_file() else None
-        result = result.model_copy(update=parse_grade(json.loads(report_path.read_text()), instance, detail,
-            instance_log_path.read_text(errors="replace") if instance_log_path.is_file() else None))
+        result = result.model_copy(update={
+            **parse_grade(json.loads(report_path.read_text()), instance, detail,
+                instance_log_path.read_text(errors="replace") if instance_log_path.is_file() else None),
+            "test_summary": summarize_test_status(detail.get(instance) if detail else None),
+        })
         result.report_hash = file_hash(report_path)
         result.source = "independent_swe_harness"
         if getattr(process, "returncode", 0):

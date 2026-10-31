@@ -18,13 +18,16 @@ def prepared_swe(tmp_path):
     write_jsonl(root / "tasks.jsonl", [task.model_dump(mode="json") for task in tasks])
     write_json(root / "splits.json", {task.group_id: {"split": "test"} for task in tasks})
     write_json(root / "manifest.json", {"tasks_sha256": file_hash(root / "tasks.jsonl"),
-        "splits_sha256": file_hash(root / "splits.json")})
+        "splits_sha256": file_hash(root / "splits.json"),
+        "sources": {"swe_rebench": {"spec": {"revision": "a" * 40, "split": "test"}}},
+        "aliases": {task.task_id: task.task_id for task in tasks}})
     return root
 
 
 def test_plan_is_repository_disjoint_and_has_all_arms(tmp_path, prepared_swe):
     root = tmp_path / "study"
-    created = create_plan(prepared_swe, root, task_limit=8, seed=7)
+    created = create_plan(prepared_swe, root, source="swe_rebench", task_limit=8, seed=7,
+                          allow_local_fixtures=True)
     checked = verify_plan(root)
     assert created["branches"] == 40
     assert checked["blocks"] == 8
@@ -34,7 +37,8 @@ def test_plan_is_repository_disjoint_and_has_all_arms(tmp_path, prepared_swe):
 
 def test_plan_tampering_and_small_repository_pool_are_rejected(tmp_path, prepared_swe):
     root = tmp_path / "study"
-    create_plan(prepared_swe, root, task_limit=8, seed=7)
+    create_plan(prepared_swe, root, source="swe_rebench", task_limit=8, seed=7,
+                allow_local_fixtures=True)
     (root / "branches.jsonl").write_text("\n")
     with pytest.raises(ValueError, match="changed"):
         verify_plan(root)
@@ -42,7 +46,8 @@ def test_plan_tampering_and_small_repository_pool_are_rejected(tmp_path, prepare
 
 def test_analysis_uses_pre_assignment_parent_label_and_paired_arms(tmp_path, prepared_swe):
     root = tmp_path / "study"
-    create_plan(prepared_swe, root, task_limit=8, seed=7)
+    create_plan(prepared_swe, root, source="swe_rebench", task_limit=8, seed=7,
+                allow_local_fixtures=True)
     blocks = [json.loads(line) for line in (root / "blocks.jsonl").read_text().splitlines()]
     results = []
     for block in blocks:
@@ -54,3 +59,24 @@ def test_analysis_uses_pre_assignment_parent_label_and_paired_arms(tmp_path, pre
     assert summary["paired_blocks"] == 8
     assert summary["incorrect_parent_blocks"] == 8
     assert summary["paired_recovery_difference"] == 1.0
+
+
+def test_analysis_keeps_missing_assigned_outcome_in_itt_denominator(tmp_path, prepared_swe):
+    root = tmp_path / "study"
+    create_plan(prepared_swe, root, source="swe_rebench", task_limit=8, seed=7,
+                allow_local_fixtures=True)
+    blocks = [json.loads(line) for line in (root / "blocks.jsonl").read_text().splitlines()]
+    selected = blocks[0]
+    write_json(root / "blocks" / selected["block_id"] / "parent_grade.json",
+               {"parent_resolved": False})
+    assignments = {(row["block_id"], row["arm"]): row["branch_id"]
+                   for row in map(json.loads, (root / "branches.jsonl").read_text().splitlines())}
+    write_jsonl(root / "results.jsonl", [{
+        "block_id": selected["block_id"], "branch_id": assignments[(selected["block_id"], "fixed_actionable")],
+        "arm": "fixed_actionable", "resolved": True, "parent_resolved": False,
+        "total_credits": 1.0,
+    }])
+    summary = analyze_results(root)
+    assert summary["primary_paired"]["paired_n"] == 1
+    assert summary["primary_paired"]["unknown_adaptive_outcomes_counted_unresolved"] == 1
+    assert summary["primary_paired"]["intention_to_treat"] is True

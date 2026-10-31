@@ -1,5 +1,6 @@
 import argparse
 import importlib.metadata
+import json
 import os
 import shutil
 import subprocess
@@ -8,7 +9,7 @@ from pathlib import Path
 
 import httpx
 
-from .io import canonical
+from .io import canonical, file_hash
 
 
 def parser():
@@ -33,6 +34,16 @@ def parser():
     fp.add_argument("--confirmation-fraction", type=float, default=0.2)
     fp.add_argument("--min-confirmation-incorrect", type=int, default=0,
                     help="Predeclared minimum incorrect parent drafts required before confirmation branches run")
+    fp.add_argument("--power", type=float, default=0.80,
+                    help="Predeclared target power for the paired binary approximation")
+    fp.add_argument("--alpha", type=float, default=0.05,
+                    help="Predeclared one-sided type-I error rate")
+    fp.add_argument("--minimum-effect", type=float, default=0.15,
+                    help="Smallest paired recovery risk difference worth detecting")
+    fp.add_argument("--assumed-discordance", type=float, default=0.25,
+                    help="Assumed paired outcome discordance used by the planning approximation")
+    fp.add_argument("--assumed-repository-icc", type=float, default=0.05,
+                    help="Assumed repository intraclass correlation for design-effect inflation")
     fp.add_argument("--allow-local-fixtures", action="store_true",
                     help="Explicitly mark this as a local engineering pilot; not benchmark-backed")
     fv = feedback.add_parser("verify", help="Verify frozen feedback-study plan integrity")
@@ -41,6 +52,8 @@ def parser():
     fb.add_argument("--study", required=True)
     fb.add_argument("--minimum-incorrect", type=int, default=20)
     fb.add_argument("--results")
+    fb.add_argument("--adaptive-weights-json",
+                    help="Development-only selector weight JSON to freeze before confirmation")
     fa = feedback.add_parser("analyze", help="Analyze paired branch outcomes from results.jsonl")
     fa.add_argument("--study", required=True)
     fa.add_argument("--results")
@@ -50,6 +63,10 @@ def parser():
     fr.add_argument("--actor", default="qwen2.5-coder:7b")
     fr.add_argument("--draft-steps", type=int, default=4)
     fr.add_argument("--revision-steps", type=int, default=6)
+    fr.add_argument("--max-checkpoints", type=int, default=4,
+                    help="Maximum shared feedback checkpoints K per continuation")
+    fr.add_argument("--wall-budget-seconds", type=float, default=900.0,
+                    help="Hard total actor-plus-evidence wall-time cap per task/arm")
     fr.add_argument("--budget", type=float, default=30.0)
     fr.add_argument("--task-limit", type=int)
     fr.add_argument("--partition", choices=("development", "confirmation"), default="development")
@@ -407,11 +424,18 @@ def dispatch(a):
                 seed=a.seed, confirmation_fraction=a.confirmation_fraction,
                 minimum_confirmation_incorrect=a.min_confirmation_incorrect,
                 allow_local_fixtures=a.allow_local_fixtures,
-                image_map_path=a.image_map, split=a.split)
+                image_map_path=a.image_map, split=a.split,
+                power=a.power, alpha=a.alpha, minimum_effect=a.minimum_effect,
+                discordance=a.assumed_discordance, cluster_icc=a.assumed_repository_icc)
         if a.action == "verify":
             return verify_plan(a.study)
         if a.action == "freeze-baseline":
-            return freeze_baseline(a.study, a.results, minimum_incorrect=a.minimum_incorrect)
+            selector_weights = (json.loads(Path(a.adaptive_weights_json).read_text(encoding="utf-8"))
+                                if a.adaptive_weights_json else None)
+            return freeze_baseline(a.study, a.results, minimum_incorrect=a.minimum_incorrect,
+                                   selector_weights=selector_weights,
+                                   selector_weights_sha256=(file_hash(Path(a.adaptive_weights_json))
+                                       if a.adaptive_weights_json else None))
         if a.action == "run":
             from .feedback_runner import execute_study
             return execute_study(
@@ -419,6 +443,8 @@ def dispatch(a):
                 actor_model_name=a.actor,
                 draft_steps=a.draft_steps,
                 revision_steps=a.revision_steps,
+                max_checkpoints=a.max_checkpoints,
+                wall_budget_seconds=a.wall_budget_seconds,
                 budget_credits=a.budget,
                 resume=not a.no_resume,
                 task_limit=a.task_limit,

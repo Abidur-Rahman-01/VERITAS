@@ -97,3 +97,29 @@ def test_runtime_checkpoint_hook_generates_and_delivers_feedback(tmp_path):
     assert event["decision"]["selected_evidence_ids"]
     assert "AssertionError" in controller.feedback(session)
     assert len(events) == 1
+
+
+def test_runtime_stops_creating_feedback_after_frozen_checkpoint_limit(tmp_path):
+    baseline = tmp_path / "baseline"
+    workspace = tmp_path / "workspace"
+    baseline.mkdir()
+    workspace.mkdir()
+    (baseline / "fix.py").write_text("value = 0\n")
+    (workspace / "fix.py").write_text("value = 1\n")
+    cp = checkpoint()
+    controller = FeedbackCheckpointController(task_id="swe:task", branch_id="branch-a",
+        arm="adaptive", baseline=baseline, workspace=workspace, environment_hash="image-digest",
+        patch_fn=lambda *_: "+++ b/fix.py\n-old\n+new\n",
+        evidence_producer=lambda current, *_: [EvidenceItem.create(
+            task_id=current.task_id, branch_id=current.branch_id,
+            checkpoint_id=current.checkpoint_id, source="test", basis="observed",
+            patch_hash=current.patch_hash, tree_hash=current.tree_hash,
+            environment_hash=current.environment_hash, raw_artifact_hash="test-log",
+            claim="test check failed")],
+        max_checkpoints=1)
+    session = SimpleNamespace(history=[])
+    controller.create_initial_checkpoint(session)
+    (workspace / "fix.py").write_text("value = 2\n")
+    record = SimpleNamespace(executed=True, state_before="before", state_after=tree_hash(workspace))
+    assert controller.on_step(record, session) is None
+    assert len(controller.decisions) == 1

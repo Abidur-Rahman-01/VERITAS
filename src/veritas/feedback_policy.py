@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from typing import Literal
 
 from pydantic import Field
@@ -10,6 +11,10 @@ from .feedback_evidence import EvidenceItem
 from .schema import StrictModel
 
 ARMS = ("generic_retry", "raw_diagnostics", "fixed_actionable", "fixed_combined", "adaptive")
+DEFAULT_ADAPTIVE_WEIGHTS = {
+    "relevance": 2.0, "severity": 2.0, "reliability": 1.0,
+    "novelty": 1.0, "redundancy": 1.0, "packet_cost": 0.001,
+}
 
 
 class FeedbackDecision(StrictModel):
@@ -18,7 +23,7 @@ class FeedbackDecision(StrictModel):
     arm: Literal["generic_retry", "raw_diagnostics", "fixed_actionable", "fixed_combined", "adaptive"]
     selected_evidence_ids: list[str] = Field(default_factory=list)
     rejected_evidence: dict[str, str] = Field(default_factory=dict)
-    evidence_scores: list[dict[str, str | float | int]] = Field(default_factory=list)
+    evidence_scores: list[dict[str, str | float | int | None]] = Field(default_factory=list)
     abstained: bool = False
     packet: str
     packet_chars: int = Field(ge=0)
@@ -68,7 +73,8 @@ def select_feedback(*, arm: str, branch_id: str, checkpoint_id: int,
                     previously_delivered: set[str] | None = None,
                     packet_char_cap: int = 6000,
                     adaptive_weights: dict[str, float] | None = None,
-                    selector_credits: float = 0.0) -> FeedbackDecision:
+                    selector_credits: float = 0.0,
+                    remaining_credits: float | None = None) -> FeedbackDecision:
     """Render one bounded policy packet; all arms receive only current evidence."""
     if arm not in ARMS:
         raise ValueError(f"Unknown feedback arm: {arm}")
@@ -97,9 +103,12 @@ def select_feedback(*, arm: str, branch_id: str, checkpoint_id: int,
         render = _actionable
         score_details = []
     else:
-        weights = {"relevance": 2.0, "severity": 2.0, "reliability": 1.0,
-                   "novelty": 1.0, "redundancy": 1.0, "packet_cost": 0.001,
-                   **(adaptive_weights or {})}
+        weights = {**DEFAULT_ADAPTIVE_WEIGHTS, **(adaptive_weights or {})}
+        if set(weights) != set(DEFAULT_ADAPTIVE_WEIGHTS) or any(
+            not isinstance(value, (int, float)) or not math.isfinite(value)
+            for value in weights.values()
+        ):
+            raise ValueError("Adaptive weights must be finite numeric values with the frozen feature keys")
         changed = set(changed_files)
         reliability = {"test": 1.0, "build": 1.0, "static": 0.9,
                        "actor_tool": 0.8, "issue": 1.0, "reviewer": 0.5}
@@ -111,16 +120,22 @@ def select_feedback(*, arm: str, branch_id: str, checkpoint_id: int,
             novelty = _novelty(item, seen)
             redundancy = 0 if novelty else 1
             packet_cost = len(_actionable(item))
+            # As the shared branch budget gets scarce, reserve more of it for
+            # actor calls by preferring shorter evidence cards.
+            budget_pressure = (1.0 if remaining_credits is None else
+                               min(4.0, 1.0 + 10.0 / max(remaining_credits, 0.01)))
             value = (weights["relevance"] * relevance
                      + weights["severity"] * severity
                      + weights["reliability"] * source_reliability
                      + weights["novelty"] * novelty
                      - weights["redundancy"] * redundancy
-                     - weights["packet_cost"] * packet_cost)
+                     - weights["packet_cost"] * budget_pressure * packet_cost)
             score_details.append({"evidence_id": item.evidence_id, "score": round(value, 4),
                 "relevance": relevance, "severity": severity,
                 "source_reliability": source_reliability, "novelty": novelty,
-                "redundancy": redundancy, "packet_cost_chars": packet_cost})
+                "redundancy": redundancy, "packet_cost_chars": packet_cost,
+                "remaining_credits": remaining_credits,
+                "budget_pressure": round(budget_pressure, 4)})
             return value
         ordered = sorted(current, key=lambda e: (-score(e), e.evidence_id))
         render = _actionable

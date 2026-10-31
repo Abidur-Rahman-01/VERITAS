@@ -27,6 +27,7 @@ class FeedbackCheckpointController:
     def __init__(self, *, task_id: str, branch_id: str, arm: str, baseline: Path,
                  workspace: Path, environment_hash: str, patch_fn: Callable,
                  evidence_producer: Callable, packet_char_cap: int = 6000,
+                 max_checkpoints: int = 4,
                  adaptive_weights: dict[str, float] | None = None,
                  selector_credit_fn: Callable | None = None,
                  remaining_credits_fn: Callable | None = None,
@@ -40,9 +41,12 @@ class FeedbackCheckpointController:
         self.patch_fn = patch_fn
         self.evidence_producer = evidence_producer
         self.packet_char_cap = packet_char_cap
+        if max_checkpoints < 1:
+            raise ValueError("max_checkpoints must be at least one")
+        self.max_checkpoints = max_checkpoints
         self.adaptive_weights = adaptive_weights
         self.selector_credit_fn = selector_credit_fn or (lambda: 0.0)
-        self.remaining_credits_fn = remaining_credits_fn or (lambda: 0.0)
+        self.remaining_credits_fn = remaining_credits_fn or (lambda: None)
         self.event_sink = event_sink
         self.bank = EvidenceBank()
         self.decisions: list[FeedbackDecision] = []
@@ -81,6 +85,7 @@ class FeedbackCheckpointController:
             previously_delivered=self._delivered, packet_char_cap=self.packet_char_cap,
             adaptive_weights=self.adaptive_weights,
             selector_credits=float(self.selector_credit_fn()),
+            remaining_credits=self.remaining_credits_fn(),
         )
         self.decisions.append(decision)
         self._delivered.update(decision.selected_evidence_ids)
@@ -99,6 +104,11 @@ class FeedbackCheckpointController:
 
     def on_step(self, record, session):
         if not record.executed:
+            return None
+        if len(self.decisions) >= self.max_checkpoints:
+            # K is a frozen policy-independent limit. Once reached, the actor
+            # continues under the same remaining budget without more packets.
+            self._packet = None
             return None
         tree = tree_hash(self.workspace)
         if tree == self._last_tree_hash:
@@ -120,6 +130,7 @@ class FeedbackCheckpointController:
                 previously_delivered=self._delivered, packet_char_cap=self.packet_char_cap,
                 adaptive_weights=self.adaptive_weights,
                 selector_credits=float(self.selector_credit_fn()),
+                remaining_credits=self.remaining_credits_fn(),
             )
             self.decisions.append(decision)
             self._delivered.update(decision.selected_evidence_ids)
@@ -169,6 +180,7 @@ class FeedbackCheckpointController:
             previously_delivered=self._delivered, packet_char_cap=self.packet_char_cap,
             adaptive_weights=self.adaptive_weights,
             selector_credits=float(self.selector_credit_fn()),
+            remaining_credits=self.remaining_credits_fn(),
         )
         self.decisions.append(decision)
         self._delivered.update(decision.selected_evidence_ids)

@@ -46,7 +46,7 @@ def test_evaluate_workspace_and_evidence_producer(tmp_path):
     )
     items = producer(cp, ws, None, None)
     sources = {item.source for item in items}
-    # The feedback study exposes public issue/static evidence only here.
-    # Hidden grader outcomes and model-reviewer judgments stay out of packets.
-    assert sources == {"issue", "static"}
+    # Public tests/build checks are collected on a disposable copy; no private
+    # grader labels or hidden-test patches are available to this producer.
+    assert {"issue", "static", "test", "build"} <= sources
     assert all(item.patch_hash == cp.patch_hash for item in items)

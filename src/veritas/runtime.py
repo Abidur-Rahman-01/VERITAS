@@ -52,11 +52,30 @@ class CreditBudget:
     tool_second_credit: float = 0.05
     context_tokens: int = 8192
     minimum_completion_tokens: int = 256
-    reserved_tool_seconds: float = 45.0  # 15s fixed evidence + 30s actor tool
+    reserved_tool_seconds: float = 180.0  # 150s evidence checks + 30s actor tool
+    wall_cap_seconds: float = 900.0
+    wall_seconds_before: float = 0.0
+    started_at: float = field(default_factory=time.monotonic)
 
     @property
     def remaining(self) -> float:
         return max(0.0, self.cap - self.spent)
+
+    @property
+    def remaining_wall_seconds(self) -> float:
+        elapsed = self.wall_seconds_before + (time.monotonic() - self.started_at)
+        return max(0.0, self.wall_cap_seconds - elapsed)
+
+    def bounded_tool_timeout(self, requested: int) -> int:
+        """Return a timeout that fits both remaining wall time and credit headroom."""
+        wall = int(self.remaining_wall_seconds)
+        credit_seconds = int(self.remaining / self.tool_second_credit)
+        # Keep a setup, completion, and cleanup margin around sandbox work.
+        return max(0, min(int(requested), wall - 10, credit_seconds - 10))
+
+    def can_reserve_model_request(self, max_completion_tokens: int) -> bool:
+        reserved = (self.context_tokens + max_completion_tokens) * self.token_credit
+        return self.remaining >= reserved and self.remaining_wall_seconds >= 1
 
     def max_completion_tokens(self, requested: int) -> int:
         fixed_reserve = (
@@ -107,6 +126,8 @@ def run_phase(task, session, model, sandbox, store, output, *, trial_id, actor_n
     system = POLICY_COMPACT_SYSTEM if protocol.compact else POLICY_SYSTEM
     for phase_step in range(limits.steps):
         remaining = limits.seconds - (time.monotonic() - start)
+        if credit_budget is not None:
+            remaining = min(remaining, credit_budget.remaining_wall_seconds)
         if remaining <= 0 or tokens >= limits.completion_tokens:
             status = "time_limit" if remaining <= 0 else "token_limit"
             break
@@ -124,6 +145,8 @@ def run_phase(task, session, model, sandbox, store, output, *, trial_id, actor_n
             compact=protocol.compact, steps_remaining=limits.steps-phase_step,
             input_chars=protocol.input_chars)
         remaining = limits.seconds - (time.monotonic() - start)
+        if credit_budget is not None:
+            remaining = min(remaining, credit_budget.remaining_wall_seconds)
         if remaining <= 0:
             status = "time_limit"
             break

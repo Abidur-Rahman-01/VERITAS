@@ -4,7 +4,7 @@ from types import SimpleNamespace
 import pytest
 
 from veritas.awareness import GraderSpec, read_study
-from veritas.awareness_grading import GradeRecord, grade_patch, parse_grade
+from veritas.awareness_grading import GradeRecord, grade_patch, parse_grade, summarize_test_status
 from veritas.awareness_runtime import grade_study, run_study
 from veritas.awareness_store import StudyStore
 from veritas.io import digest, write_json
@@ -35,6 +35,18 @@ def test_conflicting_or_malformed_grades_are_not_success():
     with pytest.raises(ValueError, match="disagree"):
         GradeRecord(status="infrastructure_error", resolved=False, patch_hash="patch",
                     harness_identity="fixture", grading_id="id")
+
+
+def test_test_status_summary_reports_preexisting_failures_without_test_names():
+    summary = summarize_test_status({"tests_status": {
+        "PASS_TO_PASS": {"success": ["kept"], "failure": ["regressed"]},
+        "FAIL_TO_PASS": {"success": ["fixed"], "failure": []},
+    }})
+    assert summary["pass_to_pass_passed"] == 1
+    assert summary["pass_to_pass_failed"] == 1
+    assert summary["pass_to_pass_failure_hashes"]
+    assert "regressed" not in str(summary)
+    assert summary["fail_to_pass_passed"] == 1
 
 
 def test_independent_grader_records_raw_evidence(awareness_setup, tmp_path):

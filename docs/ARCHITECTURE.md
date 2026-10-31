@@ -326,10 +326,11 @@ Run these on development data first and confirm only prespecified contrasts with
 
 | Component | Status | Remaining work |
 |---|---|---|
-| [`feedback_evidence.py`](../src/veritas/feedback_evidence.py) | Implemented: typed checkpoint/evidence records, provenance checks, tree/environment invalidation, and tool-observation conversion. | Expand evidence producers beyond the current public/static pilot sources. |
-| [`feedback_policy.py`](../src/veritas/feedback_policy.py) | Implemented: five packet policies with a shared character cap and adaptive selection scores/rejection reasons. | Freeze policy weights and the strongest fixed comparator on development repositories before confirmation. |
-| [`runtime.py`](../src/veritas/runtime.py) `run_phase()` and [`feedback_runtime.py`](../src/veritas/feedback_runtime.py) | Implemented hook: detect patch changes and actor tool observations, refresh evidence packets, and expose the selected packet before the next actor request. | Add the planned model reviewer and broader shared test/build evidence producers. |
-| [`feedback_study.py`](../src/veritas/feedback_study.py) and [`feedback_runner.py`](../src/veritas/feedback_runner.py) | Staged executor: image/grader fail-closed preflight, repository-disjoint development selection, frozen fixed baseline, confirmation parent screening, adaptive-vs-frozen-baseline continuation, hard per-task actor-resource cap, and repository-cluster bootstrap summary. | Complete a predeclared power analysis, validate upstream task/image provenance on the intended cohort, then run and audit the held-out comparison. |
+| [`feedback_evidence.py`](../src/veritas/feedback_evidence.py) | Implemented: typed checkpoint/evidence records, provenance checks, tree/environment invalidation, and tool-observation conversion. | Audit evidence quality and reviewer findings on development data. |
+| [`feedback_policy.py`](../src/veritas/feedback_policy.py) | Implemented: five packet policies, shared character cap, budget-aware adaptive score, and auditable score/rejection details. Optional weights are frozen in the development baseline artifact. | Defaults are prespecified heuristics. The artifact records caller-supplied weights but cannot independently prove they were selected only from development data. |
+| [`runtime.py`](../src/veritas/runtime.py) `run_phase()` and [`feedback_runtime.py`](../src/veritas/feedback_runtime.py) | Implemented hook: detect patch changes and actor tool observations, refresh evidence packets, and expose the selected packet before the next actor request. Enforces a fixed checkpoint ceiling and caps model/tool calls by the remaining wall budget. | Verify the cap under the target runtime and publish observed operational limits. |
+| [`feedback_runner.py`](../src/veritas/feedback_runner.py) | Shared public producer for all arms: issue, pinned-environment diff check, disposable targeted tests, changed-file compile check, bounded reviewer opinion, and actor tool observations. Check costs are charged and unavailable checks are not represented as passes. Actor digest and continuation seeds are recorded. | Audit source-to-test matching and reviewer reliability on development data. |
+| [`feedback_study.py`](../src/veritas/feedback_study.py) and [`feedback_runner.py`](../src/veritas/feedback_runner.py) | Staged executor: pinned-image/official-grader fail-closed preflight, repository-disjoint development selection, frozen fixed baseline, confirmation parent screening, hard matched operational budget and wall cap, checkpoint ceiling, intent-to-treat outcomes, pre-existing-test regression metrics, and a predeclared approximate power plan. | Run the development screen; freeze a sufficient incorrect-parent cohort and fixed comparator; then run and audit confirmation. The task-count power approximation is not a substitute for enough independent repositories. |
 | [`awareness_runtime.py`](../src/veritas/awareness_runtime.py) | Existing separate draft/review/revision experiment; not the proposed study runner. | Do not use its four factorial assignments as substitutes for the five paired feedback arms. |
 | [`awareness_grading.py`](../src/veritas/awareness_grading.py) / [`swe.py`](../src/veritas/swe.py) | Existing pinned SWE grading and harness contracts. | Reuse to grade frozen parent/final patches, preserving infrastructure and grader errors as unknown outcomes. |
 | [`controller.py`](../src/veritas/controller.py) | Existing action-time verifier controller; distinct from feedback selection. | No reuse as the proposed selector. |
@@ -339,11 +340,13 @@ Run these on development data first and confirm only prespecified contrasts with
 The current executor supports the staged protocol, but software support does not itself establish
 benchmark validity, adequate power, or a positive effect. The archived 60-task pilot used local
 fixture grading and is only engineering evidence. The new runner requires pinned images and official
-grader metadata for benchmark plans, screens confirmation parents before branches, and enforces a
-per-task resource cap. Before interpreting a held-out run, verify task provenance and complete a
-power analysis using a valid development cohort. The parent screen must produce enough initially
-incorrect drafts for the predeclared minimum; a floor or ceiling actor cannot identify the policy
-effect well.
+grader metadata for benchmark plans, screens confirmation parents before branches, and enforces
+matched operational credit and wall limits. The predeclared power calculation is an approximation
+that uses assumed discordance and repository ICC; it cannot establish power from task count alone,
+especially with few repositories. The parent screen must meet both the protocol's minimum and the
+planned incorrect-parent count before a powered confirmatory claim. Default adaptive weights are
+prespecified heuristics, not a learned selector; empirical tuning requires randomized development
+packet assignment and must be frozen before confirmation.
 
 A positive contribution requires E to outperform C on held-out repair recovery or the
 reliability-cost frontier without a material regression increase. A null result remains valuable
