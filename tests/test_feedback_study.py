@@ -49,11 +49,21 @@ def test_analysis_uses_pre_assignment_parent_label_and_paired_arms(tmp_path, pre
     create_plan(prepared_swe, root, source="swe_rebench", task_limit=8, seed=7,
                 allow_local_fixtures=True)
     blocks = [json.loads(line) for line in (root / "blocks.jsonl").read_text().splitlines()]
+    assignments = {
+        (row["block_id"], row["arm"]): row["branch_id"]
+        for row in map(json.loads, (root / "branches.jsonl").read_text().splitlines())
+    }
     results = []
     for block in blocks:
         for arm, resolved in (("adaptive", True), ("fixed_actionable", False)):
-            results.append({"block_id": block["block_id"], "arm": arm,
-                "resolved": resolved, "parent_resolved": False, "total_credits": 1.0})
+            results.append({
+                "block_id": block["block_id"],
+                "branch_id": assignments[(block["block_id"], arm)],
+                "arm": arm,
+                "resolved": resolved,
+                "parent_resolved": False,
+                "total_credits": 1.0,
+            })
     write_jsonl(root / "results.jsonl", results)
     summary = analyze_results(root)
     assert summary["paired_blocks"] == 8
