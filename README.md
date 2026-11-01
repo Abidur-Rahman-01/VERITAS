@@ -46,6 +46,26 @@ The new feedback-selection primitives are in `src/veritas/feedback_evidence.py` 
 actions to evidence invalidation, selection, and the next actor prompt through `run_phase()`.
 The cohort planner and integrity checker are in `src/veritas/feedback_study.py`.
 
+## Live evaluation and ablation dashboard
+
+Start the dashboard from the repository root in a second Ubuntu/WSL terminal while the paired
+feedback study is running. Point it at the study output directory (the directory containing
+`blocks.jsonl`, `branches.jsonl`, `results.jsonl`, and `run.log`):
+
+```sh
+FEEDBACK_STUDY_DIR=runs/feedback-selection-swe-bench-lite \
+FEEDBACK_LOG=runs/feedback-selection-swe-bench-lite/run.log \
+python scripts/veritas_live_dashboard.py
+```
+
+Open `http://127.0.0.1:8765`. Set `FEEDBACK_STUDY_DIR` and `FEEDBACK_LOG` to your actual run
+directory when it differs. The dashboard refreshes live study counts and separates the four
+overall evaluation conditions (E1–E4) from the five paired feedback arms (A–E). It also shows the
+predeclared contrasts, component-removal plan, task and branch progress, resource use, and recent
+graded outcomes. The E1–E4 panel describes the evaluation protocol; it does not imply those four
+conditions were executed by the five-arm feedback runner. Final inference and repository-clustered
+uncertainty estimates still come from the saved analysis.
+
 ## OpenHands SWE-bench Lite agent
 
 This workflow runs OpenHands CLI and the local models in WSL/Linux, then grades with SWE-bench.

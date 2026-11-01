@@ -311,16 +311,83 @@ paired discordance, clustering, missingness, and cost; set confirmatory sample s
 values and a prespecified minimum meaningful effect. Do not set sample size after viewing the
 confirmatory treatment effect.
 
+### Recommended evaluation matrix for training and testing
+
+Report the following metrics using their stated units and denominators. The issue-level repair
+outcomes and action-level controller outcomes answer different questions and must not be pooled.
+
+| # | Metric | Definition or reporting rule | Priority |
+|---|---|---|---|
+| 1 | Resolved rate (SWE-bench) | Issues resolved by the independent grader ÷ issues attempted. | Essential |
+| 2 | Regression-free rate | Patches passing the predeclared regression checks ÷ patches evaluated. | Essential |
+| 3 | False acceptance rate | Erroneous actions accepted without required intervention ÷ all genuinely erroneous actions (`FN / (TP + FN)`). | Essential |
+| 4 | Error detection recall | Erroneous actions correctly flagged ÷ all genuinely erroneous actions (`TP / (TP + FN)`). | Essential |
+| 5 | Recovery success rate | Successful recoveries ÷ recovery attempts; success requires the issue tests to pass while regression tests remain intact. | Essential |
+| 6 | Cost per resolved issue | Total generator, verifier, and tool execution cost ÷ issues resolved. | Essential |
+| 7 | End-to-end latency | Report median wall-clock time for a complete repair and total verifier calls. | Essential |
+| 8 | Brier score | For predicted error probability `p_i` and independently labeled outcome `y_i ∈ {0,1}`, `BS = (1/N) Σ (p_i − y_i)²`. Lower is better; report when the policy produces probabilities. | Essential when probabilistic risk is used |
+| 9 | AUROC | Discrimination of correct versus erroneous actions from the verifier's risk scores. | Recommended |
+| 10 | Verification overhead | Additional compute and cost introduced by VERITAS, reported separately and included in total experiment cost. | Recommended |
+| 11 | Ablation performance | Compare the full policy with prespecified component removals to measure each component's contribution. | Essential for component claims |
+
+For action-level labels, `TP` is an erroneous action correctly flagged, `FN` is an erroneous
+action missed, and `FP` is a correct action unnecessarily flagged. False acceptance rate is the
+false-negative rate, so it complements detection recall under the same labels and decision rule;
+report both when both interpretations aid the reader. Establish independent ground-truth labels
+for verifier decisions. A failed test alone is not proof of a faulty patch: classify infrastructure
+failures separately. Keep issue-level SWE-bench denominators separate from action- or decision-level
+denominators.
+
+Run the same tasks and coding-agent configuration under these policy conditions:
+
+| Experiment | Verification policy |
+|---|---|
+| E1 | Original agent without VERITAS |
+| E2 | Always verify |
+| E3 | Risk-only selective verification |
+| E4 | Full VERITAS |
+
+The primary comparison asks whether E4 improves repair reliability at a comparable compute budget,
+or achieves comparable reliability at lower cost. For deeper analysis, ablate evidence selection and
+recovery-aware decision-making one at a time. Report resolved rate, regression-free rate, false
+acceptance rate, recovery success, cost per resolved issue, and Brier score first (when
+probabilities are available); add latency, AUROC, and ablations as logging permits.
+
 ### Mechanism ablations
 
-Run these on development data first and confirm only prespecified contrasts with adequate power:
+Use the five existing arms as the main policy comparison. They are not five separate component
+ablations: each has a distinct role, and the contrasts below should be declared before confirmation.
 
-| Ablation | What it tests |
-|---|---|
-| Replace learned/tuned ranking with fixed source order | Whether policy selection adds value beyond formatting. |
-| Remove patch relevance features | Whether conditioning on the changed code matters. |
-| Remove evidence freshness filtering | Whether stale evidence changes decisions; never treat this unsafe variant as a deployable policy. |
-| Remove novelty/deduplication features | Whether repeated findings waste packet budget. |
+| Arm | Policy | Prespecified contrast | What the contrast can establish |
+|---|---|---|---|
+| A | Generic retry (neutral packet) | B − A | Value of exposing raw execution feedback over another repair attempt without findings. |
+| B | Raw diagnostics | C − B | Value of converting raw output into a bounded, actionable feedback format. |
+| C | Best fixed actionable feedback | E − C (**primary**) | Whether adaptive evidence selection improves recovery over the strongest development-selected fixed policy. |
+| D | Fixed combined evidence | E − D | Whether adaptive selection improves over delivering all eligible evidence in a fixed order. |
+| E | Adaptive evidence selection (full policy) | Reference for component ablations | Full method performance under the matched resource cap. |
+
+For component attribution, compare a single-component removal against E while keeping the tasks,
+parent patch, actor, evidence producer, packet renderer, checkpoint schedule, and total resource
+cap matched. Reuse an existing arm when it is a valid implementation of the removal; add a new
+arm only when no existing condition isolates the component.
+
+| Component contrast | Ablated condition | Value measured | Study status and interpretation |
+|---|---|---|---|
+| **Evidence selection** | Use D's fixed combined packet instead of E's selected packet. | Incremental value of selecting and ordering evidence under the same packet and compute constraints. | Covered by E − D; no extra arm is needed. E − C remains the primary comparison against the strongest fixed actionable policy. |
+| **Recovery-aware decision-making** | Keep E's evidence selection, but remove recovery probability/expected recovery benefit from its decision rule; make the decision from error risk alone. | Whether estimating recoverability changes intervention decisions and improves repair outcomes or cost. | Add this targeted arm only if recovery-aware decision-making is part of the frozen full method. The current architecture specifies evidence ranking, not this decision rule, so define its inputs and action threshold before adding the claim. |
+| **Patch relevance** | Remove patch-change and affected-file relevance from E's ranking score. | Whether conditioning selected evidence on the current patch improves recovery or reduces wasted feedback. | Development first; confirm only if this feature is a stated contribution and the study has adequate power. |
+| **Novelty and deduplication** | Remove redundancy/novel-information handling from E while preserving all other ranking terms. | Whether avoiding repeated or low-information findings improves outcomes per packet token or resource credit. | Development first; confirm only if prespecified. |
+| **Evidence freshness** | Permit expired evidence to compete with current evidence in a diagnostic-only variant. | Whether freshness filtering prevents stale feedback from harming decisions. | Development-only stress test. This deliberately unsafe variant is not a deployable policy and must not weaken validity checks in the confirmatory arms. |
+
+The confirmatory outcomes for each ablation are paired recovery among parents independently
+graded incorrect before assignment, full-cohort resolution, regression among initially correct
+parents, cost per resolved issue, and end-to-end latency. For decision-policy ablations, also
+report action-level false acceptance, detection recall, and Brier score when calibrated error
+probabilities are produced. Keep issue-level and action-level denominators separate. Grade final
+patches independently, classify infrastructure/grader failures separately from patch failures,
+and report effect estimates with uncertainty intervals clustered by repository. Prespecify the
+primary contrast and handle multiplicity for additional confirmatory contrasts; treat underpowered
+feature removals as exploratory rather than evidence that a component has no effect.
 
 ## 7. Implementation status in this repository
 
