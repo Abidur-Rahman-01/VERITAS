@@ -16,7 +16,8 @@ uv sync --frozen --extra dev --extra swe
 uv run veritas --help
 ```
 
-For the separate three-arm action-time verification experiment, model choices, and Docker commands, see [the Docker and WSL setup guide](docs/DOCKER_WSL_SETUP.md#action-time-tse-experiment-three-arms).
+The architecture's paired policy comparison has five feedback arms (A–E), with adaptive selection
+(E) compared primarily against the development-selected fixed actionable policy (C).
 
 The repository currently contains the prepared 21,336-row `nebius/SWE-rebench` release pinned in
 `configs/datasets.yaml`. The separate `nebius/SWE-rebench-V2` parquet referenced by an older helper
@@ -29,11 +30,11 @@ Validate local data without model inference or Docker work:
 uv run python scripts/test_dataset_with_repo.py --tasks data/prepared --source swe_rebench --limit 100
 ```
 
-The current staged, image-backed workflow (development baseline selection, confirmation screening,
-hard resource caps, and held-out analysis) is documented in
-[the confirmatory run guide](docs/FEEDBACK_CONFIRMATORY_RUN.md). Historical 60-task pilot
-instructions are archived in [the pilot guide](docs/FEEDBACK_PILOT_60.md); that run used the local
-fixture path and is not a benchmark-backed confirmation study.
+The staged workflow uses development repositories to select the fixed comparator and tune the
+selector, then holds out confirmation repositories. Local synthetic fixtures are for engineering
+development only; benchmark-backed runs require pinned task images and official grader metadata.
+See [the research architecture](docs/ARCHITECTURE.md) for the frozen protocol and remaining
+implementation limits.
 
 ## Existing workflows
 

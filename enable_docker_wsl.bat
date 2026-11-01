@@ -98,7 +98,6 @@ echo    -^> Docker Desktop will start cleanly and connect via WSL2!
 echo 3. In the VERITAS directory, run your experiments:
 echo    - Build images:      run_docker.bat build
 echo    - Run test suite:    run_docker.bat test
-echo    - Run replication:   run_docker.bat reproduce
 echo    - Run awareness:     run_docker.bat veritas awareness plan --config configs/awareness-pilot.example.yaml
 echo ========================================================
 echo.

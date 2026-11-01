@@ -33,7 +33,6 @@ COPY configs/ ./configs/
 COPY docs/ ./docs/
 COPY scripts/ ./scripts/
 COPY tests/ ./tests/
-COPY replication/ ./replication/
 COPY Dockerfile.sandbox ./
 
 # Sync project package in editable mode into /opt/venv

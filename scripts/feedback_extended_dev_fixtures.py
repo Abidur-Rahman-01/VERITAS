@@ -1,19 +1,6 @@
-"""
-tse_60_task_fixtures.py
+"""Extended local-only synthetic fixtures for VERITAS engineering development.
 
-Comprehensive 60-task repository repair benchmark cohort for IEEE TSE Action-Time Verification Study:
-- Tasks 1-5: SWE-bench cmd2 (Tasks 744, 755, 760, 770, 780)
-- Tasks 6-10: SWE-bench sympy (Tasks 19512, 20967, 18033, 18189, 18621)
-- Tasks 11-15: SWE-bench pennylane (Tasks 5063, 4376, 4402, 4488, 4512)
-- Tasks 16-20: Repo Maintenance (interpolator, coercer, csv_validator, cli_engine, sql_builder)
-- Tasks 21-24: Benchmark Core (topological_sorter, url_router, constant_time_compare, iso_duration)
-- Tasks 25-34: Coding Calibration (cli_arg_parser, template_formatter, lru_cache, nested_dict,
-               url_encoder, markdown_links, header_normalizer, semver, csv_sniffer, retry_backoff)
-- Tasks 35-39: Extended cmd2 (prompt_formatter, history_search, alias_resolver, stderr_redirect, transcript_comments)
-- Tasks 40-44: Extended sympy (rational_denom, poly_degree, complex_conjugate, upper_tri_det, expr_subst)
-- Tasks 45-49: Extended pennylane (pauli_commutator, statevector_norm, diag_expval, gate_decompose, density_trace)
-- Tasks 50-60: Production Systems (jwt_parser, cron_matcher, table_formatter, bloom_filter, rate_limiter,
-               diff_parser, uuid_validator, graph_cycles, base64_stream, levenshtein_dist, ip_cidr_matcher)
+These fixtures are not SWE-bench tasks and must never enter benchmark confirmation cohorts.
 """
 
 from pathlib import Path

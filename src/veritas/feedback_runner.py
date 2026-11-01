@@ -89,7 +89,7 @@ def ollama_model_identity(model_name: str, base_url: str = "http://localhost:114
 
 
 def get_task_setup_fn(task: Task | str) -> Callable[[Path], tuple[str, str]]:
-    """Resolve task setup function from task across SWE-rebench-V2 and fixtures."""
+    """Use the pinned image for benchmark tasks or an explicit local dev fixture."""
     if isinstance(task, Task) and (
         task.private.get("image_name") or task.private.get("docker_image")
     ):
@@ -103,7 +103,7 @@ def get_task_setup_fn(task: Task | str) -> Callable[[Path], tuple[str, str]]:
 
     task_id = task.task_id if isinstance(task, Task) else str(task)
     clean_id = task_id.replace("swe:", "")
-    from scripts.run_action_time_tse_experiment import TASK_REGISTRY
+    from scripts.feedback_dev_fixtures import TASK_REGISTRY
     if clean_id in TASK_REGISTRY:
         return TASK_REGISTRY[clean_id]
     for candidate in [clean_id, f"swe_{clean_id}", f"repo_{clean_id}"]:

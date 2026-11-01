@@ -6,7 +6,6 @@
 .EXAMPLE
     .\run_docker.ps1 build
     .\run_docker.ps1 test
-    .\run_docker.ps1 reproduce
     .\run_docker.ps1 bash
     .\run_docker.ps1 veritas awareness plan --config configs/awareness-pilot.example.yaml
 #>
@@ -26,7 +25,6 @@ if (-not $Arguments -or $Arguments.Count -eq 0) {
     Write-Host "Usage:"
     Write-Host "  .\run_docker.ps1 build            Build the Docker images"
     Write-Host "  .\run_docker.ps1 test             Run test suite inside Docker"
-    Write-Host "  .\run_docker.ps1 reproduce        Run full replication statistical audit"
     Write-Host "  .\run_docker.ps1 bash             Launch interactive bash shell"
     Write-Host "  .\run_docker.ps1 veritas <args>   Run veritas CLI command"
     Write-Host ""
@@ -49,10 +47,6 @@ switch ($Command.ToLower()) {
     "test" {
         Write-Host "Running VERITAS tests in Docker..." -ForegroundColor Green
         docker compose run --rm veritas-test
-    }
-    "reproduce" {
-        Write-Host "Running replication audit in Docker..." -ForegroundColor Green
-        docker compose run --rm veritas-reproduce
     }
     "bash" {
         Write-Host "Launching interactive shell in Docker container..." -ForegroundColor Green

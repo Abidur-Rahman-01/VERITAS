@@ -13,7 +13,6 @@ if "%~1"=="" (
     echo Usage:
     echo   run_docker.bat build            Build the Docker images
     echo   run_docker.bat test             Run test suite inside Docker container
-    echo   run_docker.bat reproduce        Run full replication statistical audit
     echo   run_docker.bat bash             Launch interactive bash shell in container
     echo   run_docker.bat veritas [args]   Run veritas CLI command in container
     echo.
@@ -38,11 +37,6 @@ if /i "%~1"=="test" (
     exit /b %ERRORLEVEL%
 )
 
-if /i "%~1"=="reproduce" (
-    echo Running replication audit in Docker...
-    docker compose run --rm veritas-reproduce
-    exit /b %ERRORLEVEL%
-)
 
 if /i "%~1"=="bash" (
     echo Launching interactive shell in Docker container...

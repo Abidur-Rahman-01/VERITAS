@@ -53,19 +53,6 @@ services:
     entrypoint: ["pytest"]
     command: ["-ra"]
 
-  veritas-reproduce:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: veritas:latest
-    container_name: veritas-reproduce-runner
-    volumes:
-      - .:/app
-    environment:
-      - PYTHONUNBUFFERED=1
-    entrypoint: ["python"]
-    command: ["replication/scripts/reproduce_all.py"]
-
   veritas-bash:
     build:
       context: .

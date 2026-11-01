@@ -400,7 +400,7 @@ feature removals as exploratory rather than evidence that a component has no eff
 | [`feedback_study.py`](../src/veritas/feedback_study.py) and [`feedback_runner.py`](../src/veritas/feedback_runner.py) | Staged executor: pinned-image/official-grader fail-closed preflight, repository-disjoint development selection, frozen fixed baseline, confirmation parent screening, hard matched operational budget and wall cap, checkpoint ceiling, intent-to-treat outcomes, pre-existing-test regression metrics, and a predeclared approximate power plan. | Run the development screen; freeze a sufficient incorrect-parent cohort and fixed comparator; then run and audit confirmation. The task-count power approximation is not a substitute for enough independent repositories. |
 | [`awareness_runtime.py`](../src/veritas/awareness_runtime.py) | Existing separate draft/review/revision experiment; not the proposed study runner. | Do not use its four factorial assignments as substitutes for the five paired feedback arms. |
 | [`awareness_grading.py`](../src/veritas/awareness_grading.py) / [`swe.py`](../src/veritas/swe.py) | Existing pinned SWE grading and harness contracts. | Reuse to grade frozen parent/final patches, preserving infrastructure and grader errors as unknown outcomes. |
-| [`controller.py`](../src/veritas/controller.py) | Existing action-time verifier controller; distinct from feedback selection. | No reuse as the proposed selector. |
+| [`controller.py`](../src/veritas/controller.py) | Legacy action-verification controller used by other runtime commands; it is not a feedback-selection arm. | Do not treat its verification policies as substitutes for the five paired feedback arms. |
 
 ## 8. Completion criteria
 
