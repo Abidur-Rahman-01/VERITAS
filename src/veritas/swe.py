@@ -61,7 +61,16 @@ def image_map(
                     raise ValueError(
                         "SWE-rebench needs the pinned upstream fork. Run scripts/setup_rebench.sh, then use .venv-rebench/bin/veritas with --namespace ''"
                     ) from e
-                row = _clean_install_config(row)
+                # The upstream cleaner may return only normalized install metadata.
+                # Keep the original instance fields (notably repo/version) for TestSpec.
+                cleaned = _clean_install_config(dict(row))
+                row = {**row, **(cleaned or {})}
+                row["repo"] = row.get("repo") or task.repo
+                row["instance_id"] = (
+                    row.get("instance_id")
+                    or task.private.get("instance_id")
+                    or task.task_id.removeprefix("swe:")
+                )
                 known_image = key_for(row)
             mapping[row["instance_id"]] = known_image
         else:
