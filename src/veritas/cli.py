@@ -23,7 +23,7 @@ def parser():
     feedback = commands.add_parser(
         "feedback-study", help="Plan and audit the paired SWE-rebench feedback-selection study"
     ).add_subparsers(dest="action", required=True)
-    fp = feedback.add_parser("plan", help="Freeze a repository-disjoint five-arm task cohort")
+    fp = feedback.add_parser("plan", help="Freeze a repository-disjoint six-arm task cohort")
     fp.add_argument("--tasks", default="data/prepared")
     fp.add_argument("--source", default="swe_bench_lite")
     fp.add_argument("--split", help="Prepared-data split filter; keep this equal to the image-map split")
@@ -68,6 +68,14 @@ def parser():
     fr.add_argument("--wall-budget-seconds", type=float, default=900.0,
                     help="Hard total actor-plus-evidence wall-time cap per task/arm")
     fr.add_argument("--budget", type=float, default=30.0)
+    fr.add_argument("--linucb-mode", choices=("learning", "evaluation"),
+                    help="Default: learning for development, frozen evaluation for confirmation")
+    fr.add_argument("--linucb-alpha", type=float, default=0.5)
+    fr.add_argument("--linucb-policy", help="Frozen policy artifact path for evaluation mode")
+    fr.add_argument("--linucb-cost-penalty", type=float, default=0.01)
+    fr.add_argument("--linucb-delayed-credit",
+                    choices=("terminal_only", "uniform", "discounted"), default="terminal_only")
+    fr.add_argument("--linucb-cost-aware-exploration", action="store_true")
     fr.add_argument("--task-limit", type=int)
     fr.add_argument("--partition", choices=("development", "confirmation"), default="development")
     fr.add_argument("--parents-only", action="store_true",
@@ -446,6 +454,12 @@ def dispatch(a):
                 max_checkpoints=a.max_checkpoints,
                 wall_budget_seconds=a.wall_budget_seconds,
                 budget_credits=a.budget,
+                linucb_mode=a.linucb_mode,
+                linucb_alpha=a.linucb_alpha,
+                linucb_policy_path=a.linucb_policy,
+                linucb_cost_penalty=a.linucb_cost_penalty,
+                linucb_delayed_credit=a.linucb_delayed_credit,
+                linucb_cost_aware_exploration=a.linucb_cost_aware_exploration,
                 resume=not a.no_resume,
                 task_limit=a.task_limit,
                 partition=a.partition,

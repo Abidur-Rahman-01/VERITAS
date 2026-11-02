@@ -1,10 +1,11 @@
 # VERITAS: Evidence Selection for Repository Repair
 
-VERITAS is a research codebase for evaluating whether selecting current verifier evidence helps
-AI coding agents recover from incorrect repository patches under a matched resource budget. The
-primary comparison is adaptive evidence selection versus the predeclared fixed actionable feedback
-policy in Arm C. The benchmark proposal is an evaluation protocol over SWE-rebench tasks, not a claim that
-the downloaded dataset itself is a new benchmark.
+VERITAS evaluates whether selecting fresh, runtime-visible repair evidence helps an AI coding agent
+recover from initially incorrect repository patches under a matched operational budget. The primary
+comparison is **Arm F (LinUCB) versus Arm C (the strongest predeclared fixed actionable-feedback
+policy)**. Arm E (rule-based adaptive selection) and Arm D (fixed combined evidence) are secondary
+comparators; A/B are diagnostic controls. This is an evaluation protocol over SWE-rebench, not a new
+task dataset.
 
 See [the research architecture](docs/ARCHITECTURE.md) for the research question, closest work,
 experimental design, trust boundaries, metrics, and staged implementation status.
@@ -16,9 +17,8 @@ uv sync --frozen --extra dev --extra swe
 uv run veritas --help
 ```
 
-The architecture's paired policy comparison has five feedback arms (A–E), with adaptive selection
-(E) compared primarily against the predeclared fixed actionable policy (C); fixed combined feedback
-(D) is secondary, while generic retry (A) and raw diagnostics (B) are diagnostic baselines.
+The paired study has six arms: A/B diagnostic controls, C fixed actionable primary baseline,
+D fixed combined, E rule-based adaptive, and F LinUCB. The primary learned comparison is F versus C.
 
 The repository currently contains the prepared 21,336-row `nebius/SWE-rebench` release pinned in
 `configs/datasets.yaml`. The separate `nebius/SWE-rebench-V2` parquet referenced by an older helper
@@ -37,7 +37,166 @@ development only; benchmark-backed runs require pinned task images and official 
 See [the research architecture](docs/ARCHITECTURE.md) for the frozen protocol and remaining
 implementation limits.
 
-## Existing workflows
+## End-to-end feedback-selection experiment
+
+This is the repository-level experiment workflow for Arms A–F. It holds the agent, model, public
+evidence producers, checkpoint limits, and operational budget definition common across arms; the
+evidence-selection policy is the treatment. It does not include debug-versus-regenerate strategy
+actions, candidate portfolios, or learned routing. Confirmation repositories are held out from
+development and LinUCB training. Official grader outcomes are evaluator-side only and never enter
+actor prompts, evidence, or decision-time context. Development grades are used only as post-trajectory
+LinUCB reward updates on training repositories; confirmation grades never update the policy.
+
+### 1. Install and check prerequisites
+
+SWE-rebench has a pinned upstream harness fork that shares a package name with official SWE-bench.
+Use the dedicated environment for mapping, planning, grading, and study execution:
+
+```sh
+bash scripts/setup_rebench.sh
+.venv-rebench/bin/veritas --help
+.venv-rebench/bin/veritas feedback-study --help
+.venv-rebench/bin/veritas doctor
+docker info
+```
+
+Use Linux or WSL2 with Docker available. Ensure `qwen2.5-coder:7b` (or the single predeclared actor
+used for every arm) is available in the local Ollama endpoint. The runner uses
+`http://localhost:11434`; keep it private. Keep the agent, model, prompt/tool configuration, and
+model settings fixed across arms and between development and confirmation.
+
+For a local Ollama setup, start the Ollama service and pull the pinned actor before starting a
+study:
+
+```sh
+ollama pull qwen2.5-coder:7b
+ollama list
+```
+
+The study runner does not start Ollama for you and currently uses that local endpoint directly.
+
+### 2. Prepare and validate the pinned data
+
+If `data/prepared` is absent or stale, download and prepare the declared SWE-rebench release:
+
+```sh
+.venv-rebench/bin/veritas data download --sources swe_rebench
+.venv-rebench/bin/veritas data prepare --research-pool swe_rebench
+uv run python scripts/test_dataset_with_repo.py --tasks data/prepared --source swe_rebench --limit 100
+```
+
+Generate the image map using the same task source and split as the study plan:
+
+```sh
+mkdir -p artifacts
+.venv-rebench/bin/veritas swe image-map --tasks data/prepared --source swe_rebench \
+  --split all --namespace '' --output artifacts/swe-rebench-image-map.json
+```
+
+This writes the JSON map and `artifacts/swe-rebench-image-map.tasks.jsonl`. Review its coverage and
+grader metadata. Pull published images or build environments with the pinned fork:
+
+```sh
+.venv-rebench/bin/veritas swe pull-images artifacts/swe-rebench-image-map.json
+# Alternatively, build the mapped environments (can take hours and substantial disk space):
+.venv-rebench/bin/veritas swe build-images artifacts/swe-rebench-image-map.tasks.jsonl --workers 2
+```
+
+The runner pulls missing pinned images during preflight. Preflight covers every task in the frozen
+plan before applying `--task-limit`, so even a 5-task execution diagnostic needs all plan images and
+grader metadata available. Image setup is outside the per-branch repair budget and is recorded
+separately.
+
+### 3. Freeze a repository-disjoint plan
+
+Choose a new, empty output directory. Do not reuse it for another plan:
+
+```sh
+.venv-rebench/bin/veritas feedback-study plan \
+  --tasks data/prepared --source swe_rebench \
+  --image-map artifacts/swe-rebench-image-map.json \
+  --output runs/feedback-swe-rebench --seed 42 \
+  --confirmation-fraction 0.2 --min-confirmation-incorrect N
+.venv-rebench/bin/veritas feedback-study verify --study runs/feedback-swe-rebench
+```
+
+Replace `N` with a predeclared incorrect-parent threshold justified by the power approximation and
+confirmation cohort size. If the planner rejects a small N, it prints the approximate required
+threshold; choose that threshold before confirmation labels are observed and rerun the plan. The
+planner rejects undersized benchmark plans; do not bypass the gate
+with local fixtures and report benchmark conclusions. A 5–10 block run is only for pipeline,
+accounting, evidence, and termination diagnostics, not a powered confirmation.
+
+### 4. Run development, inspect, and freeze
+
+**Gate:** development runs default to LinUCB learning. Do not start this step until the Phase 1
+review confirms the frozen Arm C definition, all counters and termination/failure fields, budget
+charging, parent/final grade separation, and usable success/failure trajectories. The current CLI
+does not offer an all-arms pilot mode with LinUCB updates disabled; its 5–10 block `--task-limit`
+run is a small learning run, not a pre-training pipeline check. If the project requires strictly
+zero bandit updates before the pilot is accepted, add that pilot mode before proceeding.
+
+```sh
+.venv-rebench/bin/veritas feedback-study run --study runs/feedback-swe-rebench \
+  --partition development --actor qwen2.5-coder:7b \
+  --draft-steps 4 --revision-steps 6 --max-checkpoints 4 \
+  --wall-budget-seconds 900 --budget 30
+.venv-rebench/bin/veritas feedback-study analyze --study runs/feedback-swe-rebench --partition development
+.venv-rebench/bin/veritas feedback-study freeze-baseline --study runs/feedback-swe-rebench --minimum-incorrect 20
+```
+
+Inspect `events.jsonl`, `results.jsonl`, `run.log`, development analysis, packet-selection records,
+costs, and termination counts before confirmation. Check `patch_checkpoint_count`,
+`same_patch_refresh_count`, `revision_attempt_count`, `model_call_count`, `tool_call_count`,
+`credits_used`, `revision_termination_reason`, `final_patch_empty`, public-check status,
+evaluator-side official-grade status, and failure category. The frozen baseline preserves
+Arm C as primary and freezes the LinUCB policy and adaptive-selector provenance. Development
+outcomes are descriptive. An optional diagnostic can run with `--task-limit 5` (or 10) against the
+same plan; inspect `revision_termination_reason`, empty-patch rate, budget accounting, and counters.
+After any implementation or protocol change, create a fresh study directory instead of mixing runs.
+
+### 5. Screen confirmation parents, then run treatment branches
+
+First run only the common parent drafts and evaluator-side grades:
+
+```sh
+.venv-rebench/bin/veritas feedback-study run --study runs/feedback-swe-rebench \
+  --partition confirmation --parents-only --actor qwen2.5-coder:7b \
+  --draft-steps 4 --revision-steps 6 --max-checkpoints 4 \
+  --wall-budget-seconds 900 --budget 30
+```
+
+Review the parent-screening summary against the predeclared gate. Official/hidden grader output
+must stay evaluator-side: it must never enter prompts, evidence records, or policy selection. Then
+run confirmation branches with the identical settings:
+
+```sh
+.venv-rebench/bin/veritas feedback-study run --study runs/feedback-swe-rebench \
+  --partition confirmation --actor qwen2.5-coder:7b \
+  --draft-steps 4 --revision-steps 6 --max-checkpoints 4 \
+  --wall-budget-seconds 900 --budget 30
+.venv-rebench/bin/veritas feedback-study analyze --study runs/feedback-swe-rebench --partition confirmation
+```
+
+Confirmation treatment uses a frozen evaluation-only LinUCB policy and must keep the development
+alpha and operational settings. Report paired F-versus-C recovery among initially incorrect parents,
+full-cohort resolution,
+regressions among initially correct parents, pre-existing-test regressions, infrastructure/grader
+failures, per-arm costs, model/tool calls, tokens, wall time, exploration/exploitation statistics,
+action counts, and termination-reason distribution. Each branch carries the common parent spend into
+the same operational-credit cap and wall-time ceiling. LinUCB feature construction, selection,
+updates, and offline fitting are charged to Arm F. Equal caps do not imply equal realized compute;
+report resource balance and do not describe this as equal GPU/CPU compute.
+
+The primary estimate is the paired F-minus-C recovery-rate difference among parent drafts graded
+incorrect before treatment. Include every assigned pair, report its interval, and cluster uncertainty
+by repository. Also report full-cohort resolution, regression among initially correct parents,
+public-pass/official-fail cases, empty and non-empty incorrect patches, unknown grader/infrastructure
+outcomes, and cost per resolved task. If the planned confirmation gate, power approximation, or
+independent-repository requirement is not met, label the result descriptive rather than confirmatory.
+
+Local fixtures may be used only through the explicit `--allow-local-fixtures` flag and are
+engineering diagnostics, not SWE-bench evidence. Do not mix those results into benchmark estimates.
 
 `veritas awareness` remains a separate draft/review/revision study. `veritas collect`, `compare`,
 and the original controller policies are also separate and should not be treated as the proposed
@@ -62,10 +221,10 @@ python scripts/veritas_live_dashboard.py
 
 Open `http://127.0.0.1:8765`. Set `FEEDBACK_STUDY_DIR` and `FEEDBACK_LOG` to your actual run
 directory when it differs. The dashboard refreshes live study counts and separates the four
-overall evaluation conditions (E1–E4) from the five paired feedback arms (A–E). It also shows the
+overall evaluation conditions (E1–E4) from the paired feedback arms (A–F). It also shows the
 predeclared contrasts, component-removal plan, task and branch progress, resource use, and recent
 graded outcomes. The E1–E4 panel describes the evaluation protocol; it does not imply those four
-conditions were executed by the five-arm feedback runner. Final inference and repository-clustered
+conditions were executed by the paired feedback runner. Final inference and repository-clustered
 uncertainty estimates still come from the saved analysis.
 
 ## OpenHands SWE-bench Lite agent
@@ -112,7 +271,7 @@ EVAL_MODAL=false LIMIT=1 RUN_STAMP=pilot-1 bash scripts/run_swebench_lite_end_to
 
 The script downloads the pinned dataset if needed, runs OpenHands with Qwen3-Coder, asks Qwen2.5-Coder to review the patch, and returns actionable findings to OpenHands for up to two repair rounds. It stops early when the verifier returns PASS, then evaluates the final prediction with the SWE-bench grader. Per-task token counts (when exposed by the model/runtime), verifier usage, action-event counts, patch size, and wall time are written to `resource_report.json`; predictions, task records, and OpenHands logs are stored under `runs/`.
 
-This is a single-condition resource-profile pilot with a reviewer/repair pass. It does not execute the architecture's five paired feedback-selection branches; that confirmatory executor remains separate work described below.
+This is a single-condition resource-profile pilot with a reviewer/repair pass. It does not execute the paired feedback-selection branches; that executor remains a separate workflow described below.
 
 Continue with non-overlapping slices so each task is only charged once during profiling. These use
 the dataset's pinned row order; they are larger samples, not an easy-to-hard ranking.
@@ -165,16 +324,18 @@ network. Do not expose its API to the public internet. Set `MODEL`, `OPENHANDS_M
 
 ## Current implementation boundary
 
-The evidence model, conservative patch/environment invalidation, five policy renderers, bounded
-adaptive packet selection, prepared-data cohort planning, plan verification, paired executor,
-durable result/event ledgers, independent grading, and descriptive paired analysis are implemented.
-The 60-task executor creates one common draft per task, freezes it before treatment, replays that
-parent into all five branches, and gives each branch the same actor phase limits. This engineering
-pilot uses public issue text, `git diff --check`, changed-file Python syntax checks, and actor tool
-observations; it does not call a model reviewer. It reports estimated resource use but does not
-enforce a hard total-cost cap. Treat its results as exploratory and descriptive, not as evidence of
-superiority or a matched-total-budget result. The guide records these limits and the commands needed
-to run and analyze the pilot.
+The paired executor has six arms: A/B diagnostic controls, C fixed actionable primary baseline,
+D fixed combined, E rule-based adaptive, and F LinUCB. LinUCB learns on development repositories;
+confirmation requires a frozen evaluation-only policy artifact. The executor, evidence/event
+ledgers, independent grading, and analysis are implemented, but the full pipeline still needs a
+small end-to-end pilot before it is experiment-ready.
+Runtime evidence includes public issue text, static diff checks, changed-file Python syntax checks,
+change-based targeted tests, and actor tool observations. The current CLI does not enable the
+optional reviewer. Patch/tree/environment freshness is enforced. Packet decisions record evidence
+scores and repeat delivery; actual evidence use is not reliably measured. Trajectory outcomes can
+be compared with the next patch, but that does not establish causal credit for an individual packet.
+A pilot must validate budget charging, resumability, termination counts, and hidden-grader isolation.
+LinUCB has not yet been trained or run. See the runbook above and [architecture](docs/ARCHITECTURE.md).
 
 All model and grader calls should be explicitly invoked through their study commands and pinned
 protocols. A successful software test run validates code behavior only; it does not establish a

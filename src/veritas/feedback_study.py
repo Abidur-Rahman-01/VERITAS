@@ -18,7 +18,8 @@ PLAN_FILES = ("tasks.jsonl", "blocks.jsonl", "branches.jsonl", "protocol.json",
               "dataset_manifest.json", "prepared_splits.json", "image_map.json",
               "source_image_map.json")
 PRIMARY_COMPARATOR_ARM = "fixed_actionable"
-SECONDARY_COMPARATOR_ARMS = ("fixed_combined",)
+PRIMARY_LEARNED_ARM = "linucb"
+SECONDARY_COMPARATOR_ARMS = ("adaptive", "fixed_combined")
 
 
 def create_plan(tasks_dir, output, *, source="swe_bench_lite", task_limit=None, seed=42,
@@ -26,7 +27,7 @@ def create_plan(tasks_dir, output, *, source="swe_bench_lite", task_limit=None, 
                 allow_local_fixtures=False, image_map_path=None, split=None,
                 power=0.80, alpha=0.05, minimum_effect=0.15,
                 discordance=0.25, cluster_icc=0.05):
-    """Freeze a repository-disjoint task cohort and the five paired policy branches."""
+    """Freeze a repository-disjoint task cohort and all six paired policy branches."""
     if not 0 < confirmation_fraction < 1:
         raise ValueError("confirmation_fraction must be strictly between 0 and 1")
     if minimum_confirmation_incorrect < 0:
@@ -185,8 +186,9 @@ def create_plan(tasks_dir, output, *, source="swe_bench_lite", task_limit=None, 
         "confirmation_repositories": sorted(confirmation),
         "arms": list(ARMS),
         "primary_comparator_arm": PRIMARY_COMPARATOR_ARM,
+        "primary_learned_arm": PRIMARY_LEARNED_ARM,
         "secondary_comparator_arms": list(SECONDARY_COMPARATOR_ARMS),
-        "primary_comparison": ["adaptive", PRIMARY_COMPARATOR_ARM],
+        "primary_comparison": [PRIMARY_LEARNED_ARM, PRIMARY_COMPARATOR_ARM],
         "minimum_confirmation_incorrect": minimum_confirmation_incorrect,
         "minimum_confirmation_repositories_for_cluster_inference": 10,
         "power_analysis": {
@@ -241,8 +243,9 @@ def verify_plan(directory):
             raise ValueError(f"Incomplete or duplicate arms for block {block['block_id']}")
     protocol = json.loads((root / "protocol.json").read_text())
     if (protocol.get("primary_comparator_arm") != PRIMARY_COMPARATOR_ARM
+            or protocol.get("primary_learned_arm") != PRIMARY_LEARNED_ARM
             or protocol.get("secondary_comparator_arms") != list(SECONDARY_COMPARATOR_ARMS)):
-        raise ValueError("Study plan must predeclare Arm C as primary and Arm D as the secondary comparator")
+        raise ValueError("Study plan must predeclare Arm C, LinUCB, and the secondary baselines")
     if protocol.get("environment_mode") not in {"pinned_images", "local_fixtures"}:
         raise ValueError("Unknown study environment mode")
     if int(protocol.get("minimum_confirmation_incorrect", 0)) < 0:
@@ -394,7 +397,14 @@ def freeze_baseline(directory, results_path=None, *, minimum_incorrect=20,
             f"development parents; require at least {minimum_incorrect}. Plan/run a larger "
             "development cohort before confirmation."
         )
-    fixed_arms = [arm for arm in ARMS if arm != "adaptive"]
+    linucb_path = root / "linucb_policy.json"
+    if not linucb_path.is_file():
+        raise ValueError("Cannot freeze confirmation: development LinUCB policy artifact is missing")
+    linucb_policy = json.loads(linucb_path.read_text(encoding="utf-8"))
+    if (linucb_policy.get("algorithm") != "LinUCB-disjoint-action-models"
+            or not linucb_policy.get("training_repositories")):
+        raise ValueError("Development LinUCB policy lacks audited training repository provenance")
+    fixed_arms = [arm for arm in ARMS if arm not in {"adaptive", "linucb"}]
     scores = {}
     for arm in fixed_arms:
         observed = [by_block[bid][arm] for bid in incorrect if arm in by_block[bid]
@@ -437,9 +447,11 @@ def freeze_baseline(directory, results_path=None, *, minimum_incorrect=20,
         "fixed_arm_scores_use": "development descriptive only; never used to choose the primary comparator",
         "selected_fixed_arm": selected,  # Compatibility alias; always Arm C.
         "primary_comparator_arm": PRIMARY_COMPARATOR_ARM,
+        "primary_learned_arm": PRIMARY_LEARNED_ARM,
         "selector_weights": weights,
         "selector_weights_status": weight_status,
         "selector_weights_source_sha256": selector_weights_sha256,
+        "linucb_policy_sha256": file_hash(linucb_path),
     }
     artifact["content_hash"] = digest(artifact)
     write_json(root / "frozen_baseline.json", artifact)
@@ -461,9 +473,13 @@ def verify_frozen_baseline(directory):
     snapshot = root / "development_results_frozen.jsonl"
     if not snapshot.is_file() or file_hash(snapshot) != artifact.get("development_results_sha256"):
         raise ValueError("Frozen development results are missing or changed")
+    linucb_path = root / "linucb_policy.json"
+    if not linucb_path.is_file() or file_hash(linucb_path) != artifact.get("linucb_policy_sha256"):
+        raise ValueError("Frozen LinUCB policy is missing or changed")
     plan_protocol = json.loads((root / "protocol.json").read_text(encoding="utf-8"))
     if (artifact.get("selected_fixed_arm") != PRIMARY_COMPARATOR_ARM
             or artifact.get("primary_comparator_arm", PRIMARY_COMPARATOR_ARM) != PRIMARY_COMPARATOR_ARM
+            or artifact.get("primary_learned_arm") != PRIMARY_LEARNED_ARM
             or plan_protocol.get("primary_comparator_arm", PRIMARY_COMPARATOR_ARM)
             != PRIMARY_COMPARATOR_ARM):
         raise ValueError("The predeclared primary comparator must remain Arm C (fixed_actionable)")
@@ -472,7 +488,7 @@ def verify_frozen_baseline(directory):
 
 
 def analyze_results(directory, results_path=None, *, partition=None):
-    """Summarize all five arms and the paired E-vs-C comparison descriptively.
+    """Summarize all six arms and the paired LinUCB-vs-C comparison descriptively.
 
     Pilot outputs include uncertainty intervals and denominators, but deliberately
     do not label small-sample p-values as confirmatory evidence.
@@ -490,6 +506,7 @@ def analyze_results(directory, results_path=None, *, partition=None):
                           if partition is None or b.get("partition") == partition}
     results = [row for row in results if row.get("block_id") in selected_block_ids]
     comparison_arm = PRIMARY_COMPARATOR_ARM
+    learned_arm = PRIMARY_LEARNED_ARM
     if partition == "confirmation":
         verify_frozen_baseline(root)
     by_block = defaultdict(dict)
@@ -527,8 +544,8 @@ def analyze_results(directory, results_path=None, *, partition=None):
     paired = []
     per_arm = {}
     by_repository = {}
-    # Report all five arms for both partitions. E-vs-C is primary, E-vs-D is
-    # secondary, and A/B remain diagnostic regardless of development outcomes.
+    # Report all six arms. LinUCB-vs-C is primary; rule-adaptive and fixed-combined
+    # are secondary, while A/B remain diagnostic regardless of development outcomes.
     selected_arms = ARMS
     for arm in selected_arms:
         rows = [row for row in results if row.get("arm") == arm]
@@ -610,6 +627,20 @@ def analyze_results(directory, results_path=None, *, partition=None):
                 row["feedback_decisions"] for row in rows
                 if row.get("feedback_decisions") is not None
             ]),
+            "linucb_decisions": sum(int(row.get("linucb_decision_count", 0)) for row in rows),
+            "linucb_exploration_decisions": sum(
+                int(row.get("linucb_exploration_decisions", 0)) for row in rows),
+            "linucb_exploitation_decisions": sum(
+                int(row.get("linucb_exploitation_decisions", 0)) for row in rows),
+            "linucb_exploration_rate": _rate_with_wilson(
+                sum(int(row.get("linucb_exploration_decisions", 0)) for row in rows),
+                sum(int(row.get("linucb_decision_count", 0)) for row in rows)),
+            "linucb_action_counts": {
+                action_id: sum(int((row.get("linucb_action_counts") or {}).get(action_id, 0))
+                               for row in rows)
+                for action_id in ("concise_failure_summary", "location_diagnostics",
+                                  "expected_observed", "combined_complementary")
+            },
             "outcome_classes": {
                 category: sum(row.get("outcome_class") == category for row in rows)
                 for category in ("empty_patch", "resolved_nonempty", "incorrect_nonempty",
@@ -685,7 +716,7 @@ def analyze_results(directory, results_path=None, *, partition=None):
 
     for block in read_jsonl(root / "blocks.jsonl"):
         arms = by_block.get(block["block_id"], {})
-        adaptive, fixed = arms.get("adaptive", {}), arms.get(comparison_arm, {})
+        adaptive, fixed = arms.get(learned_arm, {}), arms.get(comparison_arm, {})
         parent_correct = parent_labels.get(block["block_id"])
         if parent_correct is None:
             parent_correct = adaptive.get("parent_resolved", fixed.get("parent_resolved"))
@@ -697,13 +728,13 @@ def analyze_results(directory, results_path=None, *, partition=None):
             continue
         paired.append({"block_id": block["block_id"], "repository": block["repository"],
             "partition": block["partition"], "parent_resolved": parent_correct,
-            "adaptive_resolved": adaptive.get("resolved") is True,
+            "learned_resolved": adaptive.get("resolved") is True,
             "comparison_resolved": fixed.get("resolved") is True,
-            "adaptive_outcome_known": adaptive.get("resolved") in (True, False),
+            "learned_outcome_known": adaptive.get("resolved") in (True, False),
             "comparison_outcome_known": fixed.get("resolved") in (True, False),
-            "adaptive_credits": adaptive.get("total_credits"),
+            "learned_credits": adaptive.get("total_credits"),
             "comparison_credits": fixed.get("total_credits")})
-    complete_pairs = [row for row in paired if row["adaptive_outcome_known"]
+    complete_pairs = [row for row in paired if row["learned_outcome_known"]
                       and row["comparison_outcome_known"]]
     incorrect = [row for row in paired if row["parent_resolved"] is False]
     incorrect_complete = [row for row in complete_pairs if row["parent_resolved"] is False]
@@ -713,10 +744,10 @@ def analyze_results(directory, results_path=None, *, partition=None):
     # Regression is also intention-to-treat: a missing/unknown final grade for
     # a parent-correct block cannot be silently dropped from this guardrail.
     correct = [row for row in paired if row["parent_resolved"] is True]
-    adaptive_wins = sum(r["adaptive_resolved"] and not r["comparison_resolved"] for r in incorrect)
-    fixed_wins = sum(r["comparison_resolved"] and not r["adaptive_resolved"] for r in incorrect)
-    paired_ties = len(incorrect) - adaptive_wins - fixed_wins
-    adaptive_costs = [row["adaptive_credits"] for row in paired if row["adaptive_credits"] is not None]
+    learned_wins = sum(r["learned_resolved"] and not r["comparison_resolved"] for r in incorrect)
+    fixed_wins = sum(r["comparison_resolved"] and not r["learned_resolved"] for r in incorrect)
+    paired_ties = len(incorrect) - learned_wins - fixed_wins
+    learned_costs = [row["learned_credits"] for row in paired if row["learned_credits"] is not None]
     fixed_costs = [row["comparison_credits"] for row in paired
                    if row["comparison_credits"] is not None]
     cluster_interval = _cluster_bootstrap_difference(
@@ -741,7 +772,7 @@ def analyze_results(directory, results_path=None, *, partition=None):
                 confirmation_screen["incorrect"] += parent_value is False
     confirmation_primary_complete = (partition != "confirmation" or all(
         block_id in by_block
-        and by_block[block_id].get("adaptive", {}).get("resolved") in (True, False)
+        and by_block[block_id].get(learned_arm, {}).get("resolved") in (True, False)
         and by_block[block_id].get(comparison_arm, {}).get("resolved") in (True, False)
         for block_id in selected_block_ids
     ))
@@ -776,69 +807,69 @@ def analyze_results(directory, results_path=None, *, partition=None):
         "parent_unknown_or_unpaired_blocks": max(0, len(selected_block_ids) - len(paired)),
         "arms": per_arm, "by_repository": by_repository,
         "primary_paired": {
-            "comparison": f"adaptive vs {comparison_arm} among initially incorrect parents",
+            "comparison": f"{learned_arm} vs {comparison_arm} among initially incorrect parents",
             "paired_n": len(incorrect),
-            "adaptive_only_resolved": adaptive_wins,
+            "learned_only_resolved": learned_wins,
             "fixed_only_resolved": fixed_wins,
             "both_or_neither_tied": paired_ties,
-            "adaptive_recovery_rate": _rate_with_wilson(
-                sum(r["adaptive_resolved"] for r in incorrect), len(incorrect)
+            "learned_recovery_rate": _rate_with_wilson(
+                sum(r["learned_resolved"] for r in incorrect), len(incorrect)
             ),
             "comparison_recovery_rate": _rate_with_wilson(
                 sum(r["comparison_resolved"] for r in incorrect), len(incorrect)
             ),
-            "risk_difference_adaptive_minus_comparison": _mean([
-                int(r["adaptive_resolved"]) - int(r["comparison_resolved"]) for r in incorrect
+            "risk_difference_learned_minus_comparison": _mean([
+                int(r["learned_resolved"]) - int(r["comparison_resolved"]) for r in incorrect
             ]),
             "repository_cluster_bootstrap_95ci": cluster_interval,
             "intention_to_treat": True,
             "assigned_incorrect_parent_blocks": len(incorrect),
-            "unknown_adaptive_outcomes_counted_unresolved": sum(not r["adaptive_outcome_known"] for r in incorrect),
+            "unknown_learned_outcomes_counted_unresolved": sum(not r["learned_outcome_known"] for r in incorrect),
             "unknown_comparison_outcomes_counted_unresolved": sum(not r["comparison_outcome_known"] for r in incorrect),
             "complete_case_paired_n": len(incorrect_complete),
         },
         "complete_case_primary": {
             "paired_n": len(incorrect_complete),
-            "adaptive_recovery_rate": _rate_with_wilson(
-                sum(r["adaptive_resolved"] for r in incorrect_complete), len(incorrect_complete)
+            "learned_recovery_rate": _rate_with_wilson(
+                sum(r["learned_resolved"] for r in incorrect_complete), len(incorrect_complete)
             ),
             "comparison_recovery_rate": _rate_with_wilson(
                 sum(r["comparison_resolved"] for r in incorrect_complete), len(incorrect_complete)
             ),
         },
         "secondary_paired": {
-            "comparison": f"adaptive vs {secondary_arm} among initially incorrect parents",
+            "comparison": f"{learned_arm} vs {secondary_arm} among initially incorrect parents",
             "arm": secondary_arm,
             "paired_n": len(secondary_pairs),
-            "adaptive_recovery_rate": _rate_with_wilson(
-                sum(r["adaptive_resolved"] for r in incorrect), len(incorrect)
+            "learned_recovery_rate": _rate_with_wilson(
+                sum(r["learned_resolved"] for r in incorrect), len(incorrect)
             ),
             "secondary_recovery_rate": _rate_with_wilson(
                 sum(branch.get("resolved") is True for _, branch in secondary_pairs),
                 len(secondary_pairs),
             ),
-            "risk_difference_adaptive_minus_secondary": _mean([
-                int(row["adaptive_resolved"]) - int(branch.get("resolved") is True)
+            "risk_difference_learned_minus_secondary": _mean([
+                int(row["learned_resolved"]) - int(branch.get("resolved") is True)
                 for row, branch in secondary_pairs
             ]),
             "diagnostic_arms": ["generic_retry", "raw_diagnostics"],
         },
-        "all_block_adaptive_resolution": _mean([r["adaptive_resolved"] for r in paired]),
+        "all_block_learned_resolution": _mean([r["learned_resolved"] for r in paired]),
         "all_block_comparison_resolution": _mean([r["comparison_resolved"] for r in paired]),
-        "recovery_adaptive": _mean([r["adaptive_resolved"] for r in incorrect]),
+        "recovery_learned": _mean([r["learned_resolved"] for r in incorrect]),
         "recovery_comparison": _mean([r["comparison_resolved"] for r in incorrect]),
-        "regression_adaptive": _mean([not r["adaptive_resolved"] for r in correct]),
+        "regression_learned": _mean([not r["learned_resolved"] for r in correct]),
         "regression_comparison": _mean([not r["comparison_resolved"] for r in correct]),
-        "regression_adaptive_unknown_outcomes_counted_as_regressions": sum(
-            not r["adaptive_outcome_known"] for r in correct
+        "regression_learned_unknown_outcomes_counted_as_regressions": sum(
+            not r["learned_outcome_known"] for r in correct
         ),
         "regression_comparison_unknown_outcomes_counted_as_regressions": sum(
             not r["comparison_outcome_known"] for r in correct
         ),
         "paired_recovery_difference": _mean([
-            int(r["adaptive_resolved"]) - int(r["comparison_resolved"]) for r in incorrect
+            int(r["learned_resolved"]) - int(r["comparison_resolved"]) for r in incorrect
         ]),
-        "mean_adaptive_credits": _mean(adaptive_costs),
+            "mean_learned_credits": _mean(learned_costs),
         "mean_comparison_credits": _mean(fixed_costs),
         "analysis_status": (
             "confirmation_repository_cluster_bootstrap"
@@ -859,7 +890,7 @@ def analyze_results(directory, results_path=None, *, partition=None):
         "analysis_partition": partition or "all",
         "comparison_arm": comparison_arm,
         "primary_comparison": {
-            "adaptive_arm": "adaptive",
+            "learned_arm": learned_arm,
             "frozen_comparator_arm": comparison_arm,
             "secondary_comparator_arms": list(SECONDARY_COMPARATOR_ARMS),
             "diagnostic_arms": ["generic_retry", "raw_diagnostics"],
@@ -869,7 +900,7 @@ def analyze_results(directory, results_path=None, *, partition=None):
             "parent_screening": confirmation_screen if partition == "confirmation" else None,
             "incorrect_parent_blocks_with_paired_outcomes": len(incorrect),
             "complete_primary_pairs_for_all_confirmation_blocks": confirmation_primary_complete,
-            "complete_five_arm_outcomes_for_all_confirmation_blocks": confirmation_all_arms_complete,
+            "complete_six_arm_outcomes_for_all_confirmation_blocks": confirmation_all_arms_complete,
             "complete_paired_outcomes_for_all_confirmation_blocks": confirmation_outcomes_complete,
             "satisfied": (confirmation_gate_satisfied and confirmation_outcomes_complete
                           and confirmation_power_sufficient and enough_confirmation_clusters),
@@ -915,7 +946,7 @@ def _cluster_bootstrap_difference(rows, *, seed, replicates=10000):
     for _ in range(replicates):
         sampled = [rng.choice(names) for _ in names]
         sample = [row for name in sampled for row in clusters[name]]
-        differences.append(sum(int(r["adaptive_resolved"]) - int(r["comparison_resolved"])
+        differences.append(sum(int(r["learned_resolved"]) - int(r["comparison_resolved"])
                                for r in sample) / len(sample))
     differences.sort()
     lo = differences[int(0.025 * (replicates - 1))]

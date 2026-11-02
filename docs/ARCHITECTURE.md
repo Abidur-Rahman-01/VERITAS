@@ -1,13 +1,12 @@
 # VERITAS: Evidence Selection for Repository Repair
 
-**Architecture and confirmatory experiment specification · Proposed design · 21 October 2026**
+**Architecture and evaluation methodology · Implementation guide · 3 November 2026**
 
 ## 1. Research contract
 
-> **Primary question:** Starting from the same incorrect repository patch, can a controller that
-> selects *current, runtime-visible verifier evidence* at successive repair checkpoints improve
-> final patch correctness over predeclared Arm C fixed actionable feedback under the same total resource
-> budget?
+> **Primary question:** Does adaptively selecting fresh, runtime-visible repair evidence improve
+> repository-level bug recovery over the strongest fixed actionable-feedback policy under a matched
+> operational budget?
 
 This study evaluates **which evidence to show a coding agent as its patch changes**. The agent,
 available checks, reviewer, checkpoint schedule, and stopping rules are fixed across conditions.
@@ -20,8 +19,8 @@ request additional tests, read private grading data, or decide that a patch is c
 | **Experimental block** | One task × actor × draft seed. Every condition begins from the same frozen parent patch, workspace, and actor history. |
 | **Treatment** | A frozen policy selects current evidence at each eligible checkpoint. |
 | **Primary control** | Strongest fixed actionable feedback policy chosen on development repositories. |
-| **Primary estimand** | Paired difference in final resolution probability among parent drafts graded incorrect *before* condition assignment. |
-| **Budget** | Equal total resource credits per continuation, including common verification, model calls, tests, tools, and selector overhead. |
+| **Primary estimand** | Paired F−C difference in final resolution probability among parent drafts graded incorrect *before* condition assignment. |
+| **Budget** | Each branch starts with the common parent spend and uses the same hard total-credit cap and wall-time ceiling; evidence/tool/model and selector costs are charged to that budget. Audit actual per-arm spend and cap behavior in the pilot before claiming operational matching. |
 | **Guardrail outcome** | Regression rate among initially correct drafts and on pre-existing tests. |
 
 The proposed benchmark is a **feedback-selection evaluation protocol over existing repository
@@ -154,21 +153,20 @@ dependency-based reuse can be evaluated later.
 
 ### 4.2 Evidence production
 
-At each checkpoint, a fixed schedule runs available targeted tests, relevant existing tests chosen
-by a frozen change-based rule, and supported build/static checks. Run them in a disposable copy of
-the current patch state so caches, generated files, or test side effects cannot change the actor's
-workspace. Run one bounded reviewer call at each checkpoint to turn the public issue, diff, and
-public results into cited finding cards. Its prompt, model, input cap, and cost are identical in
-all arms. The reviewer cannot access hidden tests, a gold patch, or the independent grade. A
-failed reviewer call or unsupported check is recorded as unavailable; it is never silently
-interpreted as a pass.
+The current runner uses public issue text, `git diff --check`, changed-file Python syntax checks,
+change-based targeted pytest when matching test files exist, and actor tool observations. These
+checks run in a disposable copy. A model reviewer is optional in the producer API but is not
+enabled by the current CLI study path. Unsupported checks and failures are recorded as unavailable
+or failed, never as passes. Expected behavior is rendered only when source-supported; model opinion
+remains labeled as such. Evidence carries patch/tree/environment hashes and expires on a relevant
+state change.
 
 This design holds verification *opportunity* constant. It measures the value of selecting what the
 agent sees. An adaptive test-selection study would require a separate experiment.
 
 ### 4.3 Feedback policy
 
-At checkpoint `t`, the selector receives the current patch summary, current evidence cards, cards
+At checkpoint `t`, the selector receives current evidence cards, cards
 already delivered, and remaining budget. It returns an ordered subset of evidence IDs or an
 explicit abstention. The renderer uses one frozen format and token cap for all feedback arms.
 
@@ -176,10 +174,10 @@ A concrete first policy can score each valid card using public, measurable featu
 
 `score(e,t) = w1·patch_relevance + w2·failure_severity + w3·source_reliability + w4·new_information − w5·redundancy − w6·packet_cost`
 
-Select the highest-scoring nonredundant cards that fit the packet cap. Estimate weights and
-thresholds only on development repositories, then freeze them. A more complex learned value
-model is optional only if development data support it. The score is a decision aid, not a proof of
-correctness. If every card is invalid or unhelpful, the policy abstains and sends a neutral packet.
+Select the highest-scoring cards that fit the packet cap. The current adaptive arm uses frozen
+heuristic weights; the fixed actionable arm orders cards by checkpoint recency and severity. Both
+use the richer evidence renderer. The selector score is a decision aid, not a proof of correctness.
+If no evidence fits, the policy abstains and sends a neutral packet.
 On selector timeout or error, record and charge the attempt, deliver the same neutral packet, and
 keep the assigned branch in the intention-to-treat analysis.
 
@@ -189,6 +187,36 @@ The actor model, initial prompt, tool permissions, checkpoint trigger, check sch
 packet renderer, maximum checkpoint count, and stop conditions remain fixed within each actor
 block. Agents may take different actions after receiving different packets; those downstream
 differences are part of the policy effect.
+
+### 4.5 Controller interface and LinUCB arm
+
+`feedback_controller.py` defines a separate extensible interface for future evidence-action
+selection. Its initial action catalog is concise failure summary, location diagnostics,
+source-supported expected-versus-observed behavior, and a complementary multi-source packet.
+The builder admits only evidence matching the active task, branch, patch, tree, and environment;
+it renders packets from stored evidence and returns action IDs with evidence references. The
+controller contract receives a numeric state vector and current valid actions, then returns one
+valid ID. Modular feature extractors cover failure category/severity and counts, patch size,
+measured public progress, exact-hash freshness, remaining budget, action history, and optional
+repository-separated public-history signals. Novelty/discrimination features can be added as
+extractors. This interface is wired into a separate LinUCB arm. `LinUCBController` is the primary
+learned controller implementation: it uses one shared state vector and disjoint `A_a`, `b_a`
+statistics per action. Learning mode uses configurable `alpha`, supports delayed online updates
+and offline warm-start, and charges selection, update, and fit credits through a required budget
+callback. Frozen evaluation mode has no exploration or updates and requires a repository-audited
+policy artifact. An independent grade may be delivered only as a post-trajectory training reward
+for development repositories disjoint from evaluation; it never enters actor-visible feedback,
+decision-time features, or held-out policy updates. The implementation is connected to Arm F in the
+paired study runner. It has not yet been exercised in a full
+SWE-rebench pilot, so accounting and trajectory behavior still require pilot validation.
+
+Outcome rewards are built separately in `feedback_reward.py`. The default gives `+1` only for an
+independent-grader success and `-lambda_c × measured_cost` for a known failure; unknown grader or
+infrastructure outcomes produce no reward. Cost combines the selected action and subsequent agent
+step, with configurable resource coefficients. Optional regression penalty, reliable public
+progress shaping, and terminal/uniform/discounted delayed-credit allocation are explicit settings.
+Packet length and model preference are never reward signals. Official outcomes are evaluator-side
+and may be used only in training-repository trajectories, never in held-out controller inputs.
 
 ## 5. End-to-end experimental design
 
@@ -246,34 +274,71 @@ outcome. Preserve initially correct drafts for regression and full-cohort resolu
 |---|---|---|
 | **A · Generic retry** | Neutral packet. Checks still run and are charged, but their results are concealed from the actor. | Isolates the information value of feedback from another attempt. A separate no-check retry can estimate deployment cost. |
 | **B · Raw diagnostics** | Raw check outputs truncated by the common packet cap. | Execution-feedback baseline. |
-| **C · Fixed actionable** | Predeclared actionable template: location, observed behavior, and source-supported expected behavior or alternatives when available. | **Primary comparator, frozen before results.** |
+| **C · Fixed actionable** | Predeclared strongest fixed actionable template: location, observed behavior, and source-supported expected behavior or alternatives when available. | **Primary comparator, frozen before results.** |
 | **D · Fixed combined** | All eligible current cards in a frozen order, truncated by the cap. | Secondary comparator for selection versus fixed aggregation. |
-| **E · Adaptive selection** | Frozen selector chooses current cards and order, with abstention allowed. | Proposed method. |
+| **E · Adaptive selection** | Rule-based adaptive selector chooses from current valid evidence. | Secondary adaptive baseline. |
+| **F · LinUCB** | Learned contextual selector chooses one predefined evidence action from the same current evidence. | Primary learned controller; compared with Arm C. |
 
-All five arms use the same evidence producer and reviewer. Arm C is fixed in the plan protocol as
-the primary comparator before development outcomes exist; development scores cannot switch it.
-Arm D is the only secondary comparator. Arms A and B remain diagnostic baselines. No arm receives
-expert guidance derived from a reference patch. The primary test is **E versus C**.
+All six arms use the same actor and evidence producer. Arm C is fixed in the plan protocol as the
+primary comparator before development outcomes exist; development scores cannot switch it. Arm E
+(rule-based adaptive) and D (fixed combined) are secondary baselines; A and B remain diagnostic.
+No arm receives expert guidance derived from a reference patch. The primary learned-controller
+test is **F (LinUCB) versus C**.
+
+The current A–F study is evidence-selection only. There is no repair-strategy assignment,
+`debug_existing_patch` action, `regenerate_from_issue` action, candidate portfolio, or learned routing
+model. Phase 3 is conditional on trajectory review showing repeated wrong high-level strategy
+choices and, if justified, must be a separate factorial experiment. Strategy and evidence policy
+must be crossed independently; any two-candidate condition must be compute-matched to a
+single-trajectory baseline.
 
 ### 5.4 Resource matching and stopping
 
-Fix a resource-credit formula before confirmation using measured model usage and test/tool time on
-the actual study hardware or pinned provider prices. For local execution, one defensible definition
-is `credits = GPU_seconds × pinned_GPU_rate + CPU_seconds × pinned_CPU_rate`; add billed API cost if
-hosted calls are used. Calibrate the rates before confirmation and run branches without concurrent
-jobs that would make resource attribution ambiguous. Charge common checks and reviewer calls to
-every arm; charge selector work only to E. Each branch has the same total credit cap and a
-wall-time cap. Selector overhead therefore reduces E's remaining actor allowance. Report raw
-tokens by model, CPU/GPU seconds, test time, wall time, and monetary cost. If complete resource
-measurement is unavailable, describe the comparison as matched *operational limits* and do not
-claim equal compute from token counts alone.
+The current implementation applies the same actor step limits, checkpoint cap, operational-credit
+cap, and wall-time budget to paired branches. Each branch begins with shared parent spend already
+charged. LinUCB feature construction, selection, updates, and fitting are charged to Arm F through
+the same branch budget; Arm E uses the rule-based selector. Equal caps do not imply equal realized
+spend or equal hardware compute, so report costs by arm and call the design matched operational
+limits unless compute is directly measured and balanced.
 
-Run a secondary **equal actor allowance** analysis with selector overhead shown separately. It
-answers a different deployment question and cannot replace the primary equal-total-budget result.
+### 5.5 Run sequence and evaluation
+
+1. Prepare and validate the pinned dataset. Generate the SWE task image map with the same source
+   and split that will be used in the plan. Do not substitute a local fixture for benchmark tasks.
+2. Create an immutable plan with repository-disjoint development and confirmation partitions.
+   Confirm the plan's task/repository counts and power assumptions before model inference.
+3. Run development branches, inspect evidence/event logs and termination reasons, then freeze the
+   development artifact. Arm C stays the predeclared comparator; development results do not select
+   a different primary comparator.
+4. Run confirmation in two stages: `--parents-only` first to privately grade the common parent
+   patches, then treatment branches only if the predeclared incorrect-parent gate is satisfied.
+   Parent grades and official/hidden grading outputs remain evaluator-side and must not be included
+   in agent prompts, evidence packets, or selector inputs.
+5. Analyze confirmation only after all eligible paired outcomes are complete. Report paired F vs C
+   recovery difference among initially incorrect parents, full-cohort resolution, regression among
+   initially correct parents, pre-existing-test regressions, infrastructure/grader failures,
+   credits, wall time, and `revision_termination_reason` counts. Keep development descriptive.
+
+The code logs packet decisions, action scores, exploration bonuses, feature state, rewards where
+available, and trajectory outcomes. Actual information use is not reliably detectable yet; whether
+the next patch improved can be derived as a trajectory outcome, but it is not causal credit for one
+packet. Treat these as instrumentation limits. A 5–10 block development diagnostic is useful for
+pipeline and termination inspection, but it does not establish power or a confirmatory result. Do
+not train or run LinUCB until the Phase 1 invariants and pilot logging have been reviewed.
+
+The operational-credit formula currently used by the runner is
+`(prompt_tokens + completion_tokens) × 0.002 + measured_sandbox_or_evidence_seconds × 0.05 + selector_overhead`.
+This is an operational accounting unit, not a claim of equal GPU/CPU compute or monetary cost.
+The shared parent draft is included in each branch's cap; independent official grading and image
+setup are excluded and reported separately. The same hard credit cap and wall-time ceiling apply to
+all arms, and selector overhead reduces F's remaining actor allowance. Report raw tokens, tool/test
+calls, wall time, credit use, budget exhaustion, and per-arm resolved-task cost. Freeze any revised
+cost formula before confirmation.
+
 The same maximum patch-change count, revision-attempt count, and stop rule apply to all arms.
 Each result records patch changes, same-patch evidence refreshes, revision attempts, model calls,
-tool calls, operational credits, wall time, and a normalized termination reason. Credits are
-`model token credits + measured sandbox/evidence seconds × tool-second rate + selector credits`;
+tool calls, operational credits, wall time, and a normalized termination reason. Credits use the
+frozen runner formula described above;
 the common parent draft is included in each branch's per-arm cost, while independent official
 grading and image setup are excluded and reported separately. When the budget is exhausted, freeze
 the last durable patch and record the exhaustion; do not allow an extra uncharged revision.
@@ -302,9 +367,9 @@ feedback.
 
 For parent drafts graded incorrect before branching, calculate the paired difference:
 
-`Δrecovery = P(final resolved | E, parent incorrect) − P(final resolved | C, parent incorrect)`
+`Δrecovery = P(final resolved | F, parent incorrect) − P(final resolved | C, parent incorrect)`
 
-Use intention-to-treat assignment: include all E and C branches regardless of whether the selector
+Use intention-to-treat assignment: include all F and C branches regardless of whether the selector
 found useful evidence, abstained, or failed. The confirmatory hypothesis is `Δrecovery > 0` at the
 same resource cap. Report an effect size and interval even when it is not positive.
 
@@ -336,87 +401,55 @@ outcomes and action-level controller outcomes answer different questions and mus
 |---|---|---|---|
 | 1 | Resolved rate (SWE-bench) | Issues resolved by the independent grader ÷ issues attempted. | Essential |
 | 2 | Regression-free rate | Patches passing the predeclared regression checks ÷ patches evaluated. | Essential |
-| 3 | False acceptance rate | Erroneous actions accepted without required intervention ÷ all genuinely erroneous actions (`FN / (TP + FN)`). | Essential |
-| 4 | Error detection recall | Erroneous actions correctly flagged ÷ all genuinely erroneous actions (`TP / (TP + FN)`). | Essential |
-| 5 | Recovery success rate | Successful recoveries ÷ recovery attempts; success requires the issue tests to pass while regression tests remain intact. | Essential |
-| 6 | Cost per resolved issue | Total generator, verifier, and tool execution cost ÷ issues resolved. | Essential |
-| 7 | End-to-end latency | Report median wall-clock time for a complete repair and total verifier calls. | Essential |
-| 8 | Brier score | For predicted error probability `p_i` and independently labeled outcome `y_i ∈ {0,1}`, `BS = (1/N) Σ (p_i − y_i)²`. Lower is better; report when the policy produces probabilities. | Essential when probabilistic risk is used |
-| 9 | AUROC | Discrimination of correct versus erroneous actions from the verifier's risk scores. | Recommended |
-| 10 | Verification overhead | Additional compute and cost introduced by VERITAS, reported separately and included in total experiment cost. | Recommended |
-| 11 | Ablation performance | Compare the full policy with prespecified component removals to measure each component's contribution. | Essential for component claims |
+| 3 | Recovery rate on initially incorrect tasks | Final independently graded resolutions ÷ parent patches graded incorrect before treatment; report paired F and C outcomes. | Primary |
+| 4 | Full-cohort resolution | Final independently graded resolutions ÷ all attempted parent tasks. | Essential |
+| 5 | Regression rate | Initially correct parents made incorrect, and pre-existing tests broken, reported separately. | Essential |
+| 6 | Cost per resolved issue | Operational credits, tokens, calls, test/tool time, and wall time per resolved task, by arm. | Essential |
+| 7 | Termination and failure classes | `revision_termination_reason`, empty/non-empty incorrect patch, public-pass/official-fail, grader/infrastructure unknowns. | Essential |
+| 8 | LinUCB behavior | Exploration/exploitation counts, action counts, score/bonus distributions, and valid-action availability. | Essential for controller audit |
+| 9 | Evidence quality and use | Freshness, provenance, repeated packet exposure, next-patch progress, and observable use where detectable. | Recommended; report limits |
+| 10 | Repository-clustered uncertainty | Paired F−C estimate and interval resampling repositories with arms/tasks kept together. | Essential |
 
-For action-level labels, `TP` is an erroneous action correctly flagged, `FN` is an erroneous
-action missed, and `FP` is a correct action unnecessarily flagged. False acceptance rate is the
-false-negative rate, so it complements detection recall under the same labels and decision rule;
-report both when both interpretations aid the reader. Establish independent ground-truth labels
-for verifier decisions. A failed test alone is not proof of a faulty patch: classify infrastructure
-failures separately. Keep issue-level SWE-bench denominators separate from action- or decision-level
-denominators.
-
-Run the same tasks and coding-agent configuration under these policy conditions:
-
-| Experiment | Verification policy |
-|---|---|
-| E1 | Original agent without VERITAS |
-| E2 | Always verify |
-| E3 | Risk-only selective verification |
-| E4 | Full VERITAS |
-
-The primary comparison asks whether E4 improves repair reliability at a comparable compute budget,
-or achieves comparable reliability at lower cost. For deeper analysis, ablate evidence selection and
-recovery-aware decision-making one at a time. Report resolved rate, regression-free rate, false
-acceptance rate, recovery success, cost per resolved issue, and Brier score first (when
-probabilities are available); add latency, AUROC, and ablations as logging permits.
+Report issue-level outcomes for this study; do not import action-verification metrics from the
+separate controller experiment. A failed public test is evidence about that check, not proof that a
+patch is globally faulty. Classify infrastructure and grader failures separately, and keep their
+outcomes unknown rather than counting them as patch failures or successes.
 
 ### Mechanism ablations
 
-Use the five existing arms as the main policy comparison. They are not five separate component
+Use the six existing arms as the main policy comparison. They are not separate component
 ablations: each has a distinct role, and the contrasts below should be declared before confirmation.
 
 | Arm | Policy | Prespecified contrast | What the contrast can establish |
 |---|---|---|---|
 | A | Generic retry (neutral packet) | B − A | Value of exposing raw execution feedback over another repair attempt without findings. |
 | B | Raw diagnostics | C − B | Value of converting raw output into a bounded, actionable feedback format. |
-| C | Predeclared fixed actionable feedback | E − C (**primary**) | Whether adaptive evidence selection improves recovery over Arm C under the same frozen protocol. |
-| D | Fixed combined evidence | E − D | Whether adaptive selection improves over delivering all eligible evidence in a fixed order. |
-| E | Adaptive evidence selection (full policy) | Reference for component ablations | Full method performance under the matched resource cap. |
+| C | Predeclared fixed actionable feedback | F − C (**primary**) | Whether LinUCB improves recovery over the strongest fixed policy under the same operational limits. |
+| D | Fixed combined evidence | F − D (secondary) | Whether LinUCB improves over fixed aggregation. |
+| E | Rule-based adaptive evidence selection | E − C (secondary) | Whether the current heuristic adaptive selector improves over the fixed baseline. |
+| F | LinUCB contextual evidence selection | F − C (**primary**) | Main learned-policy estimate. |
 
-For component attribution, compare a single-component removal against E while keeping the tasks,
-parent patch, actor, evidence producer, packet renderer, checkpoint schedule, and total resource
-cap matched. Reuse an existing arm when it is a valid implementation of the removal; add a new
-arm only when no existing condition isolates the component.
-
-| Component contrast | Ablated condition | Value measured | Study status and interpretation |
-|---|---|---|---|
-| **Evidence selection** | Use D's fixed combined packet instead of E's selected packet. | Incremental value of selecting and ordering evidence under the same packet and compute constraints. | Covered by E − D; no extra arm is needed. E − C remains the primary comparison against predeclared Arm C. |
-| **Recovery-aware decision-making** | Keep E's evidence selection, but remove recovery probability/expected recovery benefit from its decision rule; make the decision from error risk alone. | Whether estimating recoverability changes intervention decisions and improves repair outcomes or cost. | Add this targeted arm only if recovery-aware decision-making is part of the frozen full method. The current architecture specifies evidence ranking, not this decision rule, so define its inputs and action threshold before adding the claim. |
-| **Patch relevance** | Remove patch-change and affected-file relevance from E's ranking score. | Whether conditioning selected evidence on the current patch improves recovery or reduces wasted feedback. | Development first; confirm only if this feature is a stated contribution and the study has adequate power. |
-| **Novelty and deduplication** | Remove redundancy/novel-information handling from E while preserving all other ranking terms. | Whether avoiding repeated or low-information findings improves outcomes per packet token or resource credit. | Development first; confirm only if prespecified. |
-| **Evidence freshness** | Permit expired evidence to compete with current evidence in a diagnostic-only variant. | Whether freshness filtering prevents stale feedback from harming decisions. | Development-only stress test. This deliberately unsafe variant is not a deployable policy and must not weaken validity checks in the confirmatory arms. |
-
-The confirmatory outcomes for each ablation are paired recovery among parents independently
-graded incorrect before assignment, full-cohort resolution, regression among initially correct
-parents, cost per resolved issue, and end-to-end latency. For decision-policy ablations, also
-report action-level false acceptance, detection recall, and Brier score when calibrated error
-probabilities are produced. Keep issue-level and action-level denominators separate. Grade final
-patches independently, classify infrastructure/grader failures separately from patch failures,
-and report effect estimates with uncertainty intervals clustered by repository. Prespecify the
-primary contrast and handle multiplicity for additional confirmatory contrasts; treat underpowered
-feature removals as exploratory rather than evidence that a component has no effect.
+The six arms are feedback-policy conditions, not component removals. Do not claim effects for
+individual score features from this matrix. The primary confirmatory estimand is the paired F−C
+difference in recovery among parent patches independently graded incorrect before treatment.
+Also report full-cohort resolution, regression among initially correct parents, pre-existing-test
+regression, infrastructure/grader unknowns, cost and wall-time distributions, and repository
+clustered uncertainty. Treat B−A, C−B, and E−D as secondary or diagnostic contrasts, with
+multiplicity handled if inferential claims are made.
 
 ## 7. Implementation status in this repository
 
 | Component | Status | Remaining work |
 |---|---|---|
-| [`feedback_evidence.py`](../src/veritas/feedback_evidence.py) | Implemented: typed checkpoint/evidence records, provenance checks, tree/environment invalidation, and tool-observation conversion. | Audit evidence quality and reviewer findings on development data. |
-| [`feedback_policy.py`](../src/veritas/feedback_policy.py) | Implemented: five packet policies, shared character cap, budget-aware adaptive score, and auditable score/rejection details. Optional weights are frozen in the development baseline artifact. | Defaults are prespecified heuristics. The artifact records caller-supplied weights but cannot independently prove they were selected only from development data. |
+| [`feedback_evidence.py`](../src/veritas/feedback_evidence.py) | Implemented: typed checkpoint/evidence records, source provenance, issue context, tree/environment invalidation, and tool-observation conversion. | Expected behavior and source locations are recorded only when supplied by a public source; audit extraction quality on development data. |
+| [`feedback_policy.py`](../src/veritas/feedback_policy.py) | Implemented: fixed and rule-based evidence policies, shared packet cap, and auditable selection details. | Actual evidence use is not yet reliably measured. |
+| [`feedback_controller.py`](../src/veritas/feedback_controller.py) / [`feedback_reward.py`](../src/veritas/feedback_reward.py) | Implemented: disjoint-action LinUCB, frozen/evaluation and learning modes, offline warm start, budget callback, configurable outcome reward, and delayed credit. | Run a small development pilot; audit reward rows, charged costs, and repository provenance before freezing a policy. |
 | [`runtime.py`](../src/veritas/runtime.py) `run_phase()` and [`feedback_runtime.py`](../src/veritas/feedback_runtime.py) | Implemented hook: detect patch changes and actor tool observations, refresh evidence packets, and expose the selected packet before the next actor request. Enforces a fixed checkpoint ceiling and caps model/tool calls by the remaining wall budget. | Verify the cap under the target runtime and publish observed operational limits. |
-| [`feedback_runner.py`](../src/veritas/feedback_runner.py) | Shared public producer for all arms: issue, pinned-environment diff check, disposable targeted tests, changed-file compile check, bounded reviewer opinion, and actor tool observations. Check costs are charged and unavailable checks are not represented as passes. Actor digest and continuation seeds are recorded. | Audit source-to-test matching and reviewer reliability on development data. |
-| [`feedback_study.py`](../src/veritas/feedback_study.py) and [`feedback_runner.py`](../src/veritas/feedback_runner.py) | Staged executor: pinned-image/official-grader fail-closed preflight, repository-disjoint development selection, Arm C comparator frozen in the plan, Arm D secondary contrast, confirmation parent screening, hard matched operational budget and wall cap, explicit trajectory counters/termination taxonomy, intent-to-treat outcomes, and a predeclared approximate power plan. | Run the development screen to freeze policy provenance, then screen and audit confirmation. The task-count power approximation is not a substitute for enough independent repositories. |
-| [`awareness_runtime.py`](../src/veritas/awareness_runtime.py) | Existing separate draft/review/revision experiment; not the proposed study runner. | Do not use its four factorial assignments as substitutes for the five paired feedback arms. |
+| [`feedback_runner.py`](../src/veritas/feedback_runner.py) | Shared public producer: issue, diff check, disposable targeted tests, changed-file compile check, and actor tool observations. Optional reviewer API is not enabled by the CLI study path. | Audit source-to-test matching and evidence quality on development data. |
+| [`feedback_study.py`](../src/veritas/feedback_study.py) and [`feedback_runner.py`](../src/veritas/feedback_runner.py) | Staged executor: pinned-image/official-grader preflight, repository-disjoint partitions, Arm C frozen as primary, parent screening, event/result ledgers, resource counters, and termination taxonomy. | Validate baseline freeze, checkpoint counts, empty-patch taxonomy, and budget charging in a pilot before bandit execution. |
+| [`awareness_runtime.py`](../src/veritas/awareness_runtime.py) | Existing separate draft/review/revision experiment; not the proposed study runner. | Do not use its four factorial assignments as substitutes for the six paired feedback arms. |
 | [`awareness_grading.py`](../src/veritas/awareness_grading.py) / [`swe.py`](../src/veritas/swe.py) | Existing pinned SWE grading and harness contracts. | Reuse to grade frozen parent/final patches, preserving infrastructure and grader errors as unknown outcomes. |
-| [`controller.py`](../src/veritas/controller.py) | Legacy action-verification controller used by other runtime commands; it is not a feedback-selection arm. | Do not treat its verification policies as substitutes for the five paired feedback arms. |
+| [`controller.py`](../src/veritas/controller.py) | Legacy action-verification controller used by other runtime commands; it is not a feedback-selection arm. | Do not treat its verification policies as substitutes for the six paired feedback arms. |
 
 ## 8. Completion criteria
 
@@ -431,7 +464,7 @@ planned incorrect-parent count before a powered confirmatory claim. Default adap
 prespecified heuristics, not a learned selector; empirical tuning requires randomized development
 packet assignment and must be frozen before confirmation.
 
-A positive contribution requires E to outperform C on held-out repair recovery or the
+A positive contribution requires F to outperform C on held-out repair recovery or the
 reliability-cost frontier without a material regression increase. A null result remains valuable
 if the protocol reveals when fixed actionable feedback is already sufficient. Neither outcome
 establishes priority over unreviewed literature; that requires the systematic search.

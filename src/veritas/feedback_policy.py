@@ -10,7 +10,7 @@ from pydantic import Field
 from .feedback_evidence import EvidenceItem
 from .schema import StrictModel
 
-ARMS = ("generic_retry", "raw_diagnostics", "fixed_actionable", "fixed_combined", "adaptive")
+ARMS = ("generic_retry", "raw_diagnostics", "fixed_actionable", "fixed_combined", "adaptive", "linucb")
 DEFAULT_ADAPTIVE_WEIGHTS = {
     "relevance": 2.0, "severity": 2.0, "reliability": 1.0,
     "novelty": 1.0, "redundancy": 1.0, "packet_cost": 0.001,
@@ -20,7 +20,7 @@ DEFAULT_ADAPTIVE_WEIGHTS = {
 class FeedbackDecision(StrictModel):
     branch_id: str
     checkpoint_id: int = Field(ge=0)
-    arm: Literal["generic_retry", "raw_diagnostics", "fixed_actionable", "fixed_combined", "adaptive"]
+    arm: Literal["generic_retry", "raw_diagnostics", "fixed_actionable", "fixed_combined", "adaptive", "linucb"]
     selected_evidence_ids: list[str] = Field(default_factory=list)
     rejected_evidence: dict[str, str] = Field(default_factory=dict)
     evidence_scores: list[dict[str, str | float | int | None]] = Field(default_factory=list)
@@ -33,6 +33,12 @@ class FeedbackDecision(StrictModel):
     same_evidence_seen: bool = False
     information_used: bool | None = None
     outcome_basis: str | None = None
+    selected_action_id: str | None = None
+    controller_state_features: dict[str, float] = Field(default_factory=dict)
+    predicted_score: float | None = None
+    exploration_bonus: float = 0.0
+    exploration_used: bool = False
+    controller_decision_id: str | None = None
 
 
 def _severity(item: EvidenceItem) -> int:
@@ -86,6 +92,8 @@ def select_feedback(*, arm: str, branch_id: str, checkpoint_id: int,
     """Render one bounded policy packet; all arms receive only current evidence."""
     if arm not in ARMS:
         raise ValueError(f"Unknown feedback arm: {arm}")
+    if arm == "linucb":
+        raise ValueError("Arm linucb must be selected through FeedbackCheckpointController")
     if packet_char_cap < 128:
         raise ValueError("packet_char_cap must be at least 128")
     current = [e for e in evidence if e.status == "current"]

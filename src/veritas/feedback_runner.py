@@ -5,8 +5,8 @@ Runs each planned block:
 1. Initialize clean workspace from repository baseline.
 2. Run common parent draft phase; save parent patch and session history.
 3. Privately grade parent draft (parent_resolved: True/False).
-4. Run all five arms in development and confirmation repositories. Arm C is the predeclared
-   primary comparator and Arm D is the secondary comparator; A and B are diagnostic baselines:
+4. Run all six arms in development and confirmation repositories. Arm C is the fixed primary
+   comparator, LinUCB is the primary learned arm, E/D are secondary baselines, and A/B are diagnostics:
    a. Clone parent workspace and history into branch directory.
    b. Instantiate FeedbackCheckpointController with evidence producer.
    c. Run initial checkpoint on parent patch.
@@ -46,10 +46,15 @@ if str(REPO_ROOT) not in sys.path:
 
 from .config import ModelConfig, SandboxConfig
 from .feedback_evidence import EvidenceItem, PatchCheckpoint, tool_observation_item
+from .feedback_controller import BudgetContext, LinUCBController
+from .feedback_reward import (
+    RepairOutcome, ResourceCosts, RewardConfig, assign_delayed_credit,
+    compute_outcome_reward,
+)
 from .feedback_policy import ARMS, DEFAULT_ADAPTIVE_WEIGHTS
 from .feedback_runtime import FeedbackCheckpointController
 from .feedback_study import (
-    PRIMARY_COMPARATOR_ARM, SECONDARY_COMPARATOR_ARMS,
+    PRIMARY_COMPARATOR_ARM, PRIMARY_LEARNED_ARM, SECONDARY_COMPARATOR_ARMS,
     analyze_results, verify_frozen_baseline, verify_plan,
 )
 from .io import digest, file_hash, read_jsonl, write_json, write_text
@@ -258,17 +263,17 @@ def _revision_termination_reason(raw_reason: str, *, public_status: str) -> str:
 def _failure_taxonomy(*, patch_empty: bool, resolved: bool | None,
                       public_status: str, termination_reason: str) -> list[str]:
     tags = []
-    failed = resolved is not True
-    if failed and patch_empty:
+    # Unknown grader outcomes stay unknown; do not label infrastructure failures as patch failures.
+    if patch_empty:
         tags.append("empty_patch")
-    elif failed and not patch_empty and resolved is False:
+    elif resolved is False:
         tags.append("non_empty_incorrect_patch")
     if resolved is False and public_status == "passed":
         tags.append("public_tests_pass_but_official_fail")
     if termination_reason in {"model_generation_failed", "tool_execution_failed"}:
         tags.append("agent_could_not_act / tool_error")
-    if failed and termination_reason not in {"revision_budget_exhausted", "wall_time_limit",
-                                              "model_generation_failed", "tool_execution_failed"}:
+    if resolved is False and termination_reason not in {"revision_budget_exhausted", "wall_time_limit",
+                                                        "model_generation_failed", "tool_execution_failed"}:
         tags.append("early_stop_without_budget_exhausted")
     return tags
 
@@ -682,6 +687,12 @@ def execute_study(
     max_checkpoints: int = 4,
     wall_budget_seconds: float = 900.0,
     budget_credits: float = 30.0,
+    linucb_mode: str | None = None,
+    linucb_alpha: float = 0.5,
+    linucb_policy_path: str | Path | None = None,
+    linucb_cost_penalty: float = 0.01,
+    linucb_delayed_credit: str = "terminal_only",
+    linucb_cost_aware_exploration: bool = False,
     resume: bool = True,
     task_limit: int | None = None,
     partition: str = "development",
@@ -693,6 +704,10 @@ def execute_study(
     verify_plan(study_root)
     if budget_credits <= 0:
         raise ValueError("--budget must be positive")
+    if not math.isfinite(linucb_alpha) or linucb_alpha < 0:
+        raise ValueError("--linucb-alpha must be finite and nonnegative")
+    reward_config = RewardConfig(cost_penalty=linucb_cost_penalty,
+                                 delayed_credit=linucb_delayed_credit)
     if max_checkpoints < 1:
         raise ValueError("--max-checkpoints must be at least one")
     if wall_budget_seconds <= 0:
@@ -718,6 +733,17 @@ def execute_study(
     grader_spec = None
     frozen_baseline = (verify_frozen_baseline(study_root)
                        if partition == "confirmation" else None)
+    resolved_linucb_mode = linucb_mode or ("learning" if partition == "development" else "evaluation")
+    if partition == "confirmation" and resolved_linucb_mode != "evaluation":
+        raise ValueError("Confirmation must use the frozen LinUCB evaluation policy")
+    linucb_artifact_path = Path(linucb_policy_path) if linucb_policy_path else study_root / "linucb_policy.json"
+    linucb_artifact_hash = file_hash(linucb_artifact_path) if linucb_artifact_path.is_file() else None
+    if resolved_linucb_mode == "evaluation" and linucb_artifact_hash is None:
+        raise ValueError("LinUCB evaluation requires a trained frozen --linucb-policy artifact")
+    if partition == "confirmation":
+        expected_policy_hash = (frozen_baseline or {}).get("linucb_policy_sha256")
+        if not expected_policy_hash or expected_policy_hash != linucb_artifact_hash:
+            raise ValueError("Frozen LinUCB policy hash does not match the development baseline freeze")
     adaptive_weights = (frozen_baseline or {}).get("selector_weights", DEFAULT_ADAPTIVE_WEIGHTS)
     if preflight["grader"]:
         from .awareness import GraderSpec
@@ -737,6 +763,8 @@ def execute_study(
         Path(__file__).with_name("awareness_grading.py"),
         Path(__file__).with_name("awareness.py"),
         Path(__file__).with_name("feedback_policy.py"),
+        Path(__file__).with_name("feedback_controller.py"),
+        Path(__file__).with_name("feedback_reward.py"),
         Path(__file__).with_name("feedback_runtime.py"),
         Path(__file__).with_name("feedback_evidence.py"),
         Path(__file__).with_name("runtime.py"), Path(__file__).with_name("models.py"),
@@ -758,6 +786,7 @@ def execute_study(
                          "draft_seconds": 180, "revision_steps": revision_steps,
                          "revision_completion_tokens": 8192, "revision_seconds": 300},
         "primary_comparator_arm": PRIMARY_COMPARATOR_ARM,
+        "primary_learned_arm": PRIMARY_LEARNED_ARM,
         "secondary_comparator_arms": list(SECONDARY_COMPARATOR_ARMS),
         "counter_semantics": {
             "patch_checkpoint_count": "number of patch-hash changes after the initial parent snapshot; max_checkpoints caps this count",
@@ -768,6 +797,14 @@ def execute_study(
             "credits_used": "measured operational model-token, sandbox/evidence-time, and selector credits; includes common parent draft",
         },
         "max_checkpoints": max_checkpoints,
+        "linucb": {"mode": "development_learning_confirmation_frozen",
+                   "alpha": linucb_alpha,
+                   "model": "disjoint-action-linear-ucb", "ridge": 1.0,
+                   "cost_aware_exploration": linucb_cost_aware_exploration,
+                   "reward_cost_penalty": linucb_cost_penalty,
+                   "delayed_credit": linucb_delayed_credit,
+                   "selection_credits": 0.02, "update_credits": 0.005,
+                   "fit_row_credits": 0.005, "feature_build_credits": 0.005},
         "adaptive_weights_source": "frozen_baseline.json for confirmation; prespecified defaults for development",
         "wall_budget_seconds": wall_budget_seconds,
         "reviewer": {"model": actor_model_name, "temperature": 0.0, "sampling_seed": 0,
@@ -836,6 +873,34 @@ def execute_study(
     draft_limits = SimpleNamespace(steps=draft_steps, completion_tokens=4096, seconds=180.0)
     revision_limits = SimpleNamespace(steps=revision_steps, completion_tokens=8192, seconds=300.0)
 
+    active_bandit_budget = [None]
+    def charge_linucb(credits: float) -> None:
+        if active_bandit_budget[0] is None:
+            raise RuntimeError("LinUCB budget callback used outside an active branch")
+        active_bandit_budget[0].charge(credits)
+
+    plan_protocol = json.loads((study_root / "protocol.json").read_text(encoding="utf-8"))
+    linucb_controller = LinUCBController(
+        alpha=linucb_alpha, ridge=1.0, mode=resolved_linucb_mode,
+        budget_charge=charge_linucb, selection_credits=0.02,
+        update_credits=0.005, fit_row_credits=0.005, feature_build_credits=0.005,
+        cost_aware_exploration=linucb_cost_aware_exploration,
+        evaluation_repositories=set(plan_protocol.get("confirmation_repositories", [])),
+    )
+    if resolved_linucb_mode == "evaluation":
+        policy_state = json.loads(linucb_artifact_path.read_text(encoding="utf-8"))
+        linucb_controller.load_state_dict(
+            policy_state, evaluation_repositories=set(plan_protocol.get("confirmation_repositories", [])),
+            mode="evaluation",
+        )
+    elif linucb_artifact_path.is_file():
+        # Resume a development learning run from its latest durable sufficient statistics.
+        policy_state = json.loads(linucb_artifact_path.read_text(encoding="utf-8"))
+        linucb_controller.load_state_dict(
+            policy_state, evaluation_repositories=set(plan_protocol.get("confirmation_repositories", [])),
+            mode="learning",
+        )
+
     blocks_executed = 0
     branches_executed = 0
 
@@ -849,12 +914,14 @@ def execute_study(
             "plan_hash": json.loads((study_root / "plan.json").read_text())["plan_hash"],
             "frozen_baseline_hash": frozen_baseline["content_hash"],
             "minimum_confirmation_incorrect": minimum_incorrect,
-            "primary_comparison": ["adaptive", PRIMARY_COMPARATOR_ARM],
-            "secondary_comparisons": [["adaptive", arm] for arm in SECONDARY_COMPARATOR_ARMS],
+            "primary_comparison": [PRIMARY_LEARNED_ARM, PRIMARY_COMPARATOR_ARM],
+            "secondary_comparisons": [["adaptive", PRIMARY_COMPARATOR_ARM],
+                                       [PRIMARY_LEARNED_ARM, "fixed_combined"]],
             "adaptive_weights": frozen_baseline.get("selector_weights", DEFAULT_ADAPTIVE_WEIGHTS),
             "adaptive_weights_status": frozen_baseline.get("selector_weights_status"),
             "adaptive_weights_source_sha256": frozen_baseline.get("selector_weights_source_sha256"),
             "confirmation_arms": list(ARMS),
+            "linucb_policy_sha256": linucb_artifact_hash,
         }
         lock_path = study_root / "confirmation_lock.json"
         if lock_path.exists():
@@ -1084,6 +1151,9 @@ def execute_study(
                 wall_cap_seconds=wall_budget_seconds,
                 wall_seconds_before=float(parent_grade_data.get("parent_wall_seconds", 0.0)),
             )
+            active_bandit_budget[0] = branch_budget
+            revision_start_step = branch_session.step
+            linucb_credits_before = linucb_controller.credits_charged
             branch_call_counters = {"model_call_count": 0, "tool_call_count": 0}
             evidence_producer = make_evidence_producer(
                 task, branch_baseline, branch_budget, sandbox_cfg, reviewer_model,
@@ -1096,6 +1166,11 @@ def execute_study(
                 nonlocal selector_spend
                 selector_spend += float(event.get("decision", {}).get("selector_credits", 0.0))
                 branch_events.append(event)
+                # Persist checkpoints as they happen so interrupted trajectories retain state
+                # and the chosen evidence action instead of existing only in process memory.
+                with open(events_jsonl, "a", encoding="utf-8") as event_file:
+                    event_file.write(json.dumps(event) + "\n")
+                    event_file.flush()
 
             def selector_credit():
                 # Selector computation charged ONLY to Arm E (adaptive)
@@ -1123,6 +1198,15 @@ def execute_study(
                 packet_char_cap=6000,
                 max_checkpoints=max_checkpoints,
                 adaptive_weights=adaptive_weights,
+                linucb_controller=linucb_controller if arm == "linucb" else None,
+                budget_context_fn=lambda current_session, budget=branch_budget,
+                    start_step=revision_start_step: BudgetContext(
+                        revision_steps_remaining=max(0, revision_steps -
+                            max(0, current_session.step - start_step)),
+                        revision_steps_total=revision_steps,
+                        tool_calls_remaining=None, tool_calls_total=None,
+                        credits_remaining=budget.remaining, credits_total=budget.cap,
+                    ),
                 selector_credit_fn=selector_credit,
                 remaining_credits_fn=lambda: branch_budget.remaining,
                 event_sink=record_branch_event,
@@ -1202,6 +1286,55 @@ def execute_study(
                 public_status=final_public_check_status,
                 termination_reason=revision_termination_reason,
             )
+            reward_record = None
+            delayed_credits = []
+            bandit_update_error = None
+            if arm == "linucb":
+                actor_tool_seconds = max(0.0, float(rev_res.get("tool_seconds", 0.0)))
+                revision_tool_seconds = max(0.0, branch_budget.tool_seconds -
+                    float(parent_grade_data.get("parent_tool_seconds", 0.0)))
+                evidence_tool_credits = max(0.0, revision_tool_seconds - actor_tool_seconds) * branch_budget.tool_second_credit
+                actor_tool_credits = actor_tool_seconds * branch_budget.tool_second_credit
+                revision_model_credits = max(0.0, branch_budget.spent - parent_credits -
+                    revision_tool_seconds * branch_budget.tool_second_credit - selector_spend)
+                reward_record = compute_outcome_reward(
+                    outcome=RepairOutcome(
+                        source="independent_grader", resolved=final_resolved,
+                        official_grade_status=final_grade["status"],
+                        preexisting_test_regression=final_grade.get("preexisting_test_regression"),
+                    ),
+                    costs=ResourceCosts(
+                        action={"selector": selector_spend, "tool": evidence_tool_credits},
+                        subsequent_agent_step={"model": revision_model_credits,
+                                               "tool": actor_tool_credits},
+                    ),
+                    config=reward_config,
+                )
+                selected_decisions = [decision for decision in controller.decisions
+                                      if decision.controller_decision_id and decision.selected_action_id]
+                delayed_credits = assign_delayed_credit(
+                    reward=reward_record.reward,
+                    decisions=[(decision.controller_decision_id, decision.selected_action_id)
+                               for decision in selected_decisions],
+                    method=reward_config.delayed_credit,
+                    discount=reward_config.credit_discount,
+                )
+                for credit in delayed_credits if resolved_linucb_mode == "learning" else []:
+                    try:
+                        if credit.reward is None:
+                            linucb_controller.discard_pending(credit.decision_id)
+                        else:
+                            linucb_controller.observe_reward(
+                                credit.decision_id, credit.reward, repository=task.repo,
+                                reward_basis="official_train_only",
+                            )
+                    except Exception as exc:
+                        bandit_update_error = f"{type(exc).__name__}: {exc}"
+                        break
+                selector_overhead += max(0.0, linucb_controller.credits_charged -
+                                         linucb_credits_before - selector_overhead)
+                if resolved_linucb_mode == "learning" and linucb_controller.feature_names:
+                    write_json(study_root / "linucb_policy.json", linucb_controller.state_dict())
             actual_revision_steps_taken = int(rev_res.get("actual_revision_steps_taken", 0))
             revision_attempt_count = int(rev_res.get("revision_attempt_count", 0))
             model_call_count = (int(parent_grade_data.get("parent_model_call_count", 0))
@@ -1211,8 +1344,17 @@ def execute_study(
                                + int(rev_res.get("tool_call_count", 0))
                                + int(branch_call_counters.get("tool_call_count", 0)))
             credits_used = round(branch_budget.spent, 6)
+            arm_total_credits = round(branch_budget.spent, 3)
             tool_credits = round(branch_budget.tool_seconds * branch_budget.tool_second_credit, 6)
             model_credits = round(max(0.0, credits_used - tool_credits - selector_overhead), 6)
+            linucb_exploration_count = sum(decision.exploration_used for decision in controller.decisions)
+            linucb_decision_count = sum(decision.selected_action_id is not None
+                                         for decision in controller.decisions)
+            linucb_action_counts = {
+                action_id: sum(decision.selected_action_id == action_id for decision in controller.decisions)
+                for action_id in ("concise_failure_summary", "location_diagnostics",
+                                  "expected_observed", "combined_complementary")
+            }
             budget_exhausted = revision_termination_reason == "revision_budget_exhausted"
             write_json(branch_dir / "grade.json", {
                 "resolved": final_resolved,
@@ -1231,6 +1373,10 @@ def execute_study(
                 "model_call_count": model_call_count,
                 "tool_call_count": tool_call_count,
                 "credits_used": credits_used,
+                "linucb_decision_count": linucb_decision_count,
+                "linucb_exploration_decisions": linucb_exploration_count,
+                "linucb_exploitation_decisions": linucb_decision_count - linucb_exploration_count,
+                "linucb_action_counts": linucb_action_counts,
                 "credits_breakdown": {
                     "model_credits": model_credits,
                     "tool_credits": tool_credits,
@@ -1249,6 +1395,43 @@ def execute_study(
             with open(events_jsonl, "w", encoding="utf-8") as f:
                 for ev in branch_events:
                     f.write(json.dumps(ev) + "\n")
+
+            # Evaluator-side join from each runtime decision/state to the final outcome.
+            # Keep official grade fields out of the agent-facing event stream and prompts.
+            evaluator_events = copy.deepcopy(branch_events)
+            reward_by_decision = {row.decision_id: row.model_dump(mode="json")
+                                  for row in delayed_credits}
+            for event in evaluator_events:
+                decision_id = event.get("decision", {}).get("controller_decision_id")
+                if decision_id in reward_by_decision:
+                    event["decision"]["received_reward"] = reward_by_decision[decision_id]
+            write_json(branch_dir / "trajectory_evaluator.json", {
+                "block_id": block_id,
+                "branch_id": branch_id,
+                "task_id": task.task_id,
+                "repository": task.repo,
+                "partition": block["partition"],
+                "arm": arm,
+                "checkpoint_events": evaluator_events,
+                "reward": reward_record.model_dump(mode="json") if reward_record else None,
+                "bandit_update_error": bandit_update_error,
+                "outcome": {
+                    "revision_termination_reason": revision_termination_reason,
+                    "final_patch_empty": patch_empty,
+                    "final_public_check_status": final_public_check_status,
+                    "official_grade_status": final_grade["status"],
+                    "resolved": final_resolved,
+                    "outcome_class": outcome_class,
+                    "failure_taxonomy": failure_taxonomy,
+                    "patch_checkpoint_count": controller.patch_checkpoint_count,
+                    "same_patch_refresh_count": controller.same_patch_refresh_count,
+                    "revision_attempt_count": revision_attempt_count,
+                    "model_call_count": model_call_count,
+                    "tool_call_count": tool_call_count,
+                    "credits_used": credits_used,
+                    "bandit_reward_id": reward_record.reward_id if reward_record else None,
+                },
+            })
 
             result_row = {
                 "block_id": block_id,
@@ -1285,6 +1468,10 @@ def execute_study(
                 "parent_tool_seconds": round(float(parent_grade_data.get("parent_tool_seconds", 0.0)), 3),
                 "selector_credits": round(selector_overhead, 3),
                 "credits_used": credits_used,
+                "linucb_decision_count": linucb_decision_count,
+                "linucb_exploration_decisions": linucb_exploration_count,
+                "linucb_exploitation_decisions": linucb_decision_count - linucb_exploration_count,
+                "linucb_action_counts": linucb_action_counts,
                 "credits_breakdown": {
                     "model_credits": model_credits,
                     "tool_credits": tool_credits,
