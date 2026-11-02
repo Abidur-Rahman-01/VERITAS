@@ -17,6 +17,8 @@ from .io import digest, file_hash, read_jsonl, write_json, write_jsonl
 PLAN_FILES = ("tasks.jsonl", "blocks.jsonl", "branches.jsonl", "protocol.json",
               "dataset_manifest.json", "prepared_splits.json", "image_map.json",
               "source_image_map.json")
+PRIMARY_COMPARATOR_ARM = "fixed_actionable"
+SECONDARY_COMPARATOR_ARMS = ("fixed_combined",)
 
 
 def create_plan(tasks_dir, output, *, source="swe_bench_lite", task_limit=None, seed=42,
@@ -181,7 +183,10 @@ def create_plan(tasks_dir, output, *, source="swe_bench_lite", task_limit=None, 
         "confirmation_task_count": confirmation_task_count,
         "development_repositories": sorted(set(repos) - confirmation),
         "confirmation_repositories": sorted(confirmation),
-        "arms": list(ARMS), "primary_comparison": ["adaptive", "fixed_actionable"],
+        "arms": list(ARMS),
+        "primary_comparator_arm": PRIMARY_COMPARATOR_ARM,
+        "secondary_comparator_arms": list(SECONDARY_COMPARATOR_ARMS),
+        "primary_comparison": ["adaptive", PRIMARY_COMPARATOR_ARM],
         "minimum_confirmation_incorrect": minimum_confirmation_incorrect,
         "minimum_confirmation_repositories_for_cluster_inference": 10,
         "power_analysis": {
@@ -235,6 +240,9 @@ def verify_plan(directory):
         if sorted(arms) != sorted(ARMS):
             raise ValueError(f"Incomplete or duplicate arms for block {block['block_id']}")
     protocol = json.loads((root / "protocol.json").read_text())
+    if (protocol.get("primary_comparator_arm") != PRIMARY_COMPARATOR_ARM
+            or protocol.get("secondary_comparator_arms") != list(SECONDARY_COMPARATOR_ARMS)):
+        raise ValueError("Study plan must predeclare Arm C as primary and Arm D as the secondary comparator")
     if protocol.get("environment_mode") not in {"pinned_images", "local_fixtures"}:
         raise ValueError("Unknown study environment mode")
     if int(protocol.get("minimum_confirmation_incorrect", 0)) < 0:
@@ -326,7 +334,7 @@ def verify_plan(directory):
 
 def freeze_baseline(directory, results_path=None, *, minimum_incorrect=20,
                     selector_weights=None, selector_weights_sha256=None):
-    """Freeze the strongest fixed feedback arm using development data only."""
+    """Freeze development selector provenance; Arm C is fixed by the immutable plan."""
     root = Path(directory)
     if minimum_incorrect < 1:
         raise ValueError("minimum_incorrect must be at least 1")
@@ -362,10 +370,24 @@ def freeze_baseline(directory, results_path=None, *, minimum_incorrect=20,
             f"Cannot freeze the fixed baseline: {len(incomplete)} development blocks do not "
             "have outcomes for every planned arm. Complete the full development partition first."
         )
+    # The parent outcome is measured once, before branch assignment. Reject a
+    # ledger whose arm rows disagree with that independent grade instead of
+    # letting the adaptive row silently define the baseline cohort.
+    for block_id, arms in by_block.items():
+        grade_path = root / "blocks" / block_id / "parent_grade.json"
+        if not grade_path.is_file():
+            raise ValueError(f"Missing independent parent grade for development block {block_id}")
+        parent_grade = json.loads(grade_path.read_text(encoding="utf-8"))
+        parent_label = parent_grade.get("parent_resolved")
+        if parent_label not in (True, False):
+            raise ValueError(f"Development parent grade is unknown for block {block_id}")
+        if any(row.get("parent_resolved") != parent_label for row in arms.values()):
+            raise ValueError(f"Arm parent labels disagree with the independent parent grade for block {block_id}")
     development_snapshot = root / "development_results_frozen.jsonl"
     write_jsonl(development_snapshot, development_rows)
-    incorrect = [bid for bid, arms in by_block.items()
-                 if arms.get("adaptive", {}).get("parent_resolved") is False]
+    incorrect = [bid for bid in by_block
+                 if json.loads((root / "blocks" / bid / "parent_grade.json").read_text(
+                     encoding="utf-8")).get("parent_resolved") is False]
     if len(incorrect) < minimum_incorrect:
         raise ValueError(
             f"Cannot freeze a development baseline: only {len(incorrect)} initially incorrect "
@@ -380,17 +402,16 @@ def freeze_baseline(directory, results_path=None, *, minimum_incorrect=20,
         if len(observed) != len(incorrect):
             raise ValueError(f"Development results are incomplete for fixed arm {arm}")
         successes = sum(row["resolved"] is True for row in observed)
-        costs = [float(row["total_credits"]) for row in observed
-                 if row.get("total_credits") is not None]
+        costs = [float(by_block[bid][arm]["total_credits"]) for bid in incorrect
+                 if by_block[bid][arm].get("total_credits") is not None]
+        if len(costs) != len(incorrect) or any(not math.isfinite(cost) or cost < 0 for cost in costs):
+            raise ValueError(f"Development arm {arm} has incomplete or invalid measured costs")
         scores[arm] = {"successes": successes, "total": len(observed),
                        "recovery_rate": successes / len(observed),
                        "mean_credits": sum(costs) / len(costs) if costs else None}
-    # Maximize recovery, then minimize cost, then use frozen arm order.
-    selected = min(fixed_arms, key=lambda arm: (
-        -scores[arm]["recovery_rate"],
-        scores[arm]["mean_credits"] if scores[arm]["mean_credits"] is not None else float("inf"),
-        fixed_arms.index(arm),
-    ))
+    # The primary comparator is predeclared in the immutable plan. Development
+    # scores are descriptive and can never switch the primary contrast.
+    selected = PRIMARY_COMPARATOR_ARM
     weights = dict(DEFAULT_ADAPTIVE_WEIGHTS)
     weight_status = "prespecified_heuristic_defaults"
     if selector_weights is not None:
@@ -407,12 +428,15 @@ def freeze_baseline(directory, results_path=None, *, minimum_incorrect=20,
         "schema_version": 1,
         "plan_hash": json.loads((root / "plan.json").read_text())["plan_hash"],
         "selection_data_partition": "development",
-        "selection_rule": "highest recovery among initially incorrect parents; tie-break lower mean credits; then frozen arm order",
+        "comparator_selection_data_partition": "predeclared_before_outcomes",
+        "selection_rule": "predeclared fixed actionable feedback arm (Arm C); development scores are descriptive only",
         "minimum_incorrect_required": minimum_incorrect,
         "incorrect_parent_blocks": len(incorrect),
         "development_results_sha256": file_hash(development_snapshot),
         "fixed_arm_scores": scores,
-        "selected_fixed_arm": selected,
+        "fixed_arm_scores_use": "development descriptive only; never used to choose the primary comparator",
+        "selected_fixed_arm": selected,  # Compatibility alias; always Arm C.
+        "primary_comparator_arm": PRIMARY_COMPARATOR_ARM,
         "selector_weights": weights,
         "selector_weights_status": weight_status,
         "selector_weights_source_sha256": selector_weights_sha256,
@@ -426,7 +450,7 @@ def verify_frozen_baseline(directory):
     root = Path(directory)
     path = root / "frozen_baseline.json"
     if not path.is_file():
-        raise ValueError("Confirmation requires frozen_baseline.json from development-only selection")
+        raise ValueError("Confirmation requires the development policy/provenance freeze artifact")
     artifact = json.loads(path.read_text(encoding="utf-8"))
     saved_hash = artifact.pop("content_hash", None)
     if saved_hash != digest(artifact):
@@ -437,8 +461,12 @@ def verify_frozen_baseline(directory):
     snapshot = root / "development_results_frozen.jsonl"
     if not snapshot.is_file() or file_hash(snapshot) != artifact.get("development_results_sha256"):
         raise ValueError("Frozen development results are missing or changed")
-    if artifact.get("selected_fixed_arm") not in ARMS or artifact["selected_fixed_arm"] == "adaptive":
-        raise ValueError("Frozen baseline must select a fixed feedback arm")
+    plan_protocol = json.loads((root / "protocol.json").read_text(encoding="utf-8"))
+    if (artifact.get("selected_fixed_arm") != PRIMARY_COMPARATOR_ARM
+            or artifact.get("primary_comparator_arm", PRIMARY_COMPARATOR_ARM) != PRIMARY_COMPARATOR_ARM
+            or plan_protocol.get("primary_comparator_arm", PRIMARY_COMPARATOR_ARM)
+            != PRIMARY_COMPARATOR_ARM):
+        raise ValueError("The predeclared primary comparator must remain Arm C (fixed_actionable)")
     artifact["content_hash"] = saved_hash
     return artifact
 
@@ -461,9 +489,9 @@ def analyze_results(directory, results_path=None, *, partition=None):
     selected_block_ids = {b["block_id"] for b in all_blocks
                           if partition is None or b.get("partition") == partition}
     results = [row for row in results if row.get("block_id") in selected_block_ids]
-    comparison_arm = "fixed_actionable"
+    comparison_arm = PRIMARY_COMPARATOR_ARM
     if partition == "confirmation":
-        comparison_arm = verify_frozen_baseline(root)["selected_fixed_arm"]
+        verify_frozen_baseline(root)
     by_block = defaultdict(dict)
     planned = {(row["block_id"], row["arm"]): row for row in read_jsonl(root / "branches.jsonl")
                if row["block_id"] in selected_block_ids}
@@ -476,40 +504,162 @@ def analyze_results(directory, results_path=None, *, partition=None):
         if row["arm"] in by_block[row["block_id"]]:
             raise ValueError("Duplicate block/arm outcome")
         by_block[row["block_id"]][row["arm"]] = row
+    parent_labels = {}
+    for block in all_blocks:
+        if block["block_id"] not in selected_block_ids:
+            continue
+        grade_path = root / "blocks" / block["block_id"] / "parent_grade.json"
+        if grade_path.is_file():
+            try:
+                parent_labels[block["block_id"]] = json.loads(
+                    grade_path.read_text(encoding="utf-8")
+                ).get("parent_resolved")
+            except (OSError, ValueError):
+                parent_labels[block["block_id"]] = None
+        else:
+            parent_labels[block["block_id"]] = next((
+                row.get("parent_resolved") for row in results
+                if row.get("block_id") == block["block_id"]
+            ), None)
+    initially_incorrect_block_ids = {
+        block_id for block_id, label in parent_labels.items() if label is False
+    }
     paired = []
     per_arm = {}
     by_repository = {}
-    # Report all five arms for both partitions. In confirmation, only the
-    # adaptive-vs-frozen-development-arm contrast is primary; the remaining
-    # arm summaries are secondary and descriptive.
+    # Report all five arms for both partitions. E-vs-C is primary, E-vs-D is
+    # secondary, and A/B remain diagnostic regardless of development outcomes.
     selected_arms = ARMS
     for arm in selected_arms:
         rows = [row for row in results if row.get("arm") == arm]
         planned_count = sum(1 for block_id, planned_arm in planned if planned_arm == arm)
         graded = [row for row in rows if row.get("resolved") in (True, False)]
+        graded_nonempty = [row for row in graded if not row.get("patch_empty", False)]
         resolved = sum(row.get("resolved") is True for row in graded)
         unresolved = sum(row.get("resolved") is False for row in graded)
         empty = sum(bool(row.get("patch_empty")) for row in rows)
-        infra = sum(row.get("grader_status") == "infrastructure_error" for row in rows)
+        infra = sum(row.get("official_grade_status", row.get("grader_status"))
+                    == "infrastructure_error" for row in rows)
+        public_pass_official_fail = sum(
+            row.get("final_public_check_status") == "passed"
+            and row.get("resolved") is False for row in rows
+        )
+        recovered_initially_incorrect = sum(
+            row.get("resolved") is True
+            and parent_labels.get(row.get("block_id"), row.get("parent_resolved")) is False
+            for row in rows
+        )
         all_recorded_denominator = len(rows)
         per_arm[arm] = {
             "planned": planned_count,
             "recorded": len(rows),
-            "graded_nonempty": len(graded),
+            "graded": len(graded),
+            "graded_nonempty": len(graded_nonempty),
             "resolved": resolved,
             "unresolved": unresolved,
             "empty_patch": empty,
+            "empty_patch_rate": _rate_with_wilson(empty, len(rows)),
+            "initially_incorrect_planned": len(initially_incorrect_block_ids),
+            "initially_incorrect_recorded": sum(
+                row.get("block_id") in initially_incorrect_block_ids for row in rows
+            ),
+            "recovered_initially_incorrect": recovered_initially_incorrect,
+            "recovery_rate_initially_incorrect": _rate_with_wilson(
+                recovered_initially_incorrect, len(initially_incorrect_block_ids)
+            ),
+            "public_pass_official_fail": public_pass_official_fail,
+            "public_pass_official_fail_rate_among_graded": _rate_with_wilson(
+                public_pass_official_fail, len(graded)
+            ),
             "grader_infrastructure_error": infra,
             "unrecorded": max(0, planned_count - len(rows)),
             "resolution_rate_graded": _rate_with_wilson(resolved, len(graded)),
             "resolved_share_recorded": _rate_with_wilson(resolved, all_recorded_denominator),
             "mean_estimated_credits": _mean([
-                row["total_credits"] for row in rows if row.get("total_credits") is not None
+                row.get("credits_used", row.get("total_credits")) for row in rows
+                if row.get("credits_used", row.get("total_credits")) is not None
             ]),
             "mean_wall_seconds": _mean([
-                row["wall_seconds"] for row in rows if row.get("wall_seconds") is not None
+                row.get("total_actor_wall_seconds", row.get("wall_seconds")) for row in rows
+                if row.get("total_actor_wall_seconds", row.get("wall_seconds")) is not None
             ]),
             "mean_steps": _mean([row["steps"] for row in rows if row.get("steps") is not None]),
+            "mean_patch_checkpoints": _mean([
+                row["patch_checkpoint_count"] for row in rows
+                if row.get("patch_checkpoint_count") is not None
+            ]),
+            "mean_revision_attempt_count": _mean([
+                row["revision_attempt_count"] for row in rows
+                if row.get("revision_attempt_count") is not None
+            ]),
+            "mean_actual_revision_steps_taken": _mean([
+                row["actual_revision_steps_taken"] for row in rows
+                if row.get("actual_revision_steps_taken") is not None
+            ]),
+            "mean_same_patch_refresh_count": _mean([
+                row["same_patch_refresh_count"] for row in rows
+                if row.get("same_patch_refresh_count") is not None
+            ]),
+            "mean_model_call_count": _mean([
+                row["model_call_count"] for row in rows if row.get("model_call_count") is not None
+            ]),
+            "mean_tool_call_count": _mean([
+                row["tool_call_count"] for row in rows if row.get("tool_call_count") is not None
+            ]),
+            "mean_feedback_decisions": _mean([
+                row["feedback_decisions"] for row in rows
+                if row.get("feedback_decisions") is not None
+            ]),
+            "outcome_classes": {
+                category: sum(row.get("outcome_class") == category for row in rows)
+                for category in ("empty_patch", "resolved_nonempty", "incorrect_nonempty",
+                                 "infrastructure_error", "grader_error", "ungradable")
+            },
+            "failure_taxonomy_counts": {
+                tag: sum(tag in (row.get("failure_taxonomy") or []) for row in rows)
+                for tag in sorted({tag for row in rows for tag in (row.get("failure_taxonomy") or [])})
+            },
+            "revision_termination_reasons": {
+                reason: sum(row.get("revision_termination_reason", "other / unknown") == reason
+                            for row in rows)
+                for reason in sorted({row.get("revision_termination_reason", "other / unknown")
+                                      for row in rows})
+            },
+            "cost_breakdown": {
+                "mean_credits_used": _mean([
+                    row.get("credits_used", row.get("total_credits")) for row in rows
+                    if row.get("credits_used", row.get("total_credits")) is not None
+                ]),
+                "mean_model_credits": _mean([
+                    row["credits_breakdown"]["model_credits"] for row in rows
+                    if isinstance(row.get("credits_breakdown"), dict)
+                    and row["credits_breakdown"].get("model_credits") is not None
+                ]),
+                "mean_tool_credits": _mean([
+                    row["credits_breakdown"]["tool_credits"] for row in rows
+                    if isinstance(row.get("credits_breakdown"), dict)
+                    and row["credits_breakdown"].get("tool_credits") is not None
+                ]),
+                "mean_selector_credits": _mean([
+                    row.get("selector_credits") for row in rows
+                    if row.get("selector_credits") is not None
+                ]),
+                "mean_model_calls": _mean([
+                    row.get("model_call_count") for row in rows
+                    if row.get("model_call_count") is not None
+                ]),
+                "mean_tool_calls": _mean([
+                    row.get("tool_call_count") for row in rows
+                    if row.get("tool_call_count") is not None
+                ]),
+                "mean_wall_seconds": _mean([
+                    row.get("total_actor_wall_seconds", row.get("wall_seconds")) for row in rows
+                    if row.get("total_actor_wall_seconds", row.get("wall_seconds")) is not None
+                ]),
+                "mean_official_grader_seconds": _mean([
+                    row.get("grader_seconds") for row in rows if row.get("grader_seconds") is not None
+                ]),
+            },
         }
         repo_stats = {}
         for repo in sorted({row.get("repository", "unknown") for row in rows}):
@@ -533,16 +683,6 @@ def analyze_results(directory, results_path=None, *, partition=None):
             "rate_known": _rate_with_wilson(test_regressions, len(test_regression_known)),
         }
 
-    parent_labels = {}
-    for block in read_jsonl(root / "blocks.jsonl"):
-        grade_path = root / "blocks" / block["block_id"] / "parent_grade.json"
-        if grade_path.is_file():
-            try:
-                parent_labels[block["block_id"]] = json.loads(
-                    grade_path.read_text(encoding="utf-8")
-                ).get("parent_resolved")
-            except (OSError, ValueError):
-                parent_labels[block["block_id"]] = None
     for block in read_jsonl(root / "blocks.jsonl"):
         arms = by_block.get(block["block_id"], {})
         adaptive, fixed = arms.get("adaptive", {}), arms.get(comparison_arm, {})
@@ -567,6 +707,9 @@ def analyze_results(directory, results_path=None, *, partition=None):
                       and row["comparison_outcome_known"]]
     incorrect = [row for row in paired if row["parent_resolved"] is False]
     incorrect_complete = [row for row in complete_pairs if row["parent_resolved"] is False]
+    secondary_arm = SECONDARY_COMPARATOR_ARMS[0]
+    secondary_pairs = [(row, by_block.get(row["block_id"], {}).get(secondary_arm, {}))
+                       for row in incorrect]
     # Regression is also intention-to-treat: a missing/unknown final grade for
     # a parent-correct block cannot be silently dropped from this guardrail.
     correct = [row for row in paired if row["parent_resolved"] is True]
@@ -663,6 +806,23 @@ def analyze_results(directory, results_path=None, *, partition=None):
                 sum(r["comparison_resolved"] for r in incorrect_complete), len(incorrect_complete)
             ),
         },
+        "secondary_paired": {
+            "comparison": f"adaptive vs {secondary_arm} among initially incorrect parents",
+            "arm": secondary_arm,
+            "paired_n": len(secondary_pairs),
+            "adaptive_recovery_rate": _rate_with_wilson(
+                sum(r["adaptive_resolved"] for r in incorrect), len(incorrect)
+            ),
+            "secondary_recovery_rate": _rate_with_wilson(
+                sum(branch.get("resolved") is True for _, branch in secondary_pairs),
+                len(secondary_pairs),
+            ),
+            "risk_difference_adaptive_minus_secondary": _mean([
+                int(row["adaptive_resolved"]) - int(branch.get("resolved") is True)
+                for row, branch in secondary_pairs
+            ]),
+            "diagnostic_arms": ["generic_retry", "raw_diagnostics"],
+        },
         "all_block_adaptive_resolution": _mean([r["adaptive_resolved"] for r in paired]),
         "all_block_comparison_resolution": _mean([r["comparison_resolved"] for r in paired]),
         "recovery_adaptive": _mean([r["adaptive_resolved"] for r in incorrect]),
@@ -701,7 +861,8 @@ def analyze_results(directory, results_path=None, *, partition=None):
         "primary_comparison": {
             "adaptive_arm": "adaptive",
             "frozen_comparator_arm": comparison_arm,
-            "secondary_arms": [arm for arm in ARMS if arm not in {"adaptive", comparison_arm}],
+            "secondary_comparator_arms": list(SECONDARY_COMPARATOR_ARMS),
+            "diagnostic_arms": ["generic_retry", "raw_diagnostics"],
         },
         "confirmation_gate": {
             "minimum_incorrect_predeclared": plan_protocol.get("minimum_confirmation_incorrect", 0),

@@ -120,6 +120,7 @@ def run_phase(task, session, model, sandbox, store, output, *, trial_id, actor_n
         raise ValueError("Invalid phase or premature boundary feedback")
     start = time.monotonic()
     prompt_tokens, tokens, steps, tool_seconds, status = 0, 0, 0, 0.0, "step_limit"
+    model_call_count = revision_attempt_count = tool_call_count = 0
     error = None
     request_ids, usage_complete = [], True
     budget_exhausted = False
@@ -156,8 +157,6 @@ def run_phase(task, session, model, sandbox, store, output, *, trial_id, actor_n
             step_id=session.step, split=protocol.partition, context=redact(context), decision="skip",
             prompt_hash=digest({"system": system, "user": context}),
             prompt_redacted=redact(context) != context or redact(system) != system)
-        session.step += 1
-        steps += 1
         fatal = False
         call_max_tokens = limits.completion_tokens - tokens
         if credit_budget is not None:
@@ -165,6 +164,12 @@ def run_phase(task, session, model, sandbox, store, output, *, trial_id, actor_n
             if call_max_tokens < 1:
                 status, budget_exhausted = "credit_budget", True
                 break
+        # Count only requests that are actually sent; a reservation failure
+        # above must not appear as an actor trajectory step.
+        session.step += 1
+        steps += 1
+        model_call_count += 1
+        revision_attempt_count += 1
         try:
             raw, usage = model.complete(system, context,
                 max_tokens=call_max_tokens, timeout_seconds=remaining)
@@ -247,6 +252,7 @@ def run_phase(task, session, model, sandbox, store, output, *, trial_id, actor_n
                         protocol.sandbox.timeout_seconds,
                         int(tool_remaining)))
                 if status != "time_limit":
+                    tool_call_count += 1
                     result = sandbox.execute(record.action)
                     record.executed = True
                     record.observation = sanitize(str(result.get("output", "")),
@@ -273,14 +279,24 @@ def run_phase(task, session, model, sandbox, store, output, *, trial_id, actor_n
         session.history.append({"action": record.action.proposal.model_dump(mode="json")
                                 if record.action else "invalid_proposal",
                                 "observation": record.observation})
+        callback_budget_exhausted = False
         if on_step is not None and record.executed:
-            on_step(record, session)
-        if fatal or status in {"submitted", "time_limit"}:
+            try:
+                on_step(record, session)
+            except CreditBudgetExceeded as exc:
+                status, budget_exhausted = "credit_budget", True
+                error = redact(str(exc))
+                callback_budget_exhausted = True
+        if fatal or callback_budget_exhausted or status in {"submitted", "time_limit"}:
             break
         if record.blocked and not record.policy_usage.measured:
             status, error = "unknown_usage", "Malformed response with unknown usage"
             break
     return {"phase": phase, "termination": status, "steps": steps,
+            "actual_revision_steps_taken": steps,
+            "revision_attempt_count": revision_attempt_count,
+            "model_call_count": model_call_count,
+            "tool_call_count": tool_call_count,
             "prompt_tokens": prompt_tokens,
             "completion_tokens": tokens if usage_complete else None,
             "known_completion_tokens": tokens, "usage_complete": usage_complete,

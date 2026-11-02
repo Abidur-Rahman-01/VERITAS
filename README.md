@@ -2,8 +2,8 @@
 
 VERITAS is a research codebase for evaluating whether selecting current verifier evidence helps
 AI coding agents recover from incorrect repository patches under a matched resource budget. The
-primary comparison is adaptive evidence selection versus the strongest fixed actionable feedback
-policy. The benchmark proposal is an evaluation protocol over SWE-rebench tasks, not a claim that
+primary comparison is adaptive evidence selection versus the predeclared fixed actionable feedback
+policy in Arm C. The benchmark proposal is an evaluation protocol over SWE-rebench tasks, not a claim that
 the downloaded dataset itself is a new benchmark.
 
 See [the research architecture](docs/ARCHITECTURE.md) for the research question, closest work,
@@ -17,7 +17,8 @@ uv run veritas --help
 ```
 
 The architecture's paired policy comparison has five feedback arms (A–E), with adaptive selection
-(E) compared primarily against the development-selected fixed actionable policy (C).
+(E) compared primarily against the predeclared fixed actionable policy (C); fixed combined feedback
+(D) is secondary, while generic retry (A) and raw diagnostics (B) are diagnostic baselines.
 
 The repository currently contains the prepared 21,336-row `nebius/SWE-rebench` release pinned in
 `configs/datasets.yaml`. The separate `nebius/SWE-rebench-V2` parquet referenced by an older helper
@@ -30,8 +31,8 @@ Validate local data without model inference or Docker work:
 uv run python scripts/test_dataset_with_repo.py --tasks data/prepared --source swe_rebench --limit 100
 ```
 
-The staged workflow uses development repositories to select the fixed comparator and tune the
-selector, then holds out confirmation repositories. Local synthetic fixtures are for engineering
+The staged workflow predeclares Arm C as the primary fixed comparator, uses development repositories
+to freeze selector provenance, then holds out confirmation repositories. Local synthetic fixtures are for engineering
 development only; benchmark-backed runs require pinned task images and official grader metadata.
 See [the research architecture](docs/ARCHITECTURE.md) for the frozen protocol and remaining
 implementation limits.

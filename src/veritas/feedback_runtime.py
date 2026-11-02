@@ -52,7 +52,10 @@ class FeedbackCheckpointController:
         self.decisions: list[FeedbackDecision] = []
         self._packet: str | None = None
         self._delivered: set[str] = set()
-        self._last_tree_hash: str | None = None
+        self._last_patch_hash: str | None = None
+        self._checkpoint_limit_reached = False
+        self.patch_checkpoint_count = 0
+        self.same_patch_refresh_count = 0
 
     def create_initial_checkpoint(self, session):
         """Create checkpoint 0 following the frozen draft before revision actions."""
@@ -90,7 +93,7 @@ class FeedbackCheckpointController:
         self.decisions.append(decision)
         self._delivered.update(decision.selected_evidence_ids)
         self._packet = decision.packet
-        self._last_tree_hash = tree
+        self._last_patch_hash = digest(patch)
         event = {
             "checkpoint": checkpoint.model_dump(mode="json"),
             "expired_evidence_ids": expired,
@@ -105,18 +108,25 @@ class FeedbackCheckpointController:
     def on_step(self, record, session):
         if not record.executed:
             return None
-        if len(self.decisions) >= self.max_checkpoints:
-            # K is a frozen policy-independent limit. Once reached, the actor
-            # continues under the same remaining budget without more packets.
-            self._packet = None
+        if self._checkpoint_limit_reached:
+            # K limits patch snapshots. Once reached, the actor continues under
+            # the same remaining budget without more evidence or feedback.
             return None
         tree = tree_hash(self.workspace)
-        if tree == self._last_tree_hash:
+        patch = self.patch_fn(self.baseline, self.workspace)
+        patch_hash = digest(patch)
+        if patch_hash != self._last_patch_hash and self.patch_checkpoint_count >= self.max_checkpoints:
+            self._packet = None
+            self._checkpoint_limit_reached = True
+            self._last_patch_hash = patch_hash
+            return None
+        if patch_hash == self._last_patch_hash:
             # A test/read command can produce useful public evidence without
             # changing files. Preserve the current patch checkpoint, add the
             # observation, and refresh the packet before the next actor call.
             if not record.action or self.bank.current_checkpoint is None:
                 return None
+            self.same_patch_refresh_count += 1
             checkpoint = self.bank.current_checkpoint
             proposal_dict = record.action.proposal.model_dump(mode="json")
             item = tool_observation_item(
@@ -148,7 +158,7 @@ class FeedbackCheckpointController:
             return event
 
         # A tree change creates a new patch checkpoint regardless of tool label.
-        patch = self.patch_fn(self.baseline, self.workspace)
+        self.patch_checkpoint_count += 1
         checkpoint_id = (
             self.bank.current_checkpoint.checkpoint_id + 1
             if self.bank.current_checkpoint is not None else 0
@@ -185,7 +195,7 @@ class FeedbackCheckpointController:
         self.decisions.append(decision)
         self._delivered.update(decision.selected_evidence_ids)
         self._packet = decision.packet
-        self._last_tree_hash = tree
+        self._last_patch_hash = patch_hash
         event = {
             "checkpoint": checkpoint.model_dump(mode="json"),
             "expired_evidence_ids": expired,

@@ -6,7 +6,7 @@
 
 > **Primary question:** Starting from the same incorrect repository patch, can a controller that
 > selects *current, runtime-visible verifier evidence* at successive repair checkpoints improve
-> final patch correctness over the strongest fixed-feedback policy under the same total resource
+> final patch correctness over predeclared Arm C fixed actionable feedback under the same total resource
 > budget?
 
 This study evaluates **which evidence to show a coding agent as its patch changes**. The agent,
@@ -119,12 +119,14 @@ sequenceDiagram
   Agent->>Repo: Continue repair
 ```
 
-The first checkpoint follows the frozen draft. Later checkpoints occur after each completed code
-edit that changes the workspace tree hash, before the next actor model call, up to a maximum `K`
-chosen on development data. The same trigger and evidence-generation procedure run in every
-condition. After `K` checkpoints, the actor can continue with its remaining allowance but receives
-no further controller packet. Submission or budget exhaustion ends the branch. The policy does not
-control the trigger or stopping rule; that keeps the experiment focused on feedback selection.
+The initial evidence snapshot follows the frozen draft and is not counted as a patch change.
+Subsequent patch checkpoints occur when the generated patch hash changes, before the next actor
+model call, up to a maximum `K` patch changes. Same-patch tool observations refresh evidence but do
+not consume this ceiling. After `K` patch changes, the actor can continue within its revision-step
+and credit allowances but receives no further controller packet. `revision_steps` and `max_steps`
+count actor model requests that ask for another repair; tool observations do not consume that
+allowance. `actual_revision_steps_taken` is the number of such requests actually sent. The policy
+does not control these triggers or stopping rules.
 
 ## 4. Data and policy contracts
 
@@ -194,7 +196,7 @@ differences are part of the policy effect.
 flowchart TD
   P[Pin real task release, repositories, grader, actor, checks and budget]
   S[Split repositories into development and held-out confirmation]
-  D[Build development drafts and tune fixed comparator plus selector]
+  D[Build development drafts and freeze selector provenance; comparator remains Arm C]
   F[Freeze policy, prompts, arms, analysis and sample-size rule]
   T[For each task × actor × seed: run one common draft]
   I[Grade parent draft privately and freeze patch + history]
@@ -244,14 +246,14 @@ outcome. Preserve initially correct drafts for regression and full-cohort resolu
 |---|---|---|
 | **A · Generic retry** | Neutral packet. Checks still run and are charged, but their results are concealed from the actor. | Isolates the information value of feedback from another attempt. A separate no-check retry can estimate deployment cost. |
 | **B · Raw diagnostics** | Raw check outputs truncated by the common packet cap. | Execution-feedback baseline. |
-| **C · Best fixed actionable** | Frozen development-selected template: location, observed behavior, and source-supported expected behavior or alternatives when available. | **Primary comparator.** |
-| **D · Fixed combined** | All eligible current cards in a frozen order, truncated by the cap. | Tests whether selection helps beyond fixed aggregation. |
+| **C · Fixed actionable** | Predeclared actionable template: location, observed behavior, and source-supported expected behavior or alternatives when available. | **Primary comparator, frozen before results.** |
+| **D · Fixed combined** | All eligible current cards in a frozen order, truncated by the cap. | Secondary comparator for selection versus fixed aggregation. |
 | **E · Adaptive selection** | Frozen selector chooses current cards and order, with abstention allowed. | Proposed method. |
 
-All five arms use the same evidence producer and reviewer. Arm C must be selected on development
-data, never chosen after seeing confirmation results. No arm receives expert guidance derived from
-a reference patch. The primary test is **E versus C**; A, B, and D explain what kind of feedback
-value, if any, the selector adds.
+All five arms use the same evidence producer and reviewer. Arm C is fixed in the plan protocol as
+the primary comparator before development outcomes exist; development scores cannot switch it.
+Arm D is the only secondary comparator. Arms A and B remain diagnostic baselines. No arm receives
+expert guidance derived from a reference patch. The primary test is **E versus C**.
 
 ### 5.4 Resource matching and stopping
 
@@ -268,8 +270,13 @@ claim equal compute from token counts alone.
 
 Run a secondary **equal actor allowance** analysis with selector overhead shown separately. It
 answers a different deployment question and cannot replace the primary equal-total-budget result.
-The same maximum checkpoint count and stop rule apply to all arms. When the budget is exhausted,
-freeze the last durable patch and record the exhaustion; do not allow an extra uncharged revision.
+The same maximum patch-change count, revision-attempt count, and stop rule apply to all arms.
+Each result records patch changes, same-patch evidence refreshes, revision attempts, model calls,
+tool calls, operational credits, wall time, and a normalized termination reason. Credits are
+`model token credits + measured sandbox/evidence seconds × tool-second rate + selector credits`;
+the common parent draft is included in each branch's per-arm cost, while independent official
+grading and image setup are excluded and reported separately. When the budget is exhausted, freeze
+the last durable patch and record the exhaustion; do not allow an extra uncharged revision.
 
 ### 5.5 Final grading and failure handling
 
@@ -279,6 +286,15 @@ status: `resolved`, `unresolved`, `infrastructure_error`, `grader_error`, or `un
 Follow a predeclared retry rule for infrastructure failures. Report all assigned branches,
 including errors, timeouts, empty patches, and policy abstentions. Grader output has no path back
 to any active agent branch.
+
+The result row and trajectory summary store a normalized revision termination reason, revision
+error, budget exhaustion flag, final public-check status, evaluator-side official-grade status,
+patch emptiness, patch-change count, and actual revision steps. Failed rows may carry multiple
+failure-taxonomy tags: `empty_patch`, `non_empty_incorrect_patch`,
+`public_tests_pass_but_official_fail`, `agent_could_not_act / tool_error`, and
+`early_stop_without_budget_exhausted`. Public-check summaries are computed from checks run against
+the final patch; official grader outcomes remain evaluator-side and are never rendered into actor
+feedback.
 
 ## 6. Analysis plan
 
@@ -362,7 +378,7 @@ ablations: each has a distinct role, and the contrasts below should be declared 
 |---|---|---|---|
 | A | Generic retry (neutral packet) | B − A | Value of exposing raw execution feedback over another repair attempt without findings. |
 | B | Raw diagnostics | C − B | Value of converting raw output into a bounded, actionable feedback format. |
-| C | Best fixed actionable feedback | E − C (**primary**) | Whether adaptive evidence selection improves recovery over the strongest development-selected fixed policy. |
+| C | Predeclared fixed actionable feedback | E − C (**primary**) | Whether adaptive evidence selection improves recovery over Arm C under the same frozen protocol. |
 | D | Fixed combined evidence | E − D | Whether adaptive selection improves over delivering all eligible evidence in a fixed order. |
 | E | Adaptive evidence selection (full policy) | Reference for component ablations | Full method performance under the matched resource cap. |
 
@@ -373,7 +389,7 @@ arm only when no existing condition isolates the component.
 
 | Component contrast | Ablated condition | Value measured | Study status and interpretation |
 |---|---|---|---|
-| **Evidence selection** | Use D's fixed combined packet instead of E's selected packet. | Incremental value of selecting and ordering evidence under the same packet and compute constraints. | Covered by E − D; no extra arm is needed. E − C remains the primary comparison against the strongest fixed actionable policy. |
+| **Evidence selection** | Use D's fixed combined packet instead of E's selected packet. | Incremental value of selecting and ordering evidence under the same packet and compute constraints. | Covered by E − D; no extra arm is needed. E − C remains the primary comparison against predeclared Arm C. |
 | **Recovery-aware decision-making** | Keep E's evidence selection, but remove recovery probability/expected recovery benefit from its decision rule; make the decision from error risk alone. | Whether estimating recoverability changes intervention decisions and improves repair outcomes or cost. | Add this targeted arm only if recovery-aware decision-making is part of the frozen full method. The current architecture specifies evidence ranking, not this decision rule, so define its inputs and action threshold before adding the claim. |
 | **Patch relevance** | Remove patch-change and affected-file relevance from E's ranking score. | Whether conditioning selected evidence on the current patch improves recovery or reduces wasted feedback. | Development first; confirm only if this feature is a stated contribution and the study has adequate power. |
 | **Novelty and deduplication** | Remove redundancy/novel-information handling from E while preserving all other ranking terms. | Whether avoiding repeated or low-information findings improves outcomes per packet token or resource credit. | Development first; confirm only if prespecified. |
@@ -397,7 +413,7 @@ feature removals as exploratory rather than evidence that a component has no eff
 | [`feedback_policy.py`](../src/veritas/feedback_policy.py) | Implemented: five packet policies, shared character cap, budget-aware adaptive score, and auditable score/rejection details. Optional weights are frozen in the development baseline artifact. | Defaults are prespecified heuristics. The artifact records caller-supplied weights but cannot independently prove they were selected only from development data. |
 | [`runtime.py`](../src/veritas/runtime.py) `run_phase()` and [`feedback_runtime.py`](../src/veritas/feedback_runtime.py) | Implemented hook: detect patch changes and actor tool observations, refresh evidence packets, and expose the selected packet before the next actor request. Enforces a fixed checkpoint ceiling and caps model/tool calls by the remaining wall budget. | Verify the cap under the target runtime and publish observed operational limits. |
 | [`feedback_runner.py`](../src/veritas/feedback_runner.py) | Shared public producer for all arms: issue, pinned-environment diff check, disposable targeted tests, changed-file compile check, bounded reviewer opinion, and actor tool observations. Check costs are charged and unavailable checks are not represented as passes. Actor digest and continuation seeds are recorded. | Audit source-to-test matching and reviewer reliability on development data. |
-| [`feedback_study.py`](../src/veritas/feedback_study.py) and [`feedback_runner.py`](../src/veritas/feedback_runner.py) | Staged executor: pinned-image/official-grader fail-closed preflight, repository-disjoint development selection, frozen fixed baseline, confirmation parent screening, hard matched operational budget and wall cap, checkpoint ceiling, intent-to-treat outcomes, pre-existing-test regression metrics, and a predeclared approximate power plan. | Run the development screen; freeze a sufficient incorrect-parent cohort and fixed comparator; then run and audit confirmation. The task-count power approximation is not a substitute for enough independent repositories. |
+| [`feedback_study.py`](../src/veritas/feedback_study.py) and [`feedback_runner.py`](../src/veritas/feedback_runner.py) | Staged executor: pinned-image/official-grader fail-closed preflight, repository-disjoint development selection, Arm C comparator frozen in the plan, Arm D secondary contrast, confirmation parent screening, hard matched operational budget and wall cap, explicit trajectory counters/termination taxonomy, intent-to-treat outcomes, and a predeclared approximate power plan. | Run the development screen to freeze policy provenance, then screen and audit confirmation. The task-count power approximation is not a substitute for enough independent repositories. |
 | [`awareness_runtime.py`](../src/veritas/awareness_runtime.py) | Existing separate draft/review/revision experiment; not the proposed study runner. | Do not use its four factorial assignments as substitutes for the five paired feedback arms. |
 | [`awareness_grading.py`](../src/veritas/awareness_grading.py) / [`swe.py`](../src/veritas/swe.py) | Existing pinned SWE grading and harness contracts. | Reuse to grade frozen parent/final patches, preserving infrastructure and grader errors as unknown outcomes. |
 | [`controller.py`](../src/veritas/controller.py) | Legacy action-verification controller used by other runtime commands; it is not a feedback-selection arm. | Do not treat its verification policies as substitutes for the five paired feedback arms. |

@@ -29,6 +29,10 @@ class FeedbackDecision(StrictModel):
     packet_chars: int = Field(ge=0)
     selector_credits: float = Field(default=0, ge=0)
     reason_codes: list[str] = Field(default_factory=list)
+    next_patch_improved: bool | None = None
+    same_evidence_seen: bool = False
+    information_used: bool | None = None
+    outcome_basis: str | None = None
 
 
 def _severity(item: EvidenceItem) -> int:
@@ -56,6 +60,8 @@ def _novelty(item: EvidenceItem, seen: set[str]) -> int:
 
 def _actionable(item: EvidenceItem) -> str:
     parts = [f"[{item.source}/{item.basis}] {item.claim}"]
+    if item.issue_context:
+        parts.append(f"Issue context: {item.issue_context}")
     if item.location:
         parts.append(f"Location: {item.location}")
     if item.observed:
@@ -64,6 +70,8 @@ def _actionable(item: EvidenceItem) -> str:
         parts.append(f"Publicly supported expected behavior: {item.expected_if_observed}")
     if item.affected_files:
         parts.append("Files: " + ", ".join(item.affected_files))
+    if item.provenance:
+        parts.append(f"Produced by: {item.provenance}")
     parts.append(f"Evidence ID: {item.evidence_id}")
     return "\n".join(parts)
 
@@ -90,6 +98,20 @@ def select_feedback(*, arm: str, branch_id: str, checkpoint_id: int,
             rejected_evidence={e.evidence_id: "withheld_by_neutral_control" for e in current})
 
     seen = previously_delivered or set()
+    reliability = {"test": 1.0, "build": 1.0, "static": 0.9,
+                   "actor_tool": 0.8, "issue": 1.0, "reviewer": 0.5}
+    changed_set = set(changed_files)
+    annotated = []
+    for item in current:
+        rel = _relevance(item, changed_set)
+        sev = _severity(item)
+        novelty = _novelty(item, seen)
+        metadata = {"relevance": rel, "severity": sev,
+            "reliability": reliability[item.source], "novelty": novelty,
+            "redundancy": 1 - novelty, "cost_chars": len(_actionable(item)),
+            "cost_credits": item.cost_credits}
+        annotated.append(item.model_copy(update={"selection_metadata": metadata}))
+    current = annotated
     if arm == "raw_diagnostics":
         ordered = sorted(current, key=lambda e: (e.checkpoint_id, e.evidence_id))
         def render(item):
@@ -110,8 +132,6 @@ def select_feedback(*, arm: str, branch_id: str, checkpoint_id: int,
         ):
             raise ValueError("Adaptive weights must be finite numeric values with the frozen feature keys")
         changed = set(changed_files)
-        reliability = {"test": 1.0, "build": 1.0, "static": 0.9,
-                       "actor_tool": 0.8, "issue": 1.0, "reviewer": 0.5}
         score_details = []
         def score(item):
             relevance = _relevance(item, changed)
@@ -163,5 +183,6 @@ def select_feedback(*, arm: str, branch_id: str, checkpoint_id: int,
     return FeedbackDecision(branch_id=branch_id, checkpoint_id=checkpoint_id, arm=arm,
         selected_evidence_ids=selected, rejected_evidence=rejected,
         evidence_scores=score_details, packet=packet, packet_chars=len(packet),
+        same_evidence_seen=bool(set(selected) & seen),
         selector_credits=selector_credits,
         reason_codes=["adaptive_ranked"] if arm == "adaptive" else ["fixed_order"])

@@ -36,12 +36,16 @@ class EvidenceItem(StrictModel):
     command: str | None = None
     raw_artifact_hash: str
     claim: str
+    issue_context: str | None = None
     location: str | None = None
     observed: str | None = None
     expected_if_observed: str | None = None
     affected_files: list[str] = Field(default_factory=list)
     tests: list[str] = Field(default_factory=list)
     related_ids: list[str] = Field(default_factory=list)
+    provenance: str | None = None
+    # Populated by the selector and retained in event logs for auditability.
+    selection_metadata: dict[str, float | int | str | bool | None] = Field(default_factory=dict)
     status: Literal["current", "expired", "unavailable"] = "current"
     invalidated_reason: str | None = None
     created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
@@ -128,6 +132,7 @@ def tool_observation_item(checkpoint: PatchCheckpoint, action: dict, observation
         patch_hash=checkpoint.patch_hash, tree_hash=checkpoint.tree_hash,
         environment_hash=checkpoint.environment_hash, command=str(tool),
         raw_artifact_hash=digest(observation), claim=claim[:2000],
-        affected_files=affected, cost_credits=0,
+        observed=text[:2000] or None, affected_files=affected, cost_credits=0,
+        provenance=f"actor step {step_id}: {tool}",
         related_ids=[f"actor-step:{step_id}"],
     )

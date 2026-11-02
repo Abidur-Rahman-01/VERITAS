@@ -300,11 +300,7 @@ def get_feedback_paper_stats():
 
     graded_parents = [p for p in parent_grades if isinstance(p.get("parent_resolved"), bool)]
     parent_resolved = sum(bool(p["parent_resolved"]) for p in graded_parents)
-    frozen_arm = None
-    try:
-        frozen_arm = json.loads((FEEDBACK_DIR / "frozen_baseline.json").read_text(encoding="utf-8")).get("selected_fixed_arm")
-    except (OSError, ValueError):
-        pass
+    frozen_arm = "fixed_actionable"
     paired = {"n": 0, "adaptive_only": 0, "fixed_only": 0, "both_or_neither": 0,
               "adaptive_recovered": 0, "fixed_recovered": 0}
     for arm_rows in block_arms.values():
@@ -401,7 +397,7 @@ def get_feedback_paper_stats():
         "branch_completion_percent": round(100 * len(records) / total_branches, 1) if total_branches else 0,
         "stage_stats": stage_stats,
         "frozen_comparator": frozen_arm,
-        "primary_comparison": f"adaptive vs {frozen_arm}" if frozen_arm else "adaptive vs development-selected fixed arm (not frozen yet)",
+        "primary_comparison": "adaptive vs fixed_actionable (Arm C)",
         "graded_parents": len(graded_parents),
         "parent_resolved": parent_resolved,
         "parent_incorrect": len(graded_parents) - parent_resolved,
@@ -426,7 +422,7 @@ def get_feedback_paper_stats():
             "Before feedback = shared parent draft token usage from draft_events.sqlite.",
             "After feedback = per-arm continuation usage recorded in results.jsonl.",
             "The run enforces the configured per-task total actor-credit cap with conservative reservations; credits are experimental units, not currency.",
-            "Development selects the fixed comparator. The primary held-out contrast is adaptive versus that frozen arm; other arms are secondary.",
+            "Arm C (fixed actionable) is the predeclared primary comparator. Arm D is secondary; A and B are diagnostic.",
             "This dashboard displays live counts only; use the saved analysis for repository-clustered uncertainty estimates.",
         ],
     }
@@ -742,8 +738,8 @@ FEEDBACK_HTML_TEMPLATE = """<!doctype html>
  <article class="card"><div class="label">Current arm</div><div class="value" style="font-size:18px" id="arm">Waiting</div><div class="small" id="partition">—</div></article>
 </section>
 <section class="cols"><article class="panel"><h2>Token use before and after feedback</h2><div class="phase"><div class="phasebox"><span class="label">Before verifier · shared draft</span><b id="drafttokens">0 tokens</b><span class="small" id="draftdetail">Prompt 0 · completion 0 · 0 calls</span></div><div class="arrow">→</div><div class="phasebox"><span class="label">After verifier · all continuations</span><b id="revisiontokens">0 tokens</b><span class="small" id="revisiondetail">Prompt 0 · completion 0</span></div></div><div class="foot">Draft is shared once per task; continuation tokens are counted separately for each of five arms. Draft credit is a token-only estimate; revision credits use the runner's formula. Missing usage is not imputed.</div></article>
-<article class="panel"><h2>Primary held-out comparison</h2><div class="pair"><div><span class="small">Paired n</span><strong id="pairn">0</strong></div><div><span class="small">Adaptive only</span><strong id="adaptiveonly">0</strong></div><div><span class="small">Frozen comparator only</span><strong id="fixedonly">0</strong></div><div><span class="small">Tied</span><strong id="tied">0</strong></div></div><div class="foot" id="pairrate">Recovery: adaptive — · comparator —</div><div class="foot" id="primarylabel">Primary: adaptive vs development-selected fixed arm</div></article></section>
-<section class="panel"><h2>Development and confirmation stage progress</h2><div class="livegrid"><div class="phasebox"><span class="label">Development</span><b id="devstage">0 / 0 tasks · 0 / 0 arms</b><span class="small" id="devdetail">Parent grades, incorrect parents, and outcomes loading</span></div><div class="phasebox"><span class="label">Confirmation</span><b id="confstage">0 / 0 tasks · 0 / 0 arms</b><span class="small" id="confdetail">Parent grades, incorrect parents, and outcomes loading</span></div><div class="phasebox"><span class="label">Frozen comparator</span><b id="frozenarm">Not selected</b><span class="small" id="armcoverage">Five arms planned per task in each partition</span></div></div></section>
+<article class="panel"><h2>Primary held-out comparison</h2><div class="pair"><div><span class="small">Paired n</span><strong id="pairn">0</strong></div><div><span class="small">Adaptive only</span><strong id="adaptiveonly">0</strong></div><div><span class="small">Fixed actionable only</span><strong id="fixedonly">0</strong></div><div><span class="small">Tied</span><strong id="tied">0</strong></div></div><div class="foot" id="pairrate">Recovery: adaptive — · comparator —</div><div class="foot" id="primarylabel">Primary: adaptive vs fixed actionable (Arm C)</div></article></section>
+<section class="panel"><h2>Development and confirmation stage progress</h2><div class="livegrid"><div class="phasebox"><span class="label">Development</span><b id="devstage">0 / 0 tasks · 0 / 0 arms</b><span class="small" id="devdetail">Parent grades, incorrect parents, and outcomes loading</span></div><div class="phasebox"><span class="label">Confirmation</span><b id="confstage">0 / 0 tasks · 0 / 0 arms</b><span class="small" id="confdetail">Parent grades, incorrect parents, and outcomes loading</span></div><div class="phasebox"><span class="label">Primary comparator</span><b id="frozenarm">Arm C · Fixed actionable</b><span class="small" id="armcoverage">Five arms planned per task in each partition</span></div></div></section>
 </section>
 <section class="panel" id="evaluation-matrix"><div class="section-kicker">Study protocol</div><h2>Evaluation matrix · four policy conditions</h2><div class="design-grid">
  <article class="design-card"><span class="condition">E1 · BASELINE</span><h3>Original agent</h3><p>Run the coding agent without VERITAS. Establishes baseline repair quality, cost, and latency.</p></article>
@@ -764,7 +760,7 @@ FEEDBACK_HTML_TEMPLATE = """<!doctype html>
 <section class="panel" id="ablation-plan"><div class="section-kicker">Mechanism analysis</div><h2>Paired feedback arms and prespecified contrasts</h2><div class="tablewrap"><table><thead><tr><th>Arm</th><th>Feedback condition</th><th>Contrast</th><th>Question</th></tr></thead><tbody>
  <tr><td>A</td><td>Generic retry · neutral packet</td><td>B − A</td><td>Does raw execution feedback help over another repair attempt without findings?</td></tr>
  <tr><td>B</td><td>Raw diagnostics</td><td>C − B</td><td>Does a bounded actionable format help beyond raw output?</td></tr>
- <tr><td>C</td><td>Best fixed actionable feedback</td><td><b>E − C · primary</b></td><td>Does adaptive evidence selection improve recovery over the strongest development-selected fixed policy?</td></tr>
+ <tr><td>C</td><td>Predeclared fixed actionable feedback</td><td><b>E − C · primary</b></td><td>Does adaptive evidence selection improve recovery over the fixed actionable policy?</td></tr>
  <tr><td>D</td><td>Fixed combined evidence</td><td>E − D</td><td>Does adaptive selection improve over all eligible evidence in a fixed order?</td></tr>
  <tr><td>E</td><td>Adaptive evidence selection · full policy</td><td>Reference</td><td>Full method under the matched resource cap.</td></tr>
 </tbody></table></div>
@@ -796,12 +792,12 @@ document.getElementById('task').textContent=d.active.task||d.last_task||'Waiting
 document.getElementById('drafttokens').textContent=`${nfmt(d.draft.tokens)} tokens`;document.getElementById('draftdetail').textContent=`Prompt ${nfmt(d.draft.prompt_tokens)} · completion ${nfmt(d.draft.completion_tokens)} · ${d.draft.steps} calls · token credit est. ${d.draft.token_credit_estimate}`;
 document.getElementById('revisiontokens').textContent=`${nfmt(d.revision.tokens)} tokens`;document.getElementById('revisiondetail').textContent=`Prompt ${nfmt(d.revision.prompt_tokens)} · completion ${nfmt(d.revision.completion_tokens)} · continuation credits ${d.revision.reported_estimated_credits}`;
 document.getElementById('pairn').textContent=nfmt(d.paired.n);document.getElementById('adaptiveonly').textContent=nfmt(d.paired.adaptive_only);document.getElementById('fixedonly').textContent=nfmt(d.paired.fixed_only);document.getElementById('tied').textContent=nfmt(d.paired.both_or_neither);
-document.getElementById('primarylabel').textContent=`Primary comparison: ${d.primary_comparison||'adaptive vs frozen development comparator'} · other confirmation arms are secondary`;
-document.getElementById('fixedonly').parentElement.querySelector('.small').textContent=`${d.frozen_comparator||'Frozen comparator'} only`;
+document.getElementById('primarylabel').textContent=`Primary comparison: ${d.primary_comparison||'adaptive vs fixed actionable (Arm C)'} · Arm D is secondary; A/B are diagnostic`;
+document.getElementById('fixedonly').parentElement.querySelector('.small').textContent='Fixed actionable only';
 document.getElementById('pairrate').textContent=`Recovery among initially incorrect parents: adaptive ${pct(d.paired.adaptive_recovered,d.paired.n)} (${d.paired.adaptive_recovered}/${d.paired.n}) · ${d.frozen_comparator||'frozen comparator'} ${pct(d.paired.fixed_recovered,d.paired.n)} (${d.paired.fixed_recovered}/${d.paired.n})`;
 for(const [key,prefix] of [['development','dev'],['confirmation','conf']]){const s=d.stage_stats?.[key]||{};document.getElementById(prefix+'stage').textContent=`${s.parents_graded||0} / ${s.tasks||0} parents · ${s.branches_recorded||0} / ${s.branches_planned||0} arms`;
 document.getElementById(prefix+'detail').textContent=`Incorrect parents ${s.parents_incorrect||0} · graded outcomes ${s.graded_outcomes||0} · resolved ${s.resolved||0} · grader infrastructure errors ${s.infrastructure_errors||0}`}
-document.getElementById('frozenarm').textContent=d.frozen_comparator||'Not selected';document.getElementById('armcoverage').textContent=`${d.completed_branches} / ${d.total_branches} total branch outcomes · ${d.branch_completion_percent}% recorded`;
+document.getElementById('frozenarm').textContent='Arm C · Fixed actionable';document.getElementById('armcoverage').textContent=`${d.completed_branches} / ${d.total_branches} total branch outcomes · ${d.branch_completion_percent}% recorded`;
 document.getElementById('incorrect').textContent=nfmt(d.parent_incorrect);let usable=d.arm_stats.reduce((a,x)=>a+x.usage_complete,0),arms=d.arm_stats.reduce((a,x)=>a+x.count,0);document.getElementById('usagecoverage').textContent=arms?`${usable}/${arms} (${pct(usable,arms)})`:'—';
 const rows=document.getElementById('armrows');rows.innerHTML='';for(const a of d.arm_stats){const tr=document.createElement('tr');if(a.arm==='adaptive')tr.className='arm-adaptive';tr.innerHTML=`<td>${safe(a.arm)}</td><td>${a.count}</td><td>${a.resolved}/${a.graded}</td><td>${a.resolution_rate==null?'—':a.resolution_rate+'%'}</td><td>${a.recovery_resolved}/${a.recovery_total}</td><td>${a.recoveries_per_1k_tokens??'—'}</td><td>${a.regressions}/${a.regression_total}</td><td>${nfmt(a.tokens)}</td><td>${nfmt(a.mean_tokens)}</td><td>${a.mean_credits??'—'}</td><td>${a.credits_per_recovery??'—'}</td><td>${a.mean_checkpoints??'—'}</td><td>${a.mean_seconds??'—'}</td><td>${a.infrastructure_errors}</td>`;rows.appendChild(tr)}
 const recent=document.getElementById('recent');recent.innerHTML='';for(const x of d.recent_records.slice().reverse()){const tr=document.createElement('tr');tr.innerHTML=`<td>${safe(x.task_id)}</td><td>${safe(x.arm)}</td><td>${x.parent_resolved==null?'—':x.parent_resolved?'resolved':'incorrect'}</td><td>${x.resolved==null?'unknown':x.resolved?'resolved':'unresolved'}</td><td>${nfmt((x.actor_prompt_tokens||0)+(x.actor_completion_tokens||0))}</td><td>${x.total_credits??'—'}</td><td>${x.wall_seconds??'—'} s</td><td>${safe(x.grader_status)}</td>`;recent.appendChild(tr)}

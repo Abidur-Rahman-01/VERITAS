@@ -48,7 +48,7 @@ def parser():
                     help="Explicitly mark this as a local engineering pilot; not benchmark-backed")
     fv = feedback.add_parser("verify", help="Verify frozen feedback-study plan integrity")
     fv.add_argument("--study", required=True)
-    fb = feedback.add_parser("freeze-baseline", help="Select the strongest fixed arm from development results")
+    fb = feedback.add_parser("freeze-baseline", help="Freeze development policy weights and audit data; Arm C stays primary")
     fb.add_argument("--study", required=True)
     fb.add_argument("--minimum-incorrect", type=int, default=20)
     fb.add_argument("--results")
