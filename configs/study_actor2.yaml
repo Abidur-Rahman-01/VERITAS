@@ -1,0 +1,105 @@
+# Second actor (H1c, RQ5). Reuse actor 1's split: veritas split --reuse-split runs/actor1-swelego8b-v1/split.json
+# Actor 2 on the same SWE-rebench pool. Every field is documented in
+# src/veritas/config.py. Change study_id whenever you change anything here: a run directory
+# refuses a configuration that differs from the one it was created with.
+study_id: actor2-qwen3coder30b-v1
+root: runs
+
+backend:
+  kind: hf_server
+  base_url: http://127.0.0.1:8765
+  model: actor2
+  temperature: 0.7
+  top_p: 0.95
+  max_new_tokens: 1024
+
+server:
+  # Local copy of Qwen/Qwen3-Coder-30B-A3B-Instruct at revision
+  # b2cff646eb4bb1d68355c01b18ae02e7cf42d120 (Apache-2.0). README section 6 downloads it here.
+  model_path: /models/Qwen3-Coder-30B-A3B-Instruct
+  dtype: bfloat16
+  quantization: bnb4
+  device: cuda
+  attn_implementation: sdpa
+  max_context_tokens: 16384
+  feature_layer_fractions: [0.25, 0.5, 0.75]
+  host: 127.0.0.1
+  port: 8765
+  chat_template_kwargs: {}
+
+sandbox:
+  kind: docker
+  # null: use each image's WORKDIR (SWE-rebench-V2 keeps every repository in its own directory).
+  workdir: null
+  memory: 8g
+  cpus: 2
+  command_timeout_seconds: 180
+  grade_timeout_seconds: 1800
+  keep_snapshots: true
+
+agent:
+  max_steps: 40
+  max_checkpoints: 3
+  max_observation_chars: 6000
+  credit_cap: 400
+  wall_seconds: 2400
+
+evidence:
+  families: [F1, F2, F3, F4, F5, F6, F7]
+  test_timeout_seconds: 300
+  max_items_per_family: 2
+  max_item_chars: 1500
+  packet_token_cap: 1500
+  producer_max_new_tokens: 400
+
+cost:
+  per_token: 0.002
+  per_sandbox_second: 0.05
+
+data:
+  # SWE-rebench-V2 (Python subset), pinned to a dataset commit. `veritas fetch-data` downloads it
+  # and writes the exclusion list below. Tasks must post-date the actor's training data:
+  # SWE-Lego was fine-tuned on SWE-rebench tasks created up to 2025-04-30 (and Qwen3-8B was
+  # released 2025-04-29), so only tasks created on or after 2025-05-01 are used.
+  dataset_path: data/raw/swe_rebench_v2.jsonl
+  source: swe_rebench_v2
+  hf_dataset: nebius/SWE-rebench-V2
+  hf_revision: d7608f017a29ab256400ad4b73d5248d97204966
+  hf_split: train
+  created_after: "2025-05-01"
+  require_pytest_parser: true
+  max_patch_files: 3
+  # SWE-Lego's training tasks (real and synthetic); removed even though none should pass the
+  # date filter, so the guarantee does not depend on dataset dates.
+  exclude_ids_path: data/raw/exclude_swelego_ids.txt
+  exclude_hf_datasets:
+    - Lego-X/SWE-Lego-Real-Data@879c96b91dfa321b4d1c621d149a9200f8a1d118
+    - Lego-X/SWE-Lego-Synthetic-Data@3e745545b07516f8772d2b7ecc5d3bbee84c012c
+  max_tasks: null
+
+split: {train: 0.45, dev: 0.10, confirm: 0.45, salt: veritas-v2-split}
+screen: {seeds: [0, 1, 2, 3], min_successes: 1, max_successes: 3}
+collect_seeds: [10, 11, 12]
+label: {reference_format: edit, reference_set: all_passing, normalize_per_token: true, item_level: true}
+validate: {n_checkpoints: 150, seeds_per_arm: 3, seed_base: 1000}
+
+probe:
+  models: [logistic, mlp, gbt]
+  feature_sets: [item, logprob, hidden, full, full_no_state, no_hidden, item_state]
+  folds: 5
+  gate_model: logistic
+  gate_features: full
+  maniple_model: gbt
+  maniple_features: item_state
+  positive_threshold: 0.0
+  tau_grid: [-0.05, 0.0, 0.05]
+
+confirm:
+  seeds: [20, 21, 22]
+  arms: [NONE, RESAMPLE, ALL, FIX, MANIPLE, QUALITY, LINUCB, GATE, ORACLE, RANDOM_SAME_SIZE, SHUFFLED]
+  primary: [GATE, ALL]
+  secondary: [[GATE, FIX], [GATE, MANIPLE], [GATE, QUALITY], [GATE, RESAMPLE]]
+  gate_threshold: 0.0
+  quality_threshold: 0.6
+  regression_margin: 0.02
+  bootstrap_samples: 5000

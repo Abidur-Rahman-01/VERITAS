@@ -1,3 +1,3 @@
-"""VERITAS research pipeline. Labels always use error=1, correct=0."""
+"""VERITAS: actor-relative evidence value for coding-agent harnesses."""
 
-__version__ = "0.1.0"
+__version__ = "2.0.0"

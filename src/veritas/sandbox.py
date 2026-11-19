@@ -1,327 +1,321 @@
-import json
-import os
+"""Isolated repository workspaces.
+
+``DockerSandbox`` runs one long-lived, network-less container per branch from the task's pinned
+image. On start it removes the repository's git history and re-initialises a single ``base``
+commit, so the agent cannot read future commits (hack-free evaluation). ``LocalSandbox`` offers
+the same interface on a host directory and exists for tests and smoke runs.
+"""
+
+from __future__ import annotations
+
+import shlex
 import shutil
 import subprocess
 import tempfile
+import time
 import uuid
-from pathlib import Path
+from abc import ABC, abstractmethod
+from dataclasses import dataclass
+from pathlib import Path, PurePosixPath
 
 from .config import SandboxConfig
-from .io import canonical
-from .schema import ActionContract
-from .state import safe_extract, tree_hash
+
+EXCLUDES = "__pycache__/\n*.pyc\n.pytest_cache/\n*.egg-info/\n.mypy_cache/\n"
+RESET_GIT = (
+    "rm -rf .git && git init -q && printf %s {excludes} > .git/info/exclude && git add -A && "
+    "git -c user.email=veritas@localhost -c user.name=veritas commit -q --no-verify -m base"
+)
 
 
-def command(argv, timeout=120, input=None):
-    result = subprocess.run(
-        argv,
-        input=input,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        timeout=timeout,
-        check=False,
-    )
-    if result.returncode:
-        raise RuntimeError(
-            f"Command failed ({argv[0]}): {result.stderr.decode(errors='replace')[-2000:]}"
-        )
-    return result.stdout
+@dataclass(frozen=True)
+class ExecResult:
+    exit_code: int
+    output: str
+    seconds: float
+
+    @property
+    def timed_out(self) -> bool:
+        return self.exit_code in (124, 137)
 
 
-class DockerSandbox:
-    """Disposable containers, no host bind mounts, no network or external side effects.
+class SandboxError(RuntimeError):
+    pass
 
-    Only /testbed is durable; all other container state is discarded after each action.
-    File mutations return through a validated tar archive, never a shared host directory.
-    """
 
-    def __init__(self, workspace, config: SandboxConfig):
-        self.workspace = Path(workspace).resolve()
-        self.workspace.mkdir(parents=True, exist_ok=True)
-        self.config = config
+class Sandbox(ABC):
+    def __init__(self, cfg: SandboxConfig):
+        self.cfg = cfg
+        self.sandbox_seconds = 0.0
+        # Repository root inside the workspace. DockerSandbox replaces it with the image's
+        # WORKDIR when ``cfg.workdir`` is None (SWE-rebench-V2 images use one per repository).
+        self.workdir = cfg.workdir or "/testbed"
 
-    def preflight(self):
-        command(["docker", "info", "--format", "{{.ServerVersion}}"], timeout=20)
-        # Never silently pull unpinned / unexpected images during inference.
-        return (
-            command(
-                ["docker", "image", "inspect", self.config.image, "--format", "{{.Id}}"], timeout=20
+    # --- primitives -----------------------------------------------------------------------
+    @abstractmethod
+    def exec(self, command: str, timeout: int | None = None) -> ExecResult: ...
+
+    @abstractmethod
+    def read_file(self, path: str) -> str | None: ...
+
+    @abstractmethod
+    def write_file(self, path: str, content: str) -> None: ...
+
+    @abstractmethod
+    def snapshot(self) -> str: ...
+
+    @abstractmethod
+    def restore(self, snapshot_id: str) -> "Sandbox": ...
+
+    @abstractmethod
+    def drop_snapshot(self, snapshot_id: str) -> None: ...
+
+    @abstractmethod
+    def close(self) -> None: ...
+
+    @property
+    @abstractmethod
+    def environment_hash(self) -> str: ...
+
+    # --- derived operations ---------------------------------------------------------------
+    def relpath(self, path: str) -> str:
+        """Normalise an agent-supplied path to a workspace-relative POSIX path, or raise."""
+        p = PurePosixPath(path.strip())
+        work = PurePosixPath(self.workdir)
+        if p.is_absolute():
+            try:
+                p = p.relative_to(work)
+            except ValueError as exc:
+                raise SandboxError(f"path outside the repository: {path}") from exc
+        if any(part == ".." for part in p.parts):
+            raise SandboxError(f"path escapes the repository: {path}")
+        text = str(p)
+        return "" if text == "." else text
+
+    def git(self, args: str, timeout: int = 120) -> ExecResult:
+        return self.exec(f"git -c safe.directory='*' {args}", timeout=timeout)
+
+    def diff(self) -> str:
+        """Current patch against the base commit, including new and deleted files."""
+        result = self.git("add -A && git -c safe.directory='*' diff --cached --binary HEAD")
+        if result.exit_code != 0:
+            raise SandboxError(f"git diff failed: {result.output[-500:]}")
+        out = result.output
+        return out if not out or out.endswith("\n") else out + "\n"
+
+    def tree_hash(self) -> str:
+        result = self.git("add -A && git -c safe.directory='*' write-tree")
+        if result.exit_code != 0:
+            raise SandboxError(f"git write-tree failed: {result.output[-500:]}")
+        return result.output.strip().splitlines()[-1]
+
+    def restore_tree(self, tree: str) -> None:
+        """Reset the working tree to ``tree`` (a hash from ``tree_hash``): tracked content is
+        restored and files created since are removed (ignored files are kept)."""
+        result = self.git(f"read-tree -u --reset {tree} && git -c safe.directory='*' clean -fdq")
+        if result.exit_code != 0:
+            raise SandboxError(f"restore_tree failed: {result.output[-500:]}")
+
+    def apply_patch(self, patch: str, name: str) -> ExecResult:
+        if not patch.strip():
+            return ExecResult(0, "empty patch", 0.0)
+        target = f".veritas_{name}.patch"
+        self.write_file(target, patch)
+        result = self.git(f"apply --whitespace=nowarn {target} && rm -f {target}")
+        if result.exit_code != 0:
+            self.exec(f"rm -f {target}")
+        return result
+
+    def reset_files(self, paths: list[str]) -> None:
+        if paths:
+            quoted = " ".join(shlex.quote(p) for p in paths)
+            self.git(f"checkout -q HEAD -- {quoted} 2>/dev/null; true")
+
+
+class LocalSandbox(Sandbox):
+    """Host-directory workspace (tests and smoke runs only; no isolation)."""
+
+    def __init__(self, cfg: SandboxConfig, source_dir: str | Path, *, _root: Path | None = None):
+        super().__init__(cfg)
+        if _root is not None:
+            self.root = _root
+        else:
+            self.root = Path(tempfile.mkdtemp(prefix="veritas-local-"))
+            shutil.copytree(source_dir, self.root, dirs_exist_ok=True)
+            result = self.exec(RESET_GIT.format(excludes=shlex.quote(EXCLUDES)))
+            if result.exit_code != 0:
+                raise SandboxError(f"git init failed: {result.output}")
+        self._snapshots = Path(tempfile.gettempdir()) / "veritas-local-snapshots"
+
+    def exec(self, command: str, timeout: int | None = None) -> ExecResult:
+        limit = timeout or self.cfg.command_timeout_seconds
+        start = time.monotonic()
+        try:
+            proc = subprocess.run(
+                ["bash", "-c", command], cwd=self.root, stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT, timeout=limit, check=False,
             )
-            .decode()
-            .strip()
-        )
+            code, out = proc.returncode, proc.stdout.decode("utf-8", errors="replace")
+        except subprocess.TimeoutExpired as exc:
+            code = 124
+            out = (exc.stdout or b"").decode("utf-8", errors="replace") + "\n[timed out]"
+        seconds = time.monotonic() - start
+        self.sandbox_seconds += seconds
+        return ExecResult(code, out, seconds)
 
-    def execute(self, action: ActionContract):
-        if action.proposal.tool == "final_answer":
-            return {"exit_code": 0, "output": action.proposal.args["answer"]}
-        tree_hash(self.workspace)
-        name = "veritas-" + uuid.uuid4().hex
-        cfg = self.config
-        setup = (
-            "set -e; rm -rf /testbed; mv /veritas_workspace /testbed; cd /testbed; "
-            "if [ -f /opt/miniconda3/bin/activate ]; then "
-            ". /opt/miniconda3/bin/activate; conda activate testbed; fi; "
-            "exec python /veritas_worker.py"
+    def read_file(self, path: str) -> str | None:
+        target = self.root / self.relpath(path)
+        if not target.is_file():
+            return None
+        return target.read_text(encoding="utf-8", errors="replace")
+
+    def write_file(self, path: str, content: str) -> None:
+        target = self.root / self.relpath(path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content, encoding="utf-8")
+
+    def snapshot(self) -> str:
+        snap = "local-" + uuid.uuid4().hex
+        shutil.copytree(self.root, self._snapshots / snap, symlinks=True)
+        return snap
+
+    def restore(self, snapshot_id: str) -> "LocalSandbox":
+        root = Path(tempfile.mkdtemp(prefix="veritas-local-"))
+        shutil.copytree(self._snapshots / snapshot_id, root, symlinks=True, dirs_exist_ok=True)
+        return LocalSandbox(self.cfg, root, _root=root)
+
+    def drop_snapshot(self, snapshot_id: str) -> None:
+        shutil.rmtree(self._snapshots / snapshot_id, ignore_errors=True)
+
+    def close(self) -> None:
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    @property
+    def environment_hash(self) -> str:
+        return "local"
+
+
+def _docker(args: list[str], timeout: int = 300, stdin: bytes | None = None) -> str:
+    proc = subprocess.run(
+        ["docker", *args], input=stdin, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        timeout=timeout, check=False,
+    )
+    if proc.returncode != 0:
+        raise SandboxError(
+            f"docker {args[0]} failed: {proc.stderr.decode('utf-8', errors='replace')[-1500:]}"
         )
+    return proc.stdout.decode("utf-8", errors="replace")
+
+
+def _inspect(image: str) -> tuple[str, str]:
+    """Image id and configured WORKDIR (a committed snapshot keeps its source's WORKDIR)."""
+    out = _docker(["image", "inspect", image, "--format", "{{.Id}}|{{.Config.WorkingDir}}"], 60)
+    image_id, _, workdir = out.strip().partition("|")
+    return image_id, workdir
+
+
+class DockerSandbox(Sandbox):
+    def __init__(
+        self, cfg: SandboxConfig, image: str, *, prepare: bool = True, env_hash: str | None = None
+    ):
+        super().__init__(cfg)
+        self.image = image
+        image_id, image_workdir = _inspect(image)
+        # A restored snapshot keeps the environment hash of the task image it was derived from.
+        self._image_id = env_hash or image_id
+        if cfg.workdir is None:
+            if not image_workdir:
+                raise SandboxError(f"{image}: image has no WORKDIR; set sandbox.workdir")
+            self.workdir = image_workdir
+        self.name = "veritas-" + uuid.uuid4().hex[:16]
         args = [
-            "docker",
-            "create",
-            "--name",
-            name,
-            "-i",
-            "--network",
-            "none",
-            "--cap-drop",
-            "ALL",
-            "--security-opt",
-            "no-new-privileges",
-            "--pids-limit",
-            "128",
-            "--memory",
-            cfg.memory,
-            "--cpus",
-            str(cfg.cpus),
-            "--user",
-            "0:0",
-            "--ulimit",
-            "fsize=268435456:268435456",
-            "--env",
-            "PYTHONDONTWRITEBYTECODE=1",
-            "--env",
-            f"VERITAS_TIMEOUT={max(1, cfg.timeout_seconds - 5)}",
-            "--workdir",
-            "/",
-            "--entrypoint",
-            "/bin/bash",
+            "run", "-d", "--name", self.name, "--network", cfg.network,
+            "--memory", cfg.memory, "--cpus", str(cfg.cpus), "--pids-limit", "512",
+            "--security-opt", "no-new-privileges", "--entrypoint", "/bin/bash",
         ]
         if cfg.platform:
             args += ["--platform", cfg.platform]
-        args += [cfg.image, "-c", setup]
-        try:
-            command(args)
-            command(["docker", "cp", str(self.workspace), name + ":/veritas_workspace"])
-            command(
-                [
-                    "docker",
-                    "cp",
-                    str(Path(__file__).with_name("worker.py")),
-                    name + ":/veritas_worker.py",
-                ]
+        _docker([*args, image, "-c", "sleep infinity"], 120)
+        if prepare:
+            result = self.exec(
+                f"git -c safe.directory='*' status --porcelain >/dev/null 2>&1; "
+                f"{RESET_GIT.format(excludes=shlex.quote(EXCLUDES))}",
+                timeout=600,
             )
-            try:
-                raw = command(
-                    ["docker", "start", "-a", "-i", name],
-                    timeout=cfg.timeout_seconds,
-                    input=canonical(action.proposal.model_dump(mode="json")),
-                )
-            except subprocess.TimeoutExpired:
-                command(["docker", "kill", name], timeout=20)
-                return {"exit_code": 124, "output": "Sandbox timeout; workspace changes discarded"}
-            try:
-                result = json.loads(raw)
-                if not isinstance(result, dict) or not isinstance(result.get("exit_code"), int):
-                    raise ValueError("Invalid worker result")
-                result["output"] = str(result.get("output", ""))[: cfg.max_output_chars]
-            except (ValueError, TypeError) as e:
-                raise RuntimeError("Container returned invalid worker output") from e
-            with tempfile.TemporaryDirectory(prefix="veritas-export-") as tmp:
-                archive = Path(tmp) / "workspace.tar"
-                # Bound archive transfer rather than collecting arbitrary output in RAM.
-                with archive.open("wb") as out:
-                    process = subprocess.Popen(
-                        ["docker", "cp", name + ":/testbed/.", "-"],
-                        stdout=subprocess.PIPE,
-                        stderr=subprocess.DEVNULL,
-                    )
-                    size = 0
-                    try:
-                        while chunk := process.stdout.read(1024 * 1024):
-                            size += len(chunk)
-                            if size > 300 * 1024 * 1024:
-                                raise ValueError("Workspace export exceeds 300 MiB")
-                            out.write(chunk)
-                        if process.wait(timeout=30):
-                            raise RuntimeError("Failed to export sandbox workspace")
-                    finally:
-                        if process.poll() is None:
-                            process.kill()
-                            process.wait()
-                extracted = Path(tmp) / "files"
-                safe_extract(archive, extracted)
-                tree_hash(extracted)
-                shutil.rmtree(self.workspace)
-                shutil.copytree(extracted, self.workspace)
-            return result
-        finally:
-            subprocess.run(
-                ["docker", "rm", "-f", name],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                timeout=30,
-                check=False,
-            )
+            if result.exit_code != 0:
+                self.close()
+                raise SandboxError(f"workspace preparation failed: {result.output[-1500:]}")
 
-
-class LocalSandbox:
-    """Disposable host-process sandbox for environments without Docker or WSL.
-
-    Executes tools directly in workspace using worker.py logic, with state tree hashing.
-    """
-
-    def __init__(self, workspace, config: SandboxConfig):
-        self.workspace = Path(workspace).resolve()
-        self.workspace.mkdir(parents=True, exist_ok=True)
-        self.config = config
-
-    def preflight(self):
-        return "local-process-sandbox"
-
-    def execute(self, action: ActionContract):
-        if action.proposal.tool == "final_answer":
-            return {"exit_code": 0, "output": action.proposal.args["answer"]}
-        tree_hash(self.workspace)
-        from .worker import execute as worker_execute
-
-        orig_cwd = os.getcwd()
+    def exec(self, command: str, timeout: int | None = None) -> ExecResult:
+        limit = timeout or self.cfg.command_timeout_seconds
+        script = f"{self.cfg.activate}; cd {shlex.quote(self.workdir)} && {command}"
+        argv = ["docker", "exec", self.name, "timeout", "-s", "KILL", str(limit),
+                "bash", "-c", script]
+        start = time.monotonic()
         try:
-            os.chdir(self.workspace)
-            os.environ["VERITAS_TIMEOUT"] = str(max(1, self.config.timeout_seconds - 5))
-            proposal = action.proposal.model_dump(mode="json")
-            result = worker_execute(proposal)
-            if not isinstance(result, dict):
-                result = {"exit_code": 0, "output": str(result)[: self.config.max_output_chars]}
-            else:
-                result["output"] = str(result.get("output", ""))[: self.config.max_output_chars]
-            tree_hash(self.workspace)
-            return result
-        except Exception as e:
-            return {"exit_code": 1, "output": f"{type(e).__name__}: {e}"}
-        finally:
-            os.chdir(orig_cwd)
+            proc = subprocess.run(argv, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                  timeout=limit + 30, check=False)
+            code, out = proc.returncode, proc.stdout.decode("utf-8", errors="replace")
+        except subprocess.TimeoutExpired:
+            code, out = 124, "[timed out]"
+        seconds = time.monotonic() - start
+        self.sandbox_seconds += seconds
+        return ExecResult(code, out, seconds)
 
+    def read_file(self, path: str) -> str | None:
+        rel = self.relpath(path)
+        target = shlex.quote(f"{self.workdir}/{rel}")
+        proc = subprocess.run(
+            ["docker", "exec", self.name, "bash", "-c", f"test -f {target} && cat -- {target}"],
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=60, check=False,
+        )
+        if proc.returncode != 0:
+            return None
+        return proc.stdout.decode("utf-8", errors="replace")
 
-def default_sandbox_factory(workspace, config: SandboxConfig):
-    backend = os.environ.get("VERITAS_SANDBOX_BACKEND", "").lower()
-    if backend == "local" or os.environ.get("VERITAS_LOCAL_SANDBOX", "0") == "1":
-        return LocalSandbox(workspace, config)
-    if os.environ.get("VERITAS_NO_DOCKER", "0") == "1":
-        return LocalSandbox(workspace, config)
-    try:
-        sandbox = DockerSandbox(workspace, config)
-        sandbox.preflight()
-        return sandbox
-    except Exception:
-        if backend == "docker":
-            raise
-        return LocalSandbox(workspace, config)
-
-
-
-def initialize_swe_workspace(image, workspace, base_commit, platform=None):
-    """Extract the baseline checkout from a prebuilt, trusted benchmark image.
-
-    Initialization removes .git so future commits/gold patches cannot be read by the model.
-    Requires local image preparation with the official harness before collection.
-    """
-    if len(base_commit) != 40 or any(c not in "0123456789abcdef" for c in base_commit):
-        raise ValueError("Invalid base commit")
-    workspace = Path(workspace).resolve()
-    workspace.mkdir(parents=True, exist_ok=True)
-    backend = os.environ.get("VERITAS_SANDBOX_BACKEND", "").lower()
-    if backend == "local" or os.environ.get("VERITAS_LOCAL_SANDBOX", "0") == "1" or os.environ.get("VERITAS_NO_DOCKER", "0") == "1":
-        tree_hash(workspace)
-        return
-    name = "veritas-init-" + uuid.uuid4().hex
-
-    argv = [
-        "docker",
-        "create",
-        "--name",
-        name,
-        "--network",
-        "none",
-        "--cap-drop",
-        "ALL",
-        "--security-opt",
-        "no-new-privileges",
-        "--user",
-        "0:0",
-        "--entrypoint",
-        "/bin/bash",
-    ]
-    if platform:
-        argv += ["--platform", platform]
-    script = (
-        "set -e; cd /testbed; git -c safe.directory=/testbed reset --hard "
-        + base_commit
-        + "; rm -rf .git"
-    )
-    try:
-        command(argv + [image, "-c", script])
-        command(["docker", "start", "-a", name])
-        # Docker start can return 0 when the container process fails: inspect its status.
-        code = command(["docker", "inspect", "-f", "{{.State.ExitCode}}", name]).decode().strip()
-        if code != "0":
-            raise RuntimeError("Benchmark image initialization failed")
-        with tempfile.TemporaryDirectory() as tmp:
-            archive = Path(tmp) / "baseline.tar"
-            with archive.open("wb") as f:
-                subprocess.run(
-                    ["docker", "cp", name + ":/testbed/.", "-"], stdout=f, check=True, timeout=120
-                )
-            safe_extract(archive, workspace)
-        tree_hash(workspace)
-    finally:
-        subprocess.run(
-            ["docker", "rm", "-f", name],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            timeout=30,
-            check=False,
+    def write_file(self, path: str, content: str) -> None:
+        rel = self.relpath(path)
+        target = f"{self.workdir}/{rel}"
+        parent = str(PurePosixPath(target).parent)
+        _docker(
+            ["exec", "-i", self.name, "bash", "-c",
+             f"mkdir -p {shlex.quote(parent)} && cat > {shlex.quote(target)}"],
+            60, stdin=content.encode("utf-8"),
         )
 
+    def snapshot(self) -> str:
+        tag = f"veritas-snap:{uuid.uuid4().hex[:16]}"
+        _docker(["commit", self.name, tag], 600)
+        return tag
 
-def make_patch(baseline, workspace):
-    """Git runs only over a fresh, disposable host-side diff repository (no hooks)."""
-    with tempfile.TemporaryDirectory(prefix="veritas-diff-") as tmp:
-        root = Path(tmp) / "repo"
-        shutil.copytree(baseline, root)
-        tree_hash(workspace)
-        env = {
-            **os.environ,
-            "GIT_CONFIG_NOSYSTEM": "1",
-            "GIT_CONFIG_GLOBAL": os.devnull,
-            "GIT_AUTHOR_NAME": "VERITAS",
-            "GIT_AUTHOR_EMAIL": "veritas@localhost",
-            "GIT_COMMITTER_NAME": "VERITAS",
-            "GIT_COMMITTER_EMAIL": "veritas@localhost",
-        }
+    def restore(self, snapshot_id: str) -> "DockerSandbox":
+        return DockerSandbox(self.cfg, snapshot_id, prepare=False, env_hash=self._image_id)
 
-        def git(*args):
-            result = subprocess.run(
-                ["git", "-c", "core.hooksPath=/dev/null", *args],
-                cwd=root,
-                env=env,
-                check=True,
-                capture_output=True,
-            )
-            return result.stdout
+    def drop_snapshot(self, snapshot_id: str) -> None:
+        if not self.cfg.keep_snapshots:
+            subprocess.run(["docker", "rmi", "-f", snapshot_id], capture_output=True, check=False)
 
-        git("init", "-q")
-        git("add", "-f", ".")
-        git("commit", "-qm", "baseline", "--allow-empty")
-        for child in root.iterdir():
-            if child.name != ".git":
-                shutil.rmtree(child) if child.is_dir() else child.unlink()
-        ignore = {".git", ".pytest_cache", "__pycache__", ".tox", ".coverage"}
-        copy_ignore = shutil.ignore_patterns(".git", ".pytest_cache", "__pycache__", "*.pyc", ".tox", ".coverage")
-        for child in Path(workspace).iterdir():
-            if child.name in ignore:
-                continue
-            shutil.copytree(child, root / child.name, ignore=copy_ignore) if child.is_dir() else shutil.copy2(
-                child, root / child.name
-            )
-        git("add", "-f", ".")
-        return git(
-            "diff", "--cached", "--binary", "--no-ext-diff", "--no-textconv", "HEAD"
-        ).decode("utf-8", errors="replace")
+    def close(self) -> None:
+        subprocess.run(["docker", "rm", "-f", self.name], capture_output=True, check=False)
+
+    @property
+    def environment_hash(self) -> str:
+        return self._image_id
+
+
+def open_sandbox(cfg: SandboxConfig, image: str, local_source: str | None = None) -> Sandbox:
+    if cfg.kind == "docker":
+        return DockerSandbox(cfg, image)
+    if not local_source:
+        raise SandboxError("local sandbox requires a source directory")
+    return LocalSandbox(cfg, local_source)
+
+
+def restore_sandbox(cfg: SandboxConfig, image: str, snapshot_id: str) -> Sandbox:
+    """Start a new workspace from a snapshot taken by ``Sandbox.snapshot``."""
+    if cfg.kind == "docker":
+        env_hash, _ = _inspect(image)
+        return DockerSandbox(cfg, snapshot_id, prepare=False, env_hash=env_hash)
+    source = Path(tempfile.gettempdir()) / "veritas-local-snapshots" / snapshot_id
+    root = Path(tempfile.mkdtemp(prefix="veritas-local-"))
+    shutil.copytree(source, root, symlinks=True, dirs_exist_ok=True)
+    return LocalSandbox(cfg, root, _root=root)
